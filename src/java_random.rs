@@ -16,7 +16,11 @@ pub struct JavaRandom {
 
 impl JavaRandom {
     pub fn new(seed: i64) -> Self {
-        let mut r = JavaRandom { seed: 0, next_next_gaussian: 0.0, have_next_next_gaussian: false };
+        let mut r = JavaRandom {
+            seed: 0,
+            next_next_gaussian: 0.0,
+            have_next_next_gaussian: false,
+        };
         r.set_seed(seed);
         r
     }
@@ -113,7 +117,10 @@ mod tests {
     fn next_int_matches_jvm() {
         let mut r = JavaRandom::new(42);
         let vals: Vec<i32> = (0..5).map(|_| r.next_int()).collect();
-        assert_eq!(vals, vec![-1170105035, 234785527, -1360544799, 205897768, 1325939940]);
+        assert_eq!(
+            vals,
+            vec![-1170105035, 234785527, -1360544799, 205897768, 1325939940]
+        );
     }
 
     #[test]

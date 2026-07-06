@@ -17,7 +17,10 @@ impl Default for BlankEntry {
 
 impl BlankEntry {
     pub fn new() -> BlankEntry {
-        let flags = EntryFlags { selectable: false, ..EntryFlags::default() };
+        let flags = EntryFlags {
+            selectable: false,
+            ..EntryFlags::default()
+        };
         BlankEntry { flags }
     }
 }
@@ -33,7 +36,15 @@ impl ListEntry for BlankEntry {
 
     fn tick(&mut self, _g: &mut Game) {}
 
-    fn render(&mut self, _screen: &mut Screen, _g: &mut Game, _x: i32, _y: i32, _is_selected: bool) {}
+    fn render(
+        &mut self,
+        _screen: &mut Screen,
+        _g: &mut Game,
+        _x: i32,
+        _y: i32,
+        _is_selected: bool,
+    ) {
+    }
 
     fn get_width(&self, _g: &Game) -> i32 {
         sprite_sheet::BOX_WIDTH

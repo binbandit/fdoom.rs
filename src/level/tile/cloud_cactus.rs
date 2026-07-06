@@ -1,42 +1,98 @@
-//! Port of `fdoom.level.tile.CloudCactusTile`. TODO(port:tile): full port pending.
+//! Port of `fdoom.level.tile.CloudCactusTile`.
 
-use crate::core::game::Game;
-use crate::entity::Direction;
-use crate::entity::Entity;
-use crate::item::Item;
-use super::dispatch;
 use super::{TileDef, TileKind};
+use crate::core::game::Game;
+use crate::core::io::sound::Sound;
+use crate::entity::Direction;
+use crate::entity::{Entity, EntityKind};
+use crate::gfx::{Sprite, color};
+use crate::item::{Item, ItemKind, ToolType};
 
-/// Java `CloudCactusTile` constructor — sprite/config TODO(port:tile).
-#[allow(unused_variables)]
-pub fn make(name:&str) -> TileDef {
-    TileDef::new(name, TileKind::CloudCactus)
+/// Java `CloudCactusTile` constructor.
+pub fn make(name: &str) -> TileDef {
+    let mut def = TileDef::new(name, TileKind::CloudCactus);
+    def.sprite = Some(Sprite::new(17, 1, 2, 2, color::get4(444, 111, 333, 555), 0));
+    def
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn hurt_by(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, source: &mut Entity, dmg: i32, attack_dir: Direction) -> bool {
-    let _ = (g, def, lvl, x, y, source, dmg, attack_dir); // TODO(port:tile)
-    false
+pub fn may_pass(_g: &Game, _def: &TileDef, _lvl: usize, _x: i32, _y: i32, e: &Entity) -> bool {
+    matches!(e.kind, EntityKind::AirWizard(_))
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i32) {
-    let _ = (g, def, lvl, x, y, dmg); // TODO(port:tile)
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn interact(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, player: &mut Entity, item: &mut Item, attack_dir: Direction) -> bool {
-    let _ = (g, def, lvl, xt, yt, player, item, attack_dir); // TODO(port:tile)
-    false
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity) -> bool {
-    let _ = (g, def, lvl, x, y, e); // TODO(port:tile)
+pub fn hurt_by(
+    g: &mut Game,
+    def: &TileDef,
+    lvl: usize,
+    x: i32,
+    y: i32,
+    _source: &mut Entity,
+    _dmg: i32,
+    _attack_dir: Direction,
+) -> bool {
+    hurt_dmg(g, def, lvl, x, y, 0);
     true
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn interact(
+    g: &mut Game,
+    def: &TileDef,
+    lvl: usize,
+    xt: i32,
+    yt: i32,
+    player: &mut Entity,
+    item: &mut Item,
+    _attack_dir: Direction,
+) -> bool {
+    if let ItemKind::Tool { ttype, level, .. } = item.kind {
+        if ttype == ToolType::Pickaxe
+            && crate::entity::mob::player_behavior::pay_stamina(player, 6 - level)
+            && item.pay_durability(g.is_mode("creative"))
+        {
+            hurt_dmg(g, def, lvl, xt, yt, 1);
+            return true;
+        }
+    }
+    false
+}
+
+pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i32) {
+    let mut dmg = dmg;
+    let mut damage = g.level(lvl).get_data(x, y) + dmg;
+    let health = 10;
+    if g.is_mode("creative") {
+        dmg = health;
+        damage = health;
+    }
+    // JAVA: SmashParticle's constructor plays Sound.monsterHurt.
+    g.play_sound(Sound::MonsterHurt);
+    let smash = crate::entity::particle::new_smash_particle(x * 16, y * 16);
+    g.level_mut(lvl).add(smash, lvl);
+    let text = crate::entity::particle::new_text_particle(
+        &dmg.to_string(),
+        x * 16 + 8,
+        y * 16 + 8,
+        color::RED,
+        &mut g.random,
+    );
+    g.level_mut(lvl).add(text, lvl);
+    if damage >= health {
+        let cloud = g.tiles.get("cloud");
+        g.set_tile_default(lvl, x, y, &cloud);
+    } else {
+        g.level_mut(lvl).set_data(x, y, damage);
+    }
+}
+
 pub fn bumped_into(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, e: &mut Entity) {
-    let _ = (g, def, lvl, xt, yt, e); // TODO(port:tile)
+    let _ = lvl;
+    if matches!(e.kind, EntityKind::AirWizard(_)) {
+        return;
+    }
+    // JAVA: ((Mob)entity).hurt(this, x, y, 1 + Settings.getIdx("diff")) — the non-Mob
+    // check is inside mob_hurt_tile.
+    let dmg = 1 + g.settings.get_idx("diff");
+    crate::entity::behavior::mob_hurt_tile(g, e, def, xt, yt, dmg);
 }

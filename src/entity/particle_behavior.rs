@@ -1,12 +1,14 @@
 //! Behaviors of `fdoom.entity.particle.Particle` and `TextParticle`.
 
 use crate::core::game::Game;
-use crate::entity::{behavior, Entity, EntityKind};
+use crate::entity::{Entity, EntityKind, behavior};
 use crate::gfx::Screen;
 
 /// Java `Particle.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
-    let EntityKind::Particle(p) = &mut e.kind else { return };
+    let EntityKind::Particle(p) = &mut e.kind else {
+        return;
+    };
     p.time += 1;
     if p.time > p.lifetime {
         behavior::remove_entity(g, e);
@@ -15,14 +17,18 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
 
 /// Java `Particle.render(screen)`.
 pub fn render(_g: &mut Game, screen: &mut Screen, e: &mut Entity) {
-    let EntityKind::Particle(p) = &e.kind else { return };
+    let EntityKind::Particle(p) = &e.kind else {
+        return;
+    };
     p.sprite.render(screen, e.c.x, e.c.y);
 }
 
 /// Java `TextParticle.tick()`.
 pub fn text_tick(g: &mut Game, e: &mut Entity) {
     {
-        let EntityKind::TextParticle(t) = &mut e.kind else { return };
+        let EntityKind::TextParticle(t) = &mut e.kind else {
+            return;
+        };
         t.particle.time += 1;
         if t.particle.time > t.particle.lifetime {
             behavior::remove_entity(g, e);
@@ -47,7 +53,9 @@ pub fn text_tick(g: &mut Game, e: &mut Entity) {
 
 /// Java `TextParticle.render(screen)`.
 pub fn text_render(_g: &mut Game, screen: &mut Screen, e: &mut Entity) {
-    let EntityKind::TextParticle(t) = &e.kind else { return };
+    let EntityKind::TextParticle(t) = &e.kind else {
+        return;
+    };
     let style = t
         .style
         .clone()
@@ -58,6 +66,8 @@ pub fn text_render(_g: &mut Game, screen: &mut Screen, e: &mut Entity) {
 
 /// Java `TextParticle.getData()`.
 pub fn text_get_data(e: &Entity) -> String {
-    let EntityKind::TextParticle(t) = &e.kind else { return String::new() };
+    let EntityKind::TextParticle(t) = &e.kind else {
+        return String::new();
+    };
     format!("{}:{}", t.msg, t.style.get_color())
 }

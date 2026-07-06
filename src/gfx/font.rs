@@ -6,7 +6,8 @@ use super::screen::{self, Screen};
 use super::sprite_sheet;
 
 // These are all the characters that will be translated to the screen. (The spaces are important)
-const CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ      0123456789.,!?'\"-+=/\\%()<>:;^@bcdefghijklmnopqrstuvwxyz";
+const CHARS: &str =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ      0123456789.,!?'\"-+=/\\%()<>:;^@bcdefghijklmnopqrstuvwxyz";
 
 pub fn default_background_color() -> i32 {
     let c = color::rgb(60, 63, 65);
@@ -53,13 +54,23 @@ pub fn draw_centered(msg: &str, screen: &mut Screen, y: i32, color: i32) {
 }
 
 /// Java `Font.drawParagraph(para, screen, style, lineSpacing)` (String overload).
-pub fn draw_paragraph_str(para: &str, screen: &mut Screen, style: &mut FontStyle, line_spacing: i32) {
+pub fn draw_paragraph_str(
+    para: &str,
+    screen: &mut Screen,
+    style: &mut FontStyle,
+    line_spacing: i32,
+) {
     let lines = get_lines(para, screen::W, screen::H, line_spacing);
     draw_paragraph(&lines, screen, style, line_spacing);
 }
 
 /// Java `Font.drawParagraph(lines, screen, style, lineSpacing)` — the one all others call.
-pub fn draw_paragraph(lines: &[String], screen: &mut Screen, style: &mut FontStyle, line_spacing: i32) {
+pub fn draw_paragraph(
+    lines: &[String],
+    screen: &mut Screen,
+    style: &mut FontStyle,
+    line_spacing: i32,
+) {
     for i in 0..lines.len() {
         style.draw_paragraph_line(lines, i as i32, line_spacing, screen);
     }
@@ -71,7 +82,13 @@ pub fn get_lines(para: &str, w: i32, h: i32, line_spacing: i32) -> Vec<String> {
 }
 
 /// Java `Font.getLines(para, w, h, lineSpacing, keepEmptyRemainder)`.
-pub fn get_lines_keep(para: &str, w: i32, h: i32, line_spacing: i32, keep_empty_remainder: bool) -> Vec<String> {
+pub fn get_lines_keep(
+    para: &str,
+    w: i32,
+    h: i32,
+    line_spacing: i32,
+    keep_empty_remainder: bool,
+) -> Vec<String> {
     let mut lines = Vec::new();
     let mut para: String = para.to_string();
 

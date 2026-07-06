@@ -20,7 +20,11 @@ pub fn system_game_dir() -> String {
 
 /// Java `FileHandler.localGameDir` — "/fdoom" on mac/windows, "/.fdoom" on linux.
 pub fn local_game_dir() -> &'static str {
-    if cfg!(target_os = "linux") { "/.fdoom" } else { "/fdoom" }
+    if cfg!(target_os = "linux") {
+        "/.fdoom"
+    } else {
+        "/fdoom"
+    }
 }
 
 /// Java `FileHandler.determineGameDir(saveDir)`.
@@ -67,7 +71,12 @@ pub fn copy_folder_contents(
     Ok(())
 }
 
-fn copy_dir_recursive(root: &Path, dir: &Path, new_root: &Path, if_existing: i32) -> std::io::Result<()> {
+fn copy_dir_recursive(
+    root: &Path,
+    dir: &Path,
+    new_root: &Path,
+    if_existing: i32,
+) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();

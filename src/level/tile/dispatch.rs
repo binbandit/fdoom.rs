@@ -6,9 +6,8 @@
 use super::*;
 use crate::core::game::Game;
 use crate::entity::{Direction, Entity};
-use crate::gfx::{color, Screen};
+use crate::gfx::{Screen, color};
 use crate::item::Item;
-
 
 /* ---------------- constructors (Java `new XyzTile(...)`) ---------------- */
 
@@ -146,7 +145,14 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
 }
 
 /// The `Tile.java` default render.
-pub fn default_render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
+pub fn default_render(
+    g: &mut Game,
+    screen: &mut Screen,
+    def: &TileDef,
+    lvl: usize,
+    x: i32,
+    y: i32,
+) {
     if let Some(sprite) = &def.sprite {
         sprite.render(screen, x << 4, y << 4);
     }
@@ -244,8 +250,12 @@ pub fn hurt_by(
         TileKind::Wall { .. } => wall::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Door { .. } => door::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::SnowTree => snow_tree::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
-        TileKind::TallGrass { .. } => tall_grass::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
-        TileKind::GraveStone { .. } => grave_stone::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::TallGrass { .. } => {
+            tall_grass::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir)
+        }
+        TileKind::GraveStone { .. } => {
+            grave_stone::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir)
+        }
         _ => false,
     }
 }
@@ -312,14 +322,18 @@ pub fn interact(
         TileKind::Wheat => wheat::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::HardRock => hard_rock::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Cloud => cloud::interact(g, def, lvl, xt, yt, player, item, attack_dir),
-        TileKind::CloudCactus => cloud_cactus::interact(g, def, lvl, xt, yt, player, item, attack_dir),
+        TileKind::CloudCactus => {
+            cloud_cactus::interact(g, def, lvl, xt, yt, player, item, attack_dir)
+        }
         TileKind::Floor { .. } => floor::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Wall { .. } => wall::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Door { .. } => door::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Wool => wool::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Snow => snow::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::SnowTree => snow_tree::interact(g, def, lvl, xt, yt, player, item, attack_dir),
-        TileKind::GraveStone { .. } => grave_stone::interact(g, def, lvl, xt, yt, player, item, attack_dir),
+        TileKind::GraveStone { .. } => {
+            grave_stone::interact(g, def, lvl, xt, yt, player, item, attack_dir)
+        }
         TileKind::Torch { .. } => torch::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         _ => false,
     }
@@ -402,14 +416,9 @@ pub fn get_connect_color(g: &Game, def: &TileDef, lvl: usize) -> i32 {
     color::separate_encoded_sprite(scolor)[3]
 }
 
-/// Java `DirtTile.dCol(depth)` — placed here since several tiles use it.
+/// Java `DirtTile.dCol(depth)` — delegated to the dirt tile module.
 pub fn dirt_color(depth: i32) -> i32 {
-    // TODO(port:tile): verify against DirtTile.dCol
-    match depth {
-        0 => color::get_byte(322),
-        -4 => color::get_byte(222),
-        _ => color::get_byte(222),
-    }
+    dirt::d_col(depth)
 }
 
 /// Java `ConnectorSprite.render(screen, level, x, y)` with optional color overrides
@@ -515,9 +524,11 @@ pub fn csprite_render(
 
     if d && r {
         if dr || !cs.check_corners {
-            cs.full.render_pixel_color(0, 0, screen, x + 8, y + 8, colfull);
+            cs.full
+                .render_pixel_color(0, 0, screen, x + 8, y + 8, colfull);
         } else {
-            cs.sides.render_pixel_color(1, 1, screen, x + 8, y + 8, colside);
+            cs.sides
+                .render_pixel_color(1, 1, screen, x + 8, y + 8, colside);
         }
     } else {
         cs.sparse.render_pixel_color(

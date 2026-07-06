@@ -18,7 +18,13 @@ pub const SOUND_SELECT: &[u8] = include_bytes!("../assets/select.wav");
 pub const SOUND_CONFIRM: &[u8] = include_bytes!("../assets/confirm.wav");
 
 pub const LOCALIZATIONS: &[(&str, &str)] = &[
-    ("english", include_str!("../assets/localization/english.mcpl")),
-    ("italiano", include_str!("../assets/localization/italiano.mcpl")),
+    (
+        "english",
+        include_str!("../assets/localization/english.mcpl"),
+    ),
+    (
+        "italiano",
+        include_str!("../assets/localization/italiano.mcpl"),
+    ),
     ("norsk", include_str!("../assets/localization/norsk.mcpl")),
 ];

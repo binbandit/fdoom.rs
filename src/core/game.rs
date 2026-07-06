@@ -7,17 +7,17 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::core::io::input_handler::InputHandler;
-use crate::entity::furniture::bed::BedState;
-use crate::entity::EntityArena;
-use crate::item::recipe::Recipes;
-use crate::item::Item;
-use crate::level::tile::Tiles;
-use crate::level::Level;
 use crate::core::io::localization::Localization;
 use crate::core::io::settings::Settings;
 use crate::core::io::sound::{Sound, SoundPlayer};
 use crate::core::updater::{self, Time};
+use crate::entity::EntityArena;
+use crate::entity::furniture::bed::BedState;
+use crate::item::Item;
+use crate::item::recipe::Recipes;
 use crate::java_random::JavaRandom;
+use crate::level::Level;
+use crate::level::tile::Tiles;
 use crate::saveload::version::Version;
 use crate::screen::display::{Display, DisplayManager, PendingMenu};
 
@@ -100,6 +100,18 @@ pub struct Game {
     pub bed_state: BedState,
     /// Java `AirWizard.beaten` static.
     pub air_wizard_beaten: bool,
+    /// Java `PlayerDeathDisplay.shouldRespawn` static.
+    pub should_respawn: bool,
+    /// Java `LoadingDisplay` percentage static (also used by the save HUD text).
+    pub loading_percentage: f32,
+    /// Java `LoadingDisplay` message static ("Level B3" etc.).
+    pub loading_message: String,
+    /// Java `WorldSelectDisplay.worldName` static.
+    pub world_name: String,
+    /// Java `WorldSelectDisplay.loadedWorld` static.
+    pub loaded_world: bool,
+    /// Java `WorldGenDisplay.getSeed()` — the seed for the next world generation.
+    pub world_seed: i64,
 }
 
 impl Game {
@@ -156,6 +168,12 @@ impl Game {
             player_id: 0,
             bed_state: BedState::default(),
             air_wizard_beaten: false,
+            should_respawn: true,
+            loading_percentage: 0.0,
+            loading_message: String::new(),
+            world_name: String::new(),
+            loaded_world: false,
+            world_seed: 0,
         };
         // The item registry reads settings (difficulty) during construction, mirroring
         // Java's static-init ordering.
@@ -191,7 +209,10 @@ impl Game {
 
     /// Java `Game.isMode(mode)`.
     pub fn is_mode(&self, mode: &str) -> bool {
-        self.settings.get("mode").as_str().eq_ignore_ascii_case(mode)
+        self.settings
+            .get("mode")
+            .as_str()
+            .eq_ignore_ascii_case(mode)
     }
 
     /// Java `Sound.xyz.play()`.
@@ -234,26 +255,75 @@ impl Game {
     /// Java `Updater.tick()` — "VERY IMPORTANT METHOD!! Makes everything keep happening."
     pub fn tick(&mut self) {
         self.sound_enabled = self.settings.get("sound").as_bool();
+        self.max_fps = self.settings.get("fps").as_int();
 
         self.apply_menu_transition();
 
-        // TODO(port:level) Bed sleeping fast-forward
-        // TODO(port:saveload) autosave tick
+        // IN BED (Java: Bed.sleeping() fast-forward)
+        if self.bed_state.players_awake == 0 {
+            if self.gamespeed != 20.0 {
+                self.gamespeed = 20.0;
+            }
+            if self.tick_count > updater::SLEEP_END_TIME {
+                if self.debug {
+                    println!("passing midnight in bed");
+                }
+                self.past_day1 = true;
+                self.tick_count = 0;
+            }
+            if self.tick_count <= updater::SLEEP_START_TIME
+                && self.tick_count >= updater::SLEEP_END_TIME
+            {
+                // it has reached morning
+                if self.debug {
+                    println!("reached morning, getting out of bed");
+                }
+                self.gamespeed = 1.0;
+                crate::entity::furniture::bed_behavior::restore_players(self);
+            }
+        }
+
+        // auto-save tick; marks when to do autosave
+        const ASTIME: i32 = 7200;
+        if !self.paused {
+            self.as_tick += 1;
+        }
+        if self.as_tick > ASTIME {
+            let player_alive = self
+                .try_player()
+                .map(|p| p.player().mob.health > 0)
+                .unwrap_or(false);
+            if self.settings.get("autosave").as_bool() && !self.game_over && player_alive {
+                crate::saveload::save::save_world_named(
+                    self,
+                    &crate::screen::world_select::get_world_name(self),
+                );
+            }
+            self.as_tick = 0;
+        }
 
         // Increment tickCount if the game is not paused
         if !self.paused {
             self.set_time(self.tick_count + 1);
         }
 
-        // TODO(port:screen) score mode game-over check
+        // SCORE MODE ONLY
+        if self.is_mode("score") && !self.paused {
+            if self.score_time <= 0 {
+                // GAME OVER
+                self.game_over = true;
+                crate::screen::end_game_display::open(self);
+            }
+            self.score_time -= 1;
+        }
 
         // This is the general action statement thing! Regulates menus, mostly.
         if !self.has_focus && self.has_gui {
             self.input.release_all();
         }
         if self.has_focus || !self.has_gui {
-            if !self.game_over {
-                // TODO(port:entity) player.isRemoved() check
+            let player_removed = self.try_player().map(|p| p.c.removed).unwrap_or(true);
+            if !player_removed && !self.game_over {
                 self.game_time += 1;
             }
 
@@ -261,23 +331,173 @@ impl Game {
 
             if self.display.menu_active() {
                 // a menu is active.
-                // TODO(port:entity) player.tick() — CRUCIAL that it precedes menu.tick()
+                // CRUCIAL that the player is ticked HERE, before the menu is ticked
+                let pid = self.player_id;
+                self.with_entity(pid, |e, g| crate::entity::behavior::entity_tick(g, e));
                 self.tick_current_display();
                 self.paused = true;
             } else {
                 // no menu, currently.
                 self.paused = false;
 
-                // TODO(port:entity) death menu delay, pending level change, player tick
-                // TODO(port:level) level tick, Tile.tickCount++
+                let player_removed = self.try_player().map(|p| p.c.removed).unwrap_or(true);
+                let in_bed = crate::entity::furniture::bed_behavior::in_bed(self, self.player_id);
+                if player_removed && self.ready_to_render_gameplay && !in_bed {
+                    // makes delay between death and death menu
+                    self.player_dead_time += 1;
+                    if self.player_dead_time > 60 {
+                        crate::screen::player_death_display::open(self);
+                    }
+                } else if self.pending_level_change != 0 {
+                    let change = self.pending_level_change;
+                    self.pending_level_change = 0;
+                    crate::screen::level_transition_display::open(self, change);
+                }
+
+                // ticks the player when there's no menu
+                let pid = self.player_id;
+                self.with_entity(pid, |e, g| crate::entity::behavior::entity_tick(g, e));
+
+                if self.levels[self.current_level].is_some() {
+                    let lvl = self.current_level;
+                    crate::level::tick_level(self, lvl, true);
+                    self.tile_tick_count += 1;
+                }
 
                 if !self.display.menu_active() && self.input.get_key("F3").clicked {
+                    // shows debug info in upper-left
                     self.show_info = !self.show_info;
                 }
 
-                // TODO(port:level,entity,item) debug cheat keys
-            }
+                // for debugging only
+                if self.debug && self.has_gui {
+                    if self.input.get_key("ctrl-p").clicked {
+                        // print all players on all levels, and their coordinates
+                        println!("printing players on all levels");
+                        for e in self.entities.iter() {
+                            if e.is_player() {
+                                println!(
+                                    "Player on level {:?} ({},{})",
+                                    e.c.level,
+                                    e.c.x >> 4,
+                                    e.c.y >> 4
+                                );
+                            }
+                        }
+                    }
+
+                    // host-only cheats
+                    if self.input.get_key("Shift-r").clicked {
+                        crate::core::world::init_world(self); // for single-player use only
+                    }
+
+                    if self.input.get_key("1").clicked {
+                        self.change_time_of_day(Time::Morning);
+                    }
+                    if self.input.get_key("2").clicked {
+                        self.change_time_of_day(Time::Day);
+                    }
+                    if self.input.get_key("3").clicked {
+                        self.change_time_of_day(Time::Evening);
+                    }
+                    if self.input.get_key("4").clicked {
+                        self.change_time_of_day(Time::Night);
+                    }
+
+                    if self.input.get_key("creative").clicked {
+                        self.settings.set("mode", "creative");
+                        self.fill_player_creative_inv(false);
+                    }
+                    if self.input.get_key("survival").clicked {
+                        self.settings.set("mode", "survival");
+                    }
+                    if self.input.get_key("shift-t").clicked {
+                        self.settings.set("mode", "score");
+                    }
+
+                    if self.is_mode("score") && self.input.get_key("ctrl-t").clicked {
+                        self.score_time = updater::NORM_SPEED * 5; // 5 seconds
+                    }
+
+                    if self.input.get_key("shift-0").clicked {
+                        self.gamespeed = 1.0;
+                    }
+                    if self.input.get_key("shift-equals").clicked {
+                        if self.gamespeed < 1.0 {
+                            self.gamespeed *= 2.0;
+                        } else if updater::NORM_SPEED as f32 * self.gamespeed < 2000.0 {
+                            self.gamespeed += 1.0;
+                        }
+                    }
+                    if self.input.get_key("shift-minus").clicked {
+                        if self.gamespeed > 1.0 {
+                            self.gamespeed -= 1.0;
+                        } else if updater::NORM_SPEED as f32 * self.gamespeed > 5.0 {
+                            self.gamespeed /= 2.0;
+                        }
+                    }
+
+                    // client-only cheats, since they are player-specific
+                    if self.input.get_key("shift-g").clicked {
+                        self.fill_player_creative_inv(true);
+                    }
+
+                    if self.input.get_key("ctrl-h").clicked {
+                        if let Some(m) = self.player_mut().mob_mut() {
+                            m.health -= 1;
+                        }
+                    }
+                    if self.input.get_key("ctrl-b").clicked {
+                        self.player_mut().player_mut().hunger -= 1;
+                    }
+
+                    if self.input.get_key("0").clicked {
+                        self.player_mut().player_mut().move_speed = 1.0;
+                    }
+                    if self.input.get_key("equals").clicked {
+                        self.player_mut().player_mut().move_speed += 1.0;
+                    }
+                    if self.input.get_key("minus").clicked
+                        && self.player_mut().player_mut().move_speed > 1.0
+                    {
+                        self.player_mut().player_mut().move_speed -= 1.0;
+                    }
+
+                    if self.input.get_key("shift-u").clicked {
+                        let (x, y) = {
+                            let p = self.player();
+                            (p.c.x >> 4, p.c.y >> 4)
+                        };
+                        let t = self.tiles.get("Stairs Up");
+                        let lvl = self.current_level;
+                        self.set_tile_default(lvl, x, y, &t);
+                    }
+                    if self.input.get_key("shift-d").clicked {
+                        let (x, y) = {
+                            let p = self.player();
+                            (p.c.x >> 4, p.c.y >> 4)
+                        };
+                        let t = self.tiles.get("Stairs Down");
+                        let lvl = self.current_level;
+                        self.set_tile_default(lvl, x, y, &t);
+                    }
+                } // end debug only cond
+            } // end "menu-null" conditional
+        } // end hasfocus conditional
+    }
+
+    /// Java `Items.fillCreativeInv(player.getInventory(), addAll)` on the live player.
+    pub fn fill_player_creative_inv(&mut self, add_all: bool) {
+        let Some(mut p) = self.entities.take(self.player_id) else {
+            return;
+        };
+        {
+            let mut inv = std::mem::take(&mut p.player_mut().inventory);
+            inv.creative = self.is_mode("creative");
+            crate::item::registry::fill_creative_inv(self, &mut inv, add_all);
+            p.player_mut().inventory = inv;
         }
+        self.entities.put_back(p);
     }
 
     /// The Java menu-transition block at the top of `Updater.tick()`.

@@ -1,14 +1,16 @@
 //! Behavior of `fdoom.entity.ItemEntity`.
 
 use crate::core::game::Game;
-use crate::entity::{behavior, Entity, EntityKind};
-use crate::gfx::{color, Screen};
+use crate::entity::{Entity, EntityKind, behavior};
+use crate::gfx::{Screen, color};
 
 /// Java `ItemEntity.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
     let (expected_x, expected_y);
     {
-        let EntityKind::ItemEntity(d) = &mut e.kind else { return };
+        let EntityKind::ItemEntity(d) = &mut e.kind else {
+            return;
+        };
         d.time += 1;
         if d.time >= d.life_time {
             behavior::remove_entity(g, e);
@@ -49,13 +51,19 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
 
 /// Java `ItemEntity.render(screen)`.
 pub fn render(_g: &mut Game, screen: &mut Screen, e: &mut Entity) {
-    let EntityKind::ItemEntity(d) = &e.kind else { return };
+    let EntityKind::ItemEntity(d) = &e.kind else {
+        return;
+    };
     // blinking effect near the end of its life
     if d.time >= d.life_time - 6 * 20 && d.time / 6 % 2 == 0 {
         return;
     }
-    d.item.sprite.render_color(screen, e.c.x - 4, e.c.y - 4, color::BLACK);
-    d.item.sprite.render(screen, e.c.x - 4, e.c.y - 4 - d.zz as i32);
+    d.item
+        .sprite
+        .render_color(screen, e.c.x - 4, e.c.y - 4, color::BLACK);
+    d.item
+        .sprite
+        .render(screen, e.c.x - 4, e.c.y - 4 - d.zz as i32);
 }
 
 /// Java `ItemEntity.touchedBy(entity)` — `this_e` is the item entity, `by` the toucher.
@@ -65,7 +73,9 @@ pub fn touched_by(g: &mut Game, this_e: &mut Entity, by: &mut Entity) {
     }
 
     let ready = {
-        let EntityKind::ItemEntity(d) = &this_e.kind else { return };
+        let EntityKind::ItemEntity(d) = &this_e.kind else {
+            return;
+        };
         d.time > 30 && !d.picked_up // conditional prevents immediate collection
     };
     if ready {

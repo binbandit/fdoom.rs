@@ -18,7 +18,7 @@ pub use registry::fill_creative_inv;
 pub use tool_type::ToolType;
 
 use crate::entity::Entity;
-use crate::gfx::{color, Sprite};
+use crate::gfx::{Sprite, color};
 
 /// Java `BucketItem.Fill`. (`contained` tile ids resolve via `fill_contained_tile`.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,9 +71,13 @@ pub enum ItemKind {
     /// Java `PowerGloveItem`.
     PowerGlove,
     /// Plain `StackableItem` (wood, stone, coal, ...).
-    Stackable { count: i32 },
+    Stackable {
+        count: i32,
+    },
     /// Java `UnknownItem` (a StackableItem subclass).
-    Unknown { count: i32 },
+    Unknown {
+        count: i32,
+    },
     Food {
         count: i32,
         heal: i32,
@@ -134,7 +138,11 @@ pub struct Item {
 
 impl Item {
     pub fn new(name: &str, sprite: Sprite, kind: ItemKind) -> Item {
-        Item { name: name.to_string(), sprite, kind }
+        Item {
+            name: name.to_string(),
+            sprite,
+            kind,
+        }
     }
 
     /// Java `getName()`.
@@ -198,9 +206,18 @@ impl Item {
     pub fn item_equals(&self, other: &Item) -> bool {
         match (&self.kind, &other.kind) {
             // ToolItem: type and level only
-            (ItemKind::Tool { ttype: t1, level: l1, .. }, ItemKind::Tool { ttype: t2, level: l2, .. }) => {
-                t1 == t2 && l1 == l2
-            }
+            (
+                ItemKind::Tool {
+                    ttype: t1,
+                    level: l1,
+                    ..
+                },
+                ItemKind::Tool {
+                    ttype: t2,
+                    level: l2,
+                    ..
+                },
+            ) => t1 == t2 && l1 == l2,
             // TorchItem: any torch
             (ItemKind::Torch { .. }, ItemKind::Torch { .. }) => true,
             // TileItem: class + name + model
@@ -216,7 +233,9 @@ impl Item {
                 self.name == other.name && f1 == f2
             }
             // default: same class, same name
-            (a, b) => std::mem::discriminant(a) == std::mem::discriminant(b) && self.name == other.name,
+            (a, b) => {
+                std::mem::discriminant(a) == std::mem::discriminant(b) && self.name == other.name
+            }
         }
     }
 
@@ -230,6 +249,20 @@ impl Item {
                 None => false,
             },
         }
+    }
+
+    /// Java `ToolItem.payDurability()`.
+    pub fn pay_durability(&mut self, creative: bool) -> bool {
+        if let ItemKind::Tool { dur, .. } = &mut self.kind {
+            if *dur <= 0 {
+                return false;
+            }
+            if !creative {
+                *dur -= 1;
+            }
+            return true;
+        }
+        false
     }
 
     /// Java `canAttack()`.
@@ -269,7 +302,8 @@ impl Item {
                 } else {
                     format!(
                         " {} {}",
-                        g.localization.get_localized(registry::TOOL_LEVEL_NAMES[*level as usize]),
+                        g.localization
+                            .get_localized(registry::TOOL_LEVEL_NAMES[*level as usize]),
                         g.localization.get_localized(ttype.name())
                     )
                 }

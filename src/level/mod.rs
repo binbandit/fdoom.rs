@@ -26,7 +26,14 @@ pub fn get_level_name(depth: i32) -> &'static str {
 
 /// Java `Level.getDepthString(depth)`.
 pub fn get_depth_string(depth: i32) -> String {
-    format!("Level {}", if depth < 0 { format!("B{}", -depth) } else { depth.to_string() })
+    format!(
+        "Level {}",
+        if depth < 0 {
+            format!("B{}", -depth)
+        } else {
+            depth.to_string()
+        }
+    )
 }
 
 /// Java `Level.MOB_SPAWN_FACTOR`.
@@ -133,7 +140,9 @@ impl Level {
         if x < 0 || y < 0 || x >= self.w || y >= self.h {
             return 0;
         }
-        (self.data[(x + y * self.w) as usize] & 0xff) as i32
+        // JAVA: `data[x + y * w] & 0xff` (bytes are signed in Java; kept for fidelity)
+        #[allow(clippy::identity_op)]
+        (self.data[(x + y * self.w) as usize] as i32 & 0xff)
     }
 
     /// Java `setData(x, y, val)`.
@@ -154,8 +163,19 @@ impl Level {
     }
 
     /// Java `add(entity, x, y, tileCoords)` — queues the entity for the next tick.
-    pub fn add_at(&mut self, mut entity: Entity, x: i32, y: i32, tile_coords: bool, lvl_idx: usize) {
-        let (x, y) = if tile_coords { (x * 16 + 8, y * 16 + 8) } else { (x, y) };
+    pub fn add_at(
+        &mut self,
+        mut entity: Entity,
+        x: i32,
+        y: i32,
+        tile_coords: bool,
+        lvl_idx: usize,
+    ) {
+        let (x, y) = if tile_coords {
+            (x * 16 + 8, y * 16 + 8)
+        } else {
+            (x, y)
+        };
         // Java entity.setLevel(level, x, y)
         entity.c.level = Some(lvl_idx);
         entity.c.removed = false;
@@ -244,7 +264,14 @@ pub fn get_entities_in_rect(g: &Game, lvl: usize, area: &Rectangle) -> Vec<i32> 
 }
 
 /// Java `level.getEntitiesInTiles(xt0, yt0, xt1, yt1)`.
-pub fn get_entities_in_tiles(g: &Game, lvl: usize, xt0: i32, yt0: i32, xt1: i32, yt1: i32) -> Vec<i32> {
+pub fn get_entities_in_tiles(
+    g: &Game,
+    lvl: usize,
+    xt0: i32,
+    yt0: i32,
+    xt1: i32,
+    yt1: i32,
+) -> Vec<i32> {
     g.entities
         .entities_on_level(lvl)
         .filter(|e| {
@@ -280,7 +307,14 @@ pub fn get_closest_player(g: &Game, lvl: usize, x: i32, y: i32) -> Option<i32> {
 }
 
 /// Java `level.getAreaTilePositions(x, y, rx, ry)`.
-pub fn get_area_tile_positions(g: &Game, lvl: usize, x: i32, y: i32, rx: i32, ry: i32) -> Vec<Point> {
+pub fn get_area_tile_positions(
+    g: &Game,
+    lvl: usize,
+    x: i32,
+    y: i32,
+    rx: i32,
+    ry: i32,
+) -> Vec<Point> {
     let level = g.level(lvl);
     let mut local = Vec::new();
     for yp in y - ry..=y + ry {
@@ -302,7 +336,17 @@ pub fn get_area_tiles(g: &Game, lvl: usize, x: i32, y: i32, rx: i32, ry: i32) ->
 }
 
 /// Java `level.setAreaTiles(xt, yt, r, tile, data, overwriteStairs)`.
-pub fn set_area_tiles(g: &mut Game, lvl: usize, xt: i32, yt: i32, r: i32, tile: &TileDef, data: i32, overwrite_stairs: bool) {
+#[allow(clippy::too_many_arguments)]
+pub fn set_area_tiles(
+    g: &mut Game,
+    lvl: usize,
+    xt: i32,
+    yt: i32,
+    r: i32,
+    tile: &TileDef,
+    data: i32,
+    overwrite_stairs: bool,
+) {
     for y in yt - r..=yt + r {
         for x in xt - r..=xt + r {
             if overwrite_stairs || !g.tile_at(lvl, x, y).name.to_lowercase().contains("stairs") {
@@ -313,7 +357,11 @@ pub fn set_area_tiles(g: &mut Game, lvl: usize, xt: i32, yt: i32, r: i32, tile: 
 }
 
 /// Java `level.getMatchingTiles(condition)`.
-pub fn get_matching_tiles(g: &Game, lvl: usize, mut condition: impl FnMut(&Game, &TileDef, i32, i32) -> bool) -> Vec<Point> {
+pub fn get_matching_tiles(
+    g: &Game,
+    lvl: usize,
+    mut condition: impl FnMut(&Game, &TileDef, i32, i32) -> bool,
+) -> Vec<Point> {
     let (w, h) = {
         let level = g.level(lvl);
         (level.w, level.h)
@@ -331,7 +379,9 @@ pub fn get_matching_tiles(g: &Game, lvl: usize, mut condition: impl FnMut(&Game,
 
 /// Java `level.isLight(x, y)`.
 pub fn is_light(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
-    get_area_tiles(g, lvl, x, y, 3, 3).iter().any(|t| matches!(t.kind, tile::TileKind::Torch { .. }))
+    get_area_tiles(g, lvl, x, y, 3, 3)
+        .iter()
+        .any(|t| matches!(t.kind, tile::TileKind::Torch { .. }))
 }
 
 /// Java `level.dropItem(x, y, item)`.
@@ -352,8 +402,19 @@ pub fn drop_item(g: &mut Game, lvl: usize, x: i32, y: i32, item: crate::item::It
 }
 
 /// Java `level.dropItem(x, y, mincount, maxcount, items...)`.
-pub fn drop_items_counted(g: &mut Game, lvl: usize, x: i32, y: i32, mincount: i32, maxcount: i32, items: &[crate::item::Item]) {
-    let count = mincount + g.level_mut(lvl).random.next_int_bound(maxcount - mincount + 1);
+pub fn drop_items_counted(
+    g: &mut Game,
+    lvl: usize,
+    x: i32,
+    y: i32,
+    mincount: i32,
+    maxcount: i32,
+    items: &[crate::item::Item],
+) {
+    let count = mincount
+        + g.level_mut(lvl)
+            .random
+            .next_int_bound(maxcount - mincount + 1);
     for _ in 0..count {
         for item in items {
             drop_item(g, lvl, x, y, item.clone());
@@ -379,9 +440,7 @@ pub fn remove_all_enemies(g: &mut Game, lvl: usize) {
     let ids: Vec<i32> = g
         .entities
         .entities_on_level(lvl)
-        .filter(|e| {
-            e.is_enemy_mob() && (!matches!(e.kind, EntityKind::AirWizard(_)) || creative)
-        })
+        .filter(|e| e.is_enemy_mob() && (!matches!(e.kind, EntityKind::AirWizard(_)) || creative))
         .map(|e| e.c.eid)
         .collect();
     for eid in ids {
@@ -391,4 +450,344 @@ pub fn remove_all_enemies(g: &mut Game, lvl: usize) {
         }
         g.level_mut(lvl).remove(eid);
     }
+}
+
+/* ------------------------------- Level.tick + spawn ------------------------------- */
+
+/// Java `Level.updateVisible()`.
+pub fn update_visible(g: &mut Game, lvl: usize) {
+    let Some(player) = g.try_player() else { return };
+    let px = player.c.x / crate::gfx::sprite_sheet::TILE_SIZE;
+    let py = player.c.y / crate::gfx::sprite_sheet::TILE_SIZE;
+    let view_size = 4;
+    let level = g.level_mut(lvl);
+    let x0 = (px - view_size).max(0);
+    let y0 = (py - view_size).max(0);
+    let x1 = (px + view_size).min(level.w);
+    let y1 = (py + view_size).min(level.h);
+    for yy in y0..y1 {
+        let yd = (yy - py) * (yy - py);
+        for xx in x0..x1 {
+            let xd = xx - px;
+            let dist = xd * xd + yd;
+            if dist <= view_size * view_size {
+                level.visible[(xx + yy * level.w) as usize] = true;
+            }
+        }
+    }
+}
+
+/// Java `Level.tick(fullTick)`.
+pub fn tick_level(g: &mut Game, lvl: usize, full_tick: bool) {
+    let mut count = 0;
+
+    update_visible(g, lvl);
+
+    // drain entitiesToAdd into the arena
+    while let Some(entity) = {
+        let level = g.level_mut(lvl);
+        if level.entities_to_add.is_empty() {
+            None
+        } else {
+            Some(level.entities_to_add.remove(0))
+        }
+    } {
+        let mut random = g.random.clone();
+        g.entities.insert(entity, &mut random);
+        g.random = random;
+    }
+
+    if full_tick {
+        // random tile ticks
+        {
+            let (w, h) = {
+                let level = g.level(lvl);
+                (level.w, level.h)
+            };
+            for _ in 0..w * h / 50 {
+                let (xt, yt) = {
+                    let level = g.level_mut(lvl);
+                    // JAVA: yt also uses nextInt(w) — preserved quirk
+                    (
+                        level.random.next_int_bound(w),
+                        level.random.next_int_bound(w),
+                    )
+                };
+                let tile = g.tile_at(lvl, xt, yt);
+                tile::dispatch::tick(g, &tile, lvl, xt, yt);
+            }
+        }
+
+        // entity loop
+        let ids = g.entities.ids_on_level(lvl);
+        for eid in &ids {
+            let Some(e) = g.entities.get(*eid) else {
+                continue;
+            };
+            if e.c.removed {
+                continue;
+            }
+
+            if *eid != g.player_id {
+                // the main entity tick call (player is ticked separately by the Updater)
+                g.with_entity(*eid, |e, g| crate::entity::behavior::entity_tick(g, e));
+            }
+
+            let Some(e) = g.entities.get(*eid) else {
+                continue;
+            };
+            if e.c.removed {
+                continue;
+            }
+            if e.is_mob() {
+                count += 1;
+            }
+        }
+
+        for eid in &ids {
+            let Some(e) = g.entities.get(*eid) else {
+                continue;
+            };
+            if e.c.removed || e.c.level != Some(lvl) {
+                g.level_mut(lvl).remove(*eid);
+            }
+        }
+    }
+
+    // mob cap enforcement: remove random MobAi's while over the cap
+    while count > g.level(lvl).max_mob_count {
+        let ids = g.entities.ids_on_level(lvl);
+        if ids.is_empty() {
+            break;
+        }
+        let pick = ids[g.level_mut(lvl).random.next_int_bound(ids.len() as i32) as usize];
+        let is_mob_ai = g.entities.get(pick).map(|e| e.is_mob_ai()).unwrap_or(false);
+        if is_mob_ai {
+            if let Some(e) = g.entities.get_mut(pick) {
+                e.c.removed = true;
+            }
+            g.level_mut(lvl).remove(pick);
+            count -= 1;
+        }
+    }
+
+    // drain entitiesToRemove
+    while let Some(eid) = {
+        let level = g.level_mut(lvl);
+        if level.entities_to_remove.is_empty() {
+            None
+        } else {
+            Some(level.entities_to_remove.remove(0))
+        }
+    } {
+        if eid == g.player_id {
+            // the player object persists (Java kept the Game.player reference)
+            if let Some(p) = g.entities.get_mut(eid) {
+                if p.c.level == Some(lvl) {
+                    p.c.level = None;
+                }
+            }
+        } else if g
+            .entities
+            .get(eid)
+            .map(|e| e.c.level == Some(lvl) || e.c.removed)
+            .unwrap_or(false)
+        {
+            g.entities.delete(eid);
+        }
+    }
+
+    g.level_mut(lvl).mob_count = count;
+
+    if full_tick && count < g.level(lvl).max_mob_count {
+        try_spawn(g, lvl);
+    }
+}
+
+/// Java `Level.trySpawn()`.
+pub fn try_spawn(g: &mut Game, lvl: usize) {
+    let (mob_count, max_mob_count, depth, w, h) = {
+        let level = g.level(lvl);
+        (
+            level.mob_count,
+            level.max_mob_count,
+            level.depth,
+            level.w,
+            level.h,
+        )
+    };
+    let spawn_skip_chance = (MOB_SPAWN_FACTOR as f64 * (mob_count as f64).powi(2)
+        / (max_mob_count as f64).powi(2)) as i32;
+    if spawn_skip_chance > 0 && g.level_mut(lvl).random.next_int_bound(spawn_skip_chance) != 0 {
+        return; // hopefully will make mobs spawn a lot slower
+    }
+
+    let mut spawned = false;
+    for _ in 0..30 {
+        if spawned {
+            break;
+        }
+        let mut min_level = 1;
+        let mut max_level = 1;
+        if depth < 0 {
+            max_level = (-depth) + (if g.random.next_double() > 0.75 { 1 } else { 0 });
+        }
+        if depth > 0 {
+            min_level = 4;
+            max_level = 4;
+        }
+
+        let (mlvl, rnd, nx, ny) = {
+            let level = g.level_mut(lvl);
+            let mlvl = level.random.next_int_bound(max_level - min_level + 1) + min_level;
+            let rnd = level.random.next_int_bound(100);
+            let nx = level.random.next_int_bound(w) * 16 + 8;
+            let ny = level.random.next_int_bound(h) * 16 + 8;
+            (mlvl, rnd, nx, ny)
+        };
+
+        // enemy mobs; first condition prevents enemy spawn on surface on day 1
+        if (g.get_time() == crate::core::updater::Time::Night && g.past_day1 || depth != 0)
+            && crate::entity::behavior::enemy_check_start_pos(g, lvl, nx, ny)
+        {
+            // JAVA (this fork): only Zombies and Snakes spawn naturally
+            if rnd <= 40 {
+                let e = crate::entity::mob::zombie::new(g, mlvl);
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+            } else if rnd <= 75 {
+                let e = crate::entity::mob::snake::new(g, mlvl);
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+            }
+            spawned = true;
+        }
+
+        if depth == 0 && crate::entity::behavior::passive_check_start_pos(g, lvl, nx, ny) {
+            // spawns the friendly mobs
+            let night = g.get_time() == crate::core::updater::Time::Night;
+            if rnd <= (if night { 22 } else { 33 }) {
+                let e = crate::entity::mob::cow::new(g);
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+            } else if rnd >= 68 {
+                let e = crate::entity::mob::pig::new(g);
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+            } else {
+                let e = crate::entity::mob::sheep::new(g);
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+            }
+
+            // JAVA: also always adds a GlowWorm (at its default position)
+            let e = crate::entity::mob::glow_worm::new(g);
+            g.level_mut(lvl).add(e, lvl);
+
+            spawned = true;
+        }
+    }
+}
+
+/* --------------------------------- Level rendering --------------------------------- */
+
+/// Java `Level.renderBackground(screen, xScroll, yScroll)`.
+pub fn render_background(
+    g: &mut Game,
+    screen: &mut crate::gfx::Screen,
+    lvl: usize,
+    x_scroll: i32,
+    y_scroll: i32,
+) {
+    let xo = x_scroll >> 4;
+    let yo = y_scroll >> 4;
+    let w = crate::gfx::screen::W >> 4;
+    let h = crate::gfx::screen::H >> 4;
+    screen.set_offset(x_scroll, y_scroll);
+    for y in yo..=h + yo {
+        for x in xo..=w + xo {
+            let tile = g.tile_at(lvl, x, y);
+            tile::dispatch::render(g, screen, &tile, lvl, x, y);
+        }
+    }
+    screen.set_offset(0, 0);
+}
+
+/// Java `Level.renderSprites(screen, xScroll, yScroll)` — y-sorted entity rendering.
+pub fn render_sprites(
+    g: &mut Game,
+    screen: &mut crate::gfx::Screen,
+    lvl: usize,
+    x_scroll: i32,
+    y_scroll: i32,
+) {
+    let xo = x_scroll >> 4;
+    let yo = y_scroll >> 4;
+    let w = (crate::gfx::screen::W + 15) >> 4;
+    let h = (crate::gfx::screen::H + 15) >> 4;
+
+    screen.set_offset(x_scroll, y_scroll);
+
+    let mut ids: Vec<(i32, i32)> = get_entities_in_tiles(g, lvl, xo, yo, xo + w, yo + h)
+        .into_iter()
+        .filter_map(|eid| g.entities.get(eid).map(|e| (e.c.y, eid)))
+        .collect();
+    ids.sort_by_key(|(y, _)| *y); // Java spriteSorter
+    for (_, eid) in ids {
+        let (on_level, removed) = match g.entities.get(eid) {
+            Some(e) => (e.c.level == Some(lvl), e.c.removed),
+            None => continue,
+        };
+        if on_level && !removed {
+            g.with_entity(eid, |e, g| {
+                crate::entity::behavior::entity_render(g, screen, e)
+            });
+        } else {
+            g.level_mut(lvl).remove(eid);
+        }
+    }
+
+    screen.set_offset(0, 0);
+}
+
+/// Java `Level.renderLight(screen, xScroll, yScroll, brightness)`.
+pub fn render_light(
+    g: &mut Game,
+    screen: &mut crate::gfx::Screen,
+    lvl: usize,
+    x_scroll: i32,
+    y_scroll: i32,
+    brightness: i32,
+) {
+    let xo = x_scroll >> 4;
+    let yo = y_scroll >> 4;
+    let w = (crate::gfx::screen::W + 15) >> 4;
+    let h = (crate::gfx::screen::H + 15) >> 4;
+
+    screen.set_offset(x_scroll, y_scroll);
+    let r = 4;
+
+    let ids = get_entities_in_tiles(g, lvl, xo - r, yo - r, w + xo + r, h + yo + r);
+    for eid in ids {
+        let Some(e) = g.entities.get(eid) else {
+            continue;
+        };
+        let lr = crate::entity::behavior::get_light_radius(e);
+        if lr > 0 {
+            screen.render_light(e.c.x - 1, e.c.y - 4, lr * brightness);
+        }
+    }
+
+    let (lw, lh) = {
+        let level = g.level(lvl);
+        (level.w, level.h)
+    };
+    for y in yo - r..=h + yo + r {
+        for x in xo - r..=w + xo + r {
+            if x < 0 || y < 0 || x >= lw || y >= lh {
+                continue;
+            }
+            let tile = g.tile_at(lvl, x, y);
+            let lr = tile::dispatch::get_light_radius(g, &tile, lvl, x, y);
+            if lr > 0 {
+                screen.render_light(x * 16 + 8, y * 16 + 8, lr * brightness);
+            }
+        }
+    }
+    screen.set_offset(0, 0);
 }

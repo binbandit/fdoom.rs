@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use crate::core::game::Game;
 use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::gfx::color;
-use crate::gfx::sprite::{compile_mob_sprite_animations, MobAnims};
+use crate::gfx::sprite::{MobAnims, compile_mob_sprite_animations};
 
 use super::EnemyMobData;
 
@@ -32,12 +32,52 @@ pub fn new(g: &Game, lvl: i32) -> Entity {
     Entity::new(c, EntityKind::Zombie(ZombieData { enemy }))
 }
 
-/// Java `zombie.tick()`. TODO(port:entity-behavior): leaf behavior.
+/// Java `Zombie.tick()` — just `super.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
     crate::entity::behavior::enemy_mob_tick_base(g, e);
 }
 
-/// Java `zombie.die()`. TODO(port:entity-behavior): drops.
+/// Java `Zombie.die()`.
 pub fn die(g: &mut Game, e: &mut Entity) {
+    use crate::entity::behavior::mobai_drop_items;
+    use crate::item::registry;
+
+    let diff = g.settings.get("diff").as_str().to_string();
+    if diff == "Easy" {
+        let cloth = registry::get(g, "cloth");
+        mobai_drop_items(g, e, 2, 4, &[cloth]);
+    }
+    if diff == "Normal" {
+        let cloth = registry::get(g, "cloth");
+        mobai_drop_items(g, e, 2, 3, &[cloth]);
+    }
+    if diff == "Hard" {
+        let cloth = registry::get(g, "cloth");
+        mobai_drop_items(g, e, 1, 2, &[cloth]);
+    }
+
+    if g.random.next_int_bound(60) == 2 {
+        if let Some(lvl) = e.c.level {
+            let iron = registry::get(g, "iron");
+            crate::level::drop_item(g, lvl, e.c.x, e.c.y, iron);
+        }
+    }
+
+    if g.random.next_int_bound(40) == 19 {
+        let rand = g.random.next_int_bound(3);
+        if let Some(lvl) = e.c.level {
+            if rand == 0 {
+                let item = registry::get(g, "green clothes");
+                crate::level::drop_item(g, lvl, e.c.x, e.c.y, item);
+            } else if rand == 1 {
+                let item = registry::get(g, "red clothes");
+                crate::level::drop_item(g, lvl, e.c.x, e.c.y, item);
+            } else if rand == 2 {
+                let item = registry::get(g, "blue clothes");
+                crate::level::drop_item(g, lvl, e.c.x, e.c.y, item);
+            }
+        }
+    }
+
     crate::entity::behavior::enemy_mob_die(g, e);
 }

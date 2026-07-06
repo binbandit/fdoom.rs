@@ -1,0 +1,57 @@
+//! Port of `fdoom.screen.PlayerInvDisplay` — the player's inventory screen.
+
+use crate::core::game::Game;
+use crate::entity::Entity;
+
+use super::display::{Display, DisplayBase, display_tick_default};
+use super::inventory_menu;
+
+pub struct PlayerInvDisplay {
+    base: DisplayBase,
+    player_eid: i32,
+}
+
+impl PlayerInvDisplay {
+    /// Java `new PlayerInvDisplay(player)`.
+    pub fn new(g: &Game, player: &Entity) -> PlayerInvDisplay {
+        let menu = inventory_menu::new(g, player, "Inventory");
+        PlayerInvDisplay {
+            base: DisplayBase::new(false, true, vec![menu]),
+            player_eid: player.c.eid,
+        }
+    }
+}
+
+impl Display for PlayerInvDisplay {
+    fn base(&self) -> &DisplayBase {
+        &self.base
+    }
+
+    fn base_mut(&mut self) -> &mut DisplayBase {
+        &mut self.base
+    }
+
+    fn tick(&mut self, g: &mut Game) {
+        // JAVA: super.tick(input) — including InventoryMenu.tick's drop handling, which
+        // only ran when Display.tick reached menus[0].tick (i.e. not on the exit key).
+        let exit_clicked = self.base.can_exit && g.input.get_key("exit").clicked;
+        display_tick_default(&mut self.base, g);
+        if !exit_clicked {
+            inventory_menu::tick_drops(g, &mut self.base.menus[0], self.player_eid, true);
+        }
+
+        if g.input.get_key("menu").clicked {
+            g.clear_menu();
+            return;
+        }
+
+        if g.input.get_key("attack").clicked && self.base.menus[0].get_num_options() > 0 {
+            let sel = self.base.menus[0].get_selection();
+            if let Some(player) = g.entities.get_mut(self.player_eid) {
+                let pd = player.player_mut();
+                pd.active_item = Some(pd.inventory.remove(sel));
+            }
+            g.clear_menu();
+        }
+    }
+}

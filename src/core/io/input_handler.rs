@@ -31,7 +31,10 @@ struct Key {
 
 impl Key {
     fn new(stay_down: bool) -> Key {
-        Key { stay_down, ..Key::default() }
+        Key {
+            stay_down,
+            ..Key::default()
+        }
     }
 
     fn toggle(&mut self, pressed: bool) {
@@ -135,7 +138,10 @@ impl InputHandler {
             ("POTIONEFFECTS", "P"),
             ("INFO", "SHIFT-I"),
         ];
-        self.keymap = defaults.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        self.keymap = defaults
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
     }
 
     pub fn reset_key_bindings(&mut self) {
@@ -143,7 +149,10 @@ impl InputHandler {
     }
 
     fn keymap_get(&self, key: &str) -> Option<&str> {
-        self.keymap.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        self.keymap
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 
     fn keymap_put(&mut self, key: &str, value: String) {
@@ -244,7 +253,10 @@ impl InputHandler {
         };
 
         let key = self.keyboard.entry(base_key).or_default();
-        let mut key = KeyState { down: key.down, clicked: key.clicked };
+        let mut key = KeyState {
+            down: key.down,
+            clicked: key.clicked,
+        };
 
         let keytext = full_keytext;
 
@@ -271,7 +283,10 @@ impl InputHandler {
 
         if keytext.contains('-') {
             // compound key: reflect the trigger key only when the modifiers match
-            key = KeyState { down: mod_match && key.down, clicked: mod_match && key.clicked };
+            key = KeyState {
+                down: mod_match && key.down,
+                clicked: mod_match && key.clicked,
+            };
         } else if !mod_match {
             key = KeyState::default();
         }
@@ -288,7 +303,11 @@ impl InputHandler {
     }
 
     pub fn get_all_pressed_keys(&self) -> Vec<String> {
-        self.keyboard.iter().filter(|(_, k)| k.down).map(|(name, _)| name.clone()).collect()
+        self.keyboard
+            .iter()
+            .filter(|(_, k)| k.down)
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     /// Platform event entry point (Java `keyPressed`/`keyReleased` via `toggle`).
@@ -332,9 +351,17 @@ impl InputHandler {
     fn get_cur_modifiers(&mut self) -> String {
         format!(
             "{}{}{}",
-            if self.get_key("ctrl").down { "CTRL-" } else { "" },
+            if self.get_key("ctrl").down {
+                "CTRL-"
+            } else {
+                ""
+            },
             if self.get_key("alt").down { "ALT-" } else { "" },
-            if self.get_key("shift").down { "SHIFT-" } else { "" }
+            if self.get_key("shift").down {
+                "SHIFT-"
+            } else {
+                ""
+            }
         )
     }
 
@@ -393,7 +420,10 @@ mod tests {
         assert!(input.get_key("attack").clicked);
         assert!(input.get_key("attack").down);
         input.tick();
-        assert!(!input.get_key("attack").clicked, "click should only last one tick");
+        assert!(
+            !input.get_key("attack").clicked,
+            "click should only last one tick"
+        );
         assert!(input.get_key("attack").down, "key is still held");
         input.key_toggled("C", false);
         input.tick();
@@ -426,7 +456,10 @@ mod tests {
         input.key_toggled("SHIFT", true);
         input.key_toggled("Q", true);
         input.tick();
-        assert!(!input.get_key("drop-one").clicked, "shift-q must not trigger plain q action");
+        assert!(
+            !input.get_key("drop-one").clicked,
+            "shift-q must not trigger plain q action"
+        );
         assert!(input.get_key("drop-stack").clicked);
     }
 

@@ -15,7 +15,13 @@ impl Version {
     }
 
     fn parse(version: &str, print_error: bool) -> Version {
-        let mut v = Version { make: 0, major: 0, minor: 0, dev: 0, valid: true };
+        let mut v = Version {
+            make: 0,
+            major: 0,
+            minor: 0,
+            dev: 0,
+            valid: true,
+        };
         let nums: Vec<&str> = version.split('.').collect();
 
         let result: Result<(), std::num::ParseIntError> = (|| {
@@ -93,7 +99,11 @@ impl std::fmt::Display for Version {
             self.make,
             self.major,
             self.minor,
-            if self.dev == 0 { String::new() } else { format!("-dev{}", self.dev) }
+            if self.dev == 0 {
+                String::new()
+            } else {
+                format!("-dev{}", self.dev)
+            }
         )
     }
 }

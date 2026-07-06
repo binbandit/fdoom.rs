@@ -1,10 +1,10 @@
 //! Port of `fdoom.entity.furniture.Chest`.
 
 use crate::entity::{Entity, EntityKind};
-use crate::gfx::{color, Sprite};
+use crate::gfx::{Sprite, color};
 use crate::item::Inventory;
 
-use super::{furniture_common, FurnitureData};
+use super::{FurnitureData, furniture_common};
 
 #[derive(Debug, Clone)]
 pub struct ChestData {

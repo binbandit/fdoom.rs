@@ -4,9 +4,9 @@
 //! `g.bed_state` (see `BedState`).
 
 use crate::entity::{Entity, EntityKind};
-use crate::gfx::{color, Sprite};
+use crate::gfx::{Sprite, color};
 
-use super::{furniture_common, FurnitureData};
+use super::{FurnitureData, furniture_common};
 
 /// Java `Bed`'s static sleep-tracking state; a `Game` field.
 #[derive(Debug, Clone)]
@@ -18,7 +18,10 @@ pub struct BedState {
 
 impl Default for BedState {
     fn default() -> Self {
-        BedState { players_awake: 1, sleeping_players: std::collections::HashMap::new() }
+        BedState {
+            players_awake: 1,
+            sleeping_players: std::collections::HashMap::new(),
+        }
     }
 }
 
@@ -29,7 +32,10 @@ pub struct BedData {
 
 /// Java `new Bed()`.
 pub fn new() -> Entity {
-    let furniture = FurnitureData::new("Bed", Sprite::new(16, 8, 2, 2, color::get4(-1, 100, 444, 400), 0));
+    let furniture = FurnitureData::new(
+        "Bed",
+        Sprite::new(16, 8, 2, 2, color::get4(-1, 100, 444, 400), 0),
+    );
     let c = furniture_common(furniture.sprite.color, 3, 2);
     Entity::new(c, EntityKind::Bed(BedData { furniture }))
 }

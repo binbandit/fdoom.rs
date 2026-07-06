@@ -21,7 +21,10 @@ impl Inventory {
 
     /// The player's inventory (Java's anonymous `Inventory` subclass in Player).
     pub fn new_player() -> Inventory {
-        Inventory { player_inv: true, ..Inventory::default() }
+        Inventory {
+            player_inv: true,
+            ..Inventory::default()
+        }
     }
 
     /// Java `getItems()` (borrowing instead of copying; use `.to_vec()` when a copy is
@@ -142,12 +145,18 @@ impl Inventory {
                 break;
             }
             if removed > count {
-                println!("SCREW UP while removing items from stack: {} too many.", removed - count);
+                println!(
+                    "SCREW UP while removing items from stack: {} too many.",
+                    removed - count
+                );
                 break;
             }
         }
         if removed < count {
-            println!("Inventory: could not remove all items; {} left.", count - removed);
+            println!(
+                "Inventory: could not remove all items; {} left.",
+                count - removed
+            );
         }
         removed
     }
@@ -180,7 +189,10 @@ impl Inventory {
             }
         }
         if count > 0 {
-            println!("WARNING: could not remove {count} {given}{} from inventory", if count > 1 { "s" } else { "" });
+            println!(
+                "WARNING: could not remove {count} {given}{} from inventory",
+                if count > 1 { "s" } else { "" }
+            );
         }
     }
 
@@ -199,11 +211,22 @@ impl Inventory {
 
     /// Java `getItemData()` — save/network string.
     pub fn get_item_data(&self) -> String {
-        self.items.iter().map(|i| i.get_data()).collect::<Vec<_>>().join(":")
+        self.items
+            .iter()
+            .map(|i| i.get_data())
+            .collect::<Vec<_>>()
+            .join(":")
     }
 
     /// Java `tryAdd(chance, item, num, allOrNothing)`.
-    pub fn try_add_all_or_nothing(&mut self, random: &mut JavaRandom, chance: i32, item: &Item, num: i32, all_or_nothing: bool) {
+    pub fn try_add_all_or_nothing(
+        &mut self,
+        random: &mut JavaRandom,
+        chance: i32,
+        item: &Item,
+        num: i32,
+        all_or_nothing: bool,
+    ) {
         if !all_or_nothing || random.next_int_bound(chance) == 0 {
             for _ in 0..num {
                 if all_or_nothing || random.next_int_bound(chance) == 0 {
@@ -214,7 +237,13 @@ impl Inventory {
     }
 
     /// Java `tryAdd(chance, item, num)`.
-    pub fn try_add_num(&mut self, random: &mut JavaRandom, chance: i32, item: Option<Item>, num: i32) {
+    pub fn try_add_num(
+        &mut self,
+        random: &mut JavaRandom,
+        chance: i32,
+        item: Option<Item>,
+        num: i32,
+    ) {
         let Some(mut item) = item else { return };
         if item.is_stackable() {
             item.set_count(item.count() * num);

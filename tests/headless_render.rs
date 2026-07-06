@@ -3,13 +3,20 @@
 
 use std::sync::Arc;
 
-use fdoom::gfx::{color, font, screen::{self, Screen}, SpriteSheet};
+use fdoom::gfx::{
+    SpriteSheet, color, font,
+    screen::{self, Screen},
+};
 
 fn dump_png(name: &str, s: &Screen) {
     let dir = std::path::Path::new("target/test-frames");
     std::fs::create_dir_all(dir).unwrap();
     let file = std::fs::File::create(dir.join(name)).unwrap();
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), screen::W as u32, screen::H as u32);
+    let mut enc = png::Encoder::new(
+        std::io::BufWriter::new(file),
+        screen::W as u32,
+        screen::H as u32,
+    );
     enc.set_color(png::ColorType::Rgb);
     enc.set_depth(png::BitDepth::Eight);
     let mut writer = enc.write_header().unwrap();
@@ -25,7 +32,12 @@ fn dump_png(name: &str, s: &Screen) {
 #[test]
 fn sheet_loads_and_text_renders() {
     let sheet = Arc::new(SpriteSheet::from_png(fdoom::assets::ICONS_PNG));
-    assert!(sheet.width >= 256 && sheet.height >= 256, "unexpected sheet size {}x{}", sheet.width, sheet.height);
+    assert!(
+        sheet.width >= 256 && sheet.height >= 256,
+        "unexpected sheet size {}x{}",
+        sheet.width,
+        sheet.height
+    );
 
     let mut s = Screen::new(sheet);
     s.clear(0);

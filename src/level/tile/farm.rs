@@ -1,30 +1,72 @@
-//! Port of `fdoom.level.tile.FarmTile`. TODO(port:tile): full port pending.
+//! Port of `fdoom.level.tile.FarmTile`.
 
+use super::{TileDef, TileKind};
 use crate::core::game::Game;
 use crate::entity::Direction;
 use crate::entity::Entity;
-use crate::item::Item;
-use super::dispatch;
-use super::{TileDef, TileKind};
+use crate::entity::mob::player_behavior::pay_stamina;
+use crate::gfx::{Sprite, color};
+use crate::item::{Item, ItemKind, ToolType};
 
-/// Java `FarmTile` constructor — sprite/config TODO(port:tile).
-#[allow(unused_variables)]
-pub fn make(name:&str) -> TileDef {
-    TileDef::new(name, TileKind::Farm)
+/// Java `FarmTile` constructor.
+pub fn make(name: &str) -> TileDef {
+    let mut def = TileDef::new(name, TileKind::Farm);
+    def.sprite = Some(Sprite::with_mirrors(
+        2,
+        1,
+        2,
+        2,
+        color::get4(301, 411, 422, 533),
+        true,
+        &[vec![1, 0], vec![0, 1]],
+    ));
+    def
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn interact(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, player: &mut Entity, item: &mut Item, attack_dir: Direction) -> bool {
-    let _ = (g, def, lvl, xt, yt, player, item, attack_dir); // TODO(port:tile)
+pub fn interact(
+    g: &mut Game,
+    _def: &TileDef,
+    lvl: usize,
+    xt: i32,
+    yt: i32,
+    player: &mut Entity,
+    item: &mut Item,
+    _attack_dir: Direction,
+) -> bool {
+    if let ItemKind::Tool {
+        ttype,
+        level: tool_level,
+        ..
+    } = &item.kind
+    {
+        let (ttype, tool_level) = (*ttype, *tool_level);
+        if ttype == ToolType::Shovel
+            && pay_stamina(player, 4 - tool_level)
+            && item.pay_durability(g.is_mode("creative"))
+        {
+            let dirt = g.tiles.get("dirt");
+            g.set_tile_default(lvl, xt, yt, &dirt);
+            return true;
+        }
+    }
     false
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn stepped_on(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, e: &mut Entity) {
-    let _ = (g, def, lvl, xt, yt, e); // TODO(port:tile)
+pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {
+    let age = g.level(lvl).get_data(xt, yt);
+    if age < 5 {
+        g.level_mut(lvl).set_data(xt, yt, age + 1);
+    }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
-    let _ = (g, def, lvl, xt, yt); // TODO(port:tile)
+pub fn stepped_on(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32, _e: &mut Entity) {
+    if g.random.next_int_bound(60) != 0 {
+        return;
+    }
+    if g.level(lvl).get_data(xt, yt) < 5 {
+        return;
+    }
+    let dirt = g.tiles.get("dirt");
+    g.set_tile_default(lvl, xt, yt, &dirt);
 }

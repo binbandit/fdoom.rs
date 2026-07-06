@@ -10,33 +10,78 @@ use crate::core::io::sound::Sound;
 use crate::core::updater::Time;
 use crate::entity::mob::MobAiData;
 use crate::entity::{Direction, Entity, EntityKind};
-use crate::gfx::{color, Rectangle, Screen};
+use crate::gfx::{Rectangle, Screen, color};
 use crate::level;
 use crate::level::tile::dispatch as tiles;
 
 impl Game {
     /// The take-out helper (see PORTING.md). Returns None if the entity is absent
-    /// (already taken out or deleted).
-    pub fn with_entity<R>(&mut self, eid: i32, f: impl FnOnce(&mut Entity, &mut Game) -> R) -> Option<R> {
-        let mut e = self.entities.take(eid)?;
+    /// (already taken out or deleted). The player is additionally looked up in the level
+    /// add-queues: Java's `Game.player` reference stayed usable while the entity sat in
+    /// `entitiesToAdd`.
+    pub fn with_entity<R>(
+        &mut self,
+        eid: i32,
+        f: impl FnOnce(&mut Entity, &mut Game) -> R,
+    ) -> Option<R> {
+        let mut e = match self.entities.take(eid) {
+            Some(e) => e,
+            None if eid == self.player_id => self.take_player_from_queues()?,
+            None => return None,
+        };
         let r = f(&mut e, self);
         self.entities.put_back(e);
         Some(r)
     }
 
+    fn take_player_from_queues(&mut self) -> Option<Entity> {
+        let pid = self.player_id;
+        for level in self.levels.iter_mut().flatten() {
+            if let Some(pos) = level.entities_to_add.iter().position(|e| e.c.eid == pid) {
+                return Some(level.entities_to_add.remove(pos));
+            }
+        }
+        None
+    }
+
     /// Java `Game.player` (panicking, like Java's implicit non-null uses). Note: while the
     /// player is taken out (its own tick), use the `&mut Entity` you already have.
     pub fn player(&self) -> &Entity {
-        self.entities.get(self.player_id).expect("player entity missing")
+        self.try_player().expect("player entity missing")
     }
 
     pub fn player_mut(&mut self) -> &mut Entity {
-        self.entities.get_mut(self.player_id).expect("player entity missing")
+        if self.entities.contains(self.player_id) {
+            return self
+                .entities
+                .get_mut(self.player_id)
+                .expect("checked above");
+        }
+        let pid = self.player_id;
+        for level in self.levels.iter_mut().flatten() {
+            if let Some(e) = level.entities_to_add.iter_mut().find(|e| e.c.eid == pid) {
+                return e;
+            }
+        }
+        panic!("player entity missing")
     }
 
     /// Java `Game.player != null && !removed` style checks where the player may be absent.
+    /// The level add-queues are searched too (see `with_entity`).
     pub fn try_player(&self) -> Option<&Entity> {
-        self.entities.get(self.player_id)
+        if let Some(e) = self.entities.get(self.player_id) {
+            return Some(e);
+        }
+        for level in self.levels.iter().flatten() {
+            if let Some(e) = level
+                .entities_to_add
+                .iter()
+                .find(|e| e.c.eid == self.player_id)
+            {
+                return Some(e);
+            }
+        }
+        None
     }
 }
 
@@ -67,6 +112,10 @@ pub fn die(g: &mut Game, e: &mut Entity) {
         EntityKind::Snake(_) => super::mob::snake::die(g, e),
         EntityKind::Knight(_) => super::mob::knight::die(g, e),
         EntityKind::AirWizard(_) => super::mob::air_wizard::die(g, e),
+        // JAVA: Chest.die spills the inventory
+        EntityKind::Chest(_) | EntityKind::DeathChest(_) | EntityKind::DungeonChest(_) => {
+            super::furniture::chest_behavior::die(g, e)
+        }
         _ => remove_entity(g, e),
     }
 }
@@ -105,6 +154,7 @@ pub fn can_wool(e: &Entity) -> bool {
     match &e.kind {
         EntityKind::Player(_) => true,
         EntityKind::AirWizard(_) => false, // overrides MobAi's true
+        EntityKind::Creeper(_) => false,   // JAVA: Creeper.canWool() returns false
         _ => e.is_mob_ai() || e.is_furniture(),
     }
 }
@@ -114,7 +164,7 @@ pub fn get_light_radius(e: &Entity) -> i32 {
     match &e.kind {
         EntityKind::Player(_) => super::mob::player_behavior::get_light_radius(e),
         EntityKind::Lantern(l) => l.lantern_type.light(),
-        EntityKind::GlowWorm(_) => 2, // TODO(port:entity-behavior): verify GlowWorm radius
+        EntityKind::GlowWorm(_) => 2, // JAVA: GlowWorm.getLightRadius()
         _ => 0,
     }
 }
@@ -191,7 +241,13 @@ pub fn entity_move2(g: &mut Game, e: &mut Entity, xa: i32, ya: i32) -> bool {
     let was_inside = level::get_entities_in_rect(g, lvl, &e.c.bounds());
 
     let (xr, yr) = (e.c.xr, e.c.yr);
-    let new_rect = Rectangle::new(e.c.x + xa, e.c.y + ya, xr * 2, yr * 2, Rectangle::CENTER_DIMS);
+    let new_rect = Rectangle::new(
+        e.c.x + xa,
+        e.c.y + ya,
+        xr * 2,
+        yr * 2,
+        Rectangle::CENTER_DIMS,
+    );
     let is_inside = level::get_entities_in_rect(g, lvl, &new_rect);
 
     // touch each entity about to be touched
@@ -202,7 +258,11 @@ pub fn entity_move2(g: &mut Game, e: &mut Entity, xa: i32, ya: i32) -> bool {
             }
             // JAVA: if the other is a Player (and we are not), *we* get touchedBy(player);
             // otherwise the other gets touchedBy(us).
-            let other_is_player = g.entities.get(*other_id).map(|o| o.is_player()).unwrap_or(false);
+            let other_is_player = g
+                .entities
+                .get(*other_id)
+                .map(|o| o.is_player())
+                .unwrap_or(false);
             if other_is_player && !e.is_player() {
                 g.with_entity(*other_id, |player, g| {
                     touched_by(g, e, player);
@@ -219,7 +279,9 @@ pub fn entity_move2(g: &mut Game, e: &mut Entity, xa: i32, ya: i32) -> bool {
         if was_inside.contains(other_id) || *other_id == e.c.eid {
             continue;
         }
-        let Some(other) = g.entities.get(*other_id) else { continue };
+        let Some(other) = g.entities.get(*other_id) else {
+            continue;
+        };
         if blocks(other, e) {
             return false; // the other entity prevents movement
         }
@@ -235,6 +297,12 @@ pub fn entity_move2(g: &mut Game, e: &mut Entity, xa: i32, ya: i32) -> bool {
 /// moving entity. Per-kind override dispatch.
 pub fn touched_by(g: &mut Game, this_e: &mut Entity, by: &mut Entity) {
     match &this_e.kind {
+        EntityKind::DeathChest(_) => {
+            super::furniture::death_chest_behavior::touched_by(g, this_e, by)
+        }
+        EntityKind::DungeonChest(_) => {
+            super::furniture::dungeon_chest_behavior::touched_by(g, this_e, by)
+        }
         // Furniture.touchedBy: player pushes furniture
         _ if this_e.is_furniture() => {
             if by.is_player() {
@@ -248,9 +316,10 @@ pub fn touched_by(g: &mut Game, this_e: &mut Entity, by: &mut Entity) {
         | EntityKind::Snake(_)
         | EntityKind::Knight(_)
         | EntityKind::AirWizard(_) =>
-
-            // EnemyMob.touchedBy: hurt the player, damage based on lvl
-            enemy_touched_by(g, this_e, by),
+        // EnemyMob.touchedBy: hurt the player, damage based on lvl
+        {
+            enemy_touched_by(g, this_e, by)
+        }
         EntityKind::Creeper(_) => super::mob::creeper::touched_by(g, this_e, by),
         _ => {}
     }
@@ -281,6 +350,18 @@ pub fn entity_interact(
     item: &mut Option<crate::item::Item>,
     attack_dir: Direction,
 ) -> bool {
+    match &this_e.kind {
+        // JAVA: Spawner and Tnt override Entity.interact
+        EntityKind::Spawner(_) => {
+            return super::furniture::spawner_behavior::interact(
+                g, this_e, player, item, attack_dir,
+            );
+        }
+        EntityKind::Tnt(_) => {
+            return super::furniture::tnt_behavior::interact(g, this_e, player, item, attack_dir);
+        }
+        _ => {}
+    }
     // JAVA Entity.interact: if item != null, return item.interact(player, this, attackDir)
     if let Some(it) = item {
         return crate::item::interact::item_interact_entity(g, it, player, this_e, attack_dir);
@@ -352,6 +433,10 @@ pub fn entity_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         EntityKind::Particle(_) => super::particle_behavior::render(g, screen, e),
         EntityKind::TextParticle(_) => super::particle_behavior::text_render(g, screen, e),
         EntityKind::DeathChest(_) => super::furniture::death_chest_behavior::render(g, screen, e),
+        EntityKind::DungeonChest(_) => {
+            super::furniture::dungeon_chest_behavior::render(g, screen, e)
+        }
+        EntityKind::Tnt(_) => super::furniture::tnt_behavior::render(g, screen, e),
         _ if e.is_furniture() => super::furniture::behavior::render(g, screen, e),
         _ => {}
     }
@@ -475,21 +560,40 @@ pub fn is_swimming(g: &Game, e: &Entity) -> bool {
 }
 
 /// Java `Mob.hurt(Tile tile, x, y, damage)`.
-pub fn mob_hurt_tile(g: &mut Game, e: &mut Entity, tile: &level::tile::TileDef, x: i32, y: i32, damage: i32) {
+pub fn mob_hurt_tile(
+    g: &mut Game,
+    e: &mut Entity,
+    tile: &level::tile::TileDef,
+    x: i32,
+    y: i32,
+    damage: i32,
+) {
     let Some(mob) = e.mob() else { return };
     let attack_dir = Direction::from_dir(mob.dir.get_dir() ^ 1); // opposite of our direction
     let lava_immune = tile.name == "LAVA"
         && e.is_player()
-        && e.player().potioneffects.contains_key(&crate::item::PotionType::Lava);
+        && e.player()
+            .potioneffects
+            .contains_key(&crate::item::PotionType::Lava);
     if !lava_immune {
         let lvl = e.c.level.unwrap_or(g.current_level);
-        let dir = if tiles::may_pass(g, tile, lvl, x, y, e) { Direction::None } else { attack_dir };
+        let dir = if tiles::may_pass(g, tile, lvl, x, y, e) {
+            Direction::None
+        } else {
+            attack_dir
+        };
         do_hurt(g, e, damage, dir);
     }
 }
 
 /// Java `Mob.hurt(Mob mob, damage, attackDir)` — `attacker` is the damage source.
-pub fn mob_hurt_by_mob(g: &mut Game, attacker: &mut Entity, e: &mut Entity, damage: i32, attack_dir: Direction) {
+pub fn mob_hurt_by_mob(
+    g: &mut Game,
+    attacker: &mut Entity,
+    e: &mut Entity,
+    damage: i32,
+    attack_dir: Direction,
+) {
     if attacker.is_player() && g.is_mode("creative") && attacker.c.eid != e.c.eid {
         let health = e.mob().map(|m| m.health).unwrap_or(0);
         do_hurt(g, e, health, attack_dir); // kill the mob instantly
@@ -500,8 +604,18 @@ pub fn mob_hurt_by_mob(g: &mut Game, attacker: &mut Entity, e: &mut Entity, dama
 
 /// Java `Mob.hurt(Mob mob, damage, attackDir)` where the attacker is referenced by eid
 /// (used by projectiles, whose owner may not be takeable).
-pub fn mob_hurt_by_eid(g: &mut Game, attacker_eid: i32, e: &mut Entity, damage: i32, attack_dir: Direction) {
-    let attacker_is_player = g.entities.get(attacker_eid).map(|a| a.is_player()).unwrap_or(false);
+pub fn mob_hurt_by_eid(
+    g: &mut Game,
+    attacker_eid: i32,
+    e: &mut Entity,
+    damage: i32,
+    attack_dir: Direction,
+) {
+    let attacker_is_player = g
+        .entities
+        .get(attacker_eid)
+        .map(|a| a.is_player())
+        .unwrap_or(false);
     if attacker_is_player && g.is_mode("creative") && attacker_eid != e.c.eid {
         let health = e.mob().map(|m| m.health).unwrap_or(0);
         do_hurt(g, e, health, attack_dir); // kill the mob instantly
@@ -514,6 +628,10 @@ pub fn mob_hurt_by_eid(g: &mut Game, attacker_eid: i32, e: &mut Entity, damage: 
 pub fn do_hurt(g: &mut Game, e: &mut Entity, damage: i32, attack_dir: Direction) {
     if e.is_player() {
         super::mob::player_behavior::do_hurt(g, e, damage, attack_dir);
+        return;
+    }
+    if matches!(e.kind, EntityKind::AirWizard(_)) {
+        super::mob::air_wizard::do_hurt(g, e, damage, attack_dir);
         return;
     }
     if e.is_mob_ai() {
@@ -556,7 +674,13 @@ pub fn mobai_do_hurt(g: &mut Game, e: &mut Entity, damage: i32, attack_dir: Dire
         }
     }
     if let Some(lvl) = e.c.level {
-        let p = super::particle::new_text_particle(&damage.to_string(), e.c.x, e.c.y, color::RED, &mut g.random);
+        let p = super::particle::new_text_particle(
+            &damage.to_string(),
+            e.c.x,
+            e.c.y,
+            color::RED,
+            &mut g.random,
+        );
         g.level_mut(lvl).add(p, lvl);
     }
 
@@ -570,7 +694,13 @@ pub fn heal(g: &mut Game, e: &mut Entity, heal: i32) {
         return;
     }
     if let Some(lvl) = e.c.level {
-        let p = super::particle::new_text_particle(&heal.to_string(), e.c.x, e.c.y, color::GREEN, &mut g.random);
+        let p = super::particle::new_text_particle(
+            &heal.to_string(),
+            e.c.x,
+            e.c.y,
+            color::GREEN,
+            &mut g.random,
+        );
         g.level_mut(lvl).add(p, lvl);
     }
     if let Some(mob) = e.mob_mut() {
@@ -595,7 +725,9 @@ pub fn mobai_tick_base(g: &mut Game, e: &mut Entity) -> bool {
     }
 
     {
-        let Some(ai) = e.mob_ai_mut() else { return false };
+        let Some(ai) = e.mob_ai_mut() else {
+            return false;
+        };
         if ai.lifetime > 0 {
             ai.age += 1;
             if ai.age > ai.lifetime {
@@ -611,7 +743,11 @@ pub fn mobai_tick_base(g: &mut Game, e: &mut Entity) -> bool {
         if let Some(lvl) = e.c.level {
             for pid in level::get_players(g, lvl) {
                 if let Some(p) = g.entities.get(pid) {
-                    if is_within(p, 8, e) && p.player().potioneffects.contains_key(&crate::item::PotionType::Time) {
+                    if is_within(p, 8, e)
+                        && p.player()
+                            .potioneffects
+                            .contains_key(&crate::item::PotionType::Time)
+                    {
                         found_player = true;
                         break;
                     }
@@ -664,7 +800,11 @@ pub fn mobai_render(screen: &mut Screen, e: &mut Entity) {
     let xo = e.c.x - 8;
     let yo = e.c.y - 11;
 
-    let color = if mob.hurt_time > 0 { color::WHITE } else { e.c.col };
+    let color = if mob.hurt_time > 0 {
+        color::WHITE
+    } else {
+        e.c.col
+    };
 
     let dir_idx = mob.dir.get_dir() as usize;
     let row = &mob.sprites[dir_idx.min(mob.sprites.len() - 1)];
@@ -700,7 +840,13 @@ pub fn randomize_walk_dir(g: &mut Game, e: &mut Entity, by_chance: bool) {
 }
 
 /// Java `MobAi.dropItem(mincount, maxcount, items...)`.
-pub fn mobai_drop_items(g: &mut Game, e: &Entity, mincount: i32, maxcount: i32, items: &[crate::item::Item]) {
+pub fn mobai_drop_items(
+    g: &mut Game,
+    e: &Entity,
+    mincount: i32,
+    maxcount: i32,
+    items: &[crate::item::Item],
+) {
     let Some(lvl) = e.c.level else { return };
     let count = g.random.next_int_bound(maxcount - mincount + 1) + mincount;
     for _ in 0..count {
@@ -711,7 +857,14 @@ pub fn mobai_drop_items(g: &mut Game, e: &Entity, mincount: i32, maxcount: i32, 
 }
 
 /// Java `MobAi.checkStartPos(level, x, y, playerDist, soloRadius)`.
-pub fn mobai_check_start_pos(g: &Game, lvl: usize, x: i32, y: i32, player_dist: i32, solo_radius: i32) -> bool {
+pub fn mobai_check_start_pos(
+    g: &Game,
+    lvl: usize,
+    x: i32,
+    y: i32,
+    player_dist: i32,
+    solo_radius: i32,
+) -> bool {
     if let Some(pid) = level::get_closest_player(g, lvl, x, y) {
         if let Some(player) = g.entities.get(pid) {
             let xd = player.c.x - x;
@@ -723,7 +876,13 @@ pub fn mobai_check_start_pos(g: &Game, lvl: usize, x: i32, y: i32, player_dist: 
     }
 
     let r = g.level(lvl).monster_density * solo_radius; // get no-mob radius
-    if !level::get_entities_in_rect(g, lvl, &Rectangle::new(x, y, r * 2, r * 2, Rectangle::CENTER_DIMS)).is_empty() {
+    if !level::get_entities_in_rect(
+        g,
+        lvl,
+        &Rectangle::new(x, y, r * 2, r * 2, Rectangle::CENTER_DIMS),
+    )
+    .is_empty()
+    {
         return false;
     }
 
@@ -830,7 +989,12 @@ pub fn enemy_check_start_pos(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
             return false;
         }
         true
-    } else if t.name != "STONE DOOR" && t.name != "WOOD DOOR" && t.name != "OBSIDIAN DOOR" && t.name != "WHEAT" && t.name != "FARMLAND" {
+    } else if t.name != "STONE DOOR"
+        && t.name != "WOOD DOOR"
+        && t.name != "OBSIDIAN DOOR"
+        && t.name != "WHEAT"
+        && t.name != "FARMLAND"
+    {
         // prevents mobs from spawning on lit tiles, farms, or doors (unless in dungeon)
         !level::is_light(g, lvl, xt, yt)
     } else {

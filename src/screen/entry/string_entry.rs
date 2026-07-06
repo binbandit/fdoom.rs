@@ -19,8 +19,15 @@ impl StringEntry {
     }
 
     pub fn with_color(text: &str, color: i32) -> StringEntry {
-        let flags = EntryFlags { selectable: false, ..EntryFlags::default() };
-        StringEntry { text: text.to_string(), color, flags }
+        let flags = EntryFlags {
+            selectable: false,
+            ..EntryFlags::default()
+        };
+        StringEntry {
+            text: text.to_string(),
+            color,
+            flags,
+        }
     }
 
     /// Java `StringEntry.useLines(lines...)`.
@@ -30,7 +37,10 @@ impl StringEntry {
 
     /// Java `StringEntry.useLines(color, lines...)`.
     pub fn use_lines_color(color: i32, lines: &[String]) -> Vec<EntryHandle> {
-        lines.iter().map(|l| handle(Self::with_color(l, color))).collect()
+        lines
+            .iter()
+            .map(|l| handle(Self::with_color(l, color)))
+            .collect()
     }
 }
 

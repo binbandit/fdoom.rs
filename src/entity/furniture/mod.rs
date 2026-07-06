@@ -4,19 +4,19 @@
 pub mod bed;
 pub mod bed_behavior;
 pub mod behavior;
-pub mod chest_behavior;
-pub mod crafter_behavior;
-pub mod death_chest_behavior;
-pub mod dungeon_chest_behavior;
-pub mod spawner_behavior;
-pub mod tnt_behavior;
 pub mod chest;
+pub mod chest_behavior;
 pub mod crafter;
+pub mod crafter_behavior;
 pub mod death_chest;
+pub mod death_chest_behavior;
 pub mod dungeon_chest;
+pub mod dungeon_chest_behavior;
 pub mod lantern;
 pub mod spawner;
+pub mod spawner_behavior;
 pub mod tnt;
+pub mod tnt_behavior;
 
 use crate::entity::Direction;
 use crate::gfx::Sprite;

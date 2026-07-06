@@ -4,7 +4,7 @@ use crate::entity::{Entity, EntityKind};
 use crate::gfx::Sprite;
 use crate::java_random::JavaRandom;
 
-use super::{furniture_common, FurnitureData};
+use super::{FurnitureData, furniture_common};
 
 pub const ACTIVE_RADIUS: i32 = 8 * 16;
 pub const MIN_SPAWN_INTERVAL: i32 = 200;
@@ -42,7 +42,7 @@ fn mob_class_name(mob: &Entity) -> &'static str {
 }
 
 /// Java `MobAi.getMaxLevel()` for the given mob template.
-fn max_mob_level(mob: &Entity) -> i32 {
+pub fn max_mob_level(mob: &Entity) -> i32 {
     match &mob.kind {
         EntityKind::Zombie(m) => m.enemy.lvlcols.len() as i32,
         EntityKind::Slime(m) => m.enemy.lvlcols.len() as i32,
@@ -51,7 +51,7 @@ fn max_mob_level(mob: &Entity) -> i32 {
         EntityKind::Snake(m) => m.enemy.lvlcols.len() as i32,
         EntityKind::Knight(_) => 5, // JAVA: Knight overrides getMaxLevel() to 5
         EntityKind::AirWizard(_) => 2, // JAVA: AirWizard overrides getMaxLevel() to 2
-        _ => 1, // passive mobs
+        _ => 1,                     // passive mobs
     }
 }
 
@@ -68,7 +68,8 @@ pub fn new(mob: Entity, random: &mut JavaRandom) -> Entity {
     let max_lvl = max_mob_level(&mob);
 
     let c = furniture_common(furniture.sprite.color, 7, 2);
-    let spawn_tick = random.next_int_bound(MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL + 1) + MIN_SPAWN_INTERVAL;
+    let spawn_tick =
+        random.next_int_bound(MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL + 1) + MIN_SPAWN_INTERVAL;
     Entity::new(
         c,
         EntityKind::Spawner(SpawnerData {

@@ -19,7 +19,7 @@ use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 
 use crate::core::game::{self, Game};
-use crate::core::renderer::{Renderer, HEIGHT, WIDTH};
+use crate::core::renderer::{HEIGHT, Renderer, WIDTH};
 use crate::core::updater;
 
 struct App {
@@ -116,7 +116,8 @@ impl App {
         if win_w <= 0 || win_h <= 0 {
             return;
         }
-        let (Some(sw), Some(sh)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
+        let (Some(sw), Some(sh)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+        else {
             return;
         };
         if surface.resize(sw, sh).is_err() {
@@ -141,7 +142,8 @@ impl App {
             let src_row = (sy * WIDTH) as usize;
             for dx in 0..ww {
                 let sx = ((dx as f32 / scale) as i32).clamp(0, WIDTH - 1);
-                buffer[dest_row + (dx + xo) as usize] = (pixels[src_row + sx as usize] as u32) & 0x00FF_FFFF;
+                buffer[dest_row + (dx + xo) as usize] =
+                    (pixels[src_row + sx as usize] as u32) & 0x00FF_FFFF;
             }
         }
 
@@ -157,11 +159,19 @@ impl ApplicationHandler for App {
         let scale = 3.0; // Java initial SCALE
         let attrs = Window::default_attributes()
             .with_title(game::NAME)
-            .with_inner_size(LogicalSize::new(WIDTH as f64 * scale, HEIGHT as f64 * scale))
+            .with_inner_size(LogicalSize::new(
+                WIDTH as f64 * scale,
+                HEIGHT as f64 * scale,
+            ))
             .with_min_inner_size(LogicalSize::new(1.0, 1.0));
-        let window = Rc::new(event_loop.create_window(attrs).expect("could not create window"));
+        let window = Rc::new(
+            event_loop
+                .create_window(attrs)
+                .expect("could not create window"),
+        );
 
-        let context = softbuffer::Context::new(window.clone()).expect("could not create graphics context");
+        let context =
+            softbuffer::Context::new(window.clone()).expect("could not create graphics context");
         let surface =
             softbuffer::Surface::new(&context, window.clone()).expect("could not create surface");
 
@@ -185,7 +195,9 @@ impl ApplicationHandler for App {
                 // them with `repeat`, and the Key state machine expects them.
                 if let PhysicalKey::Code(code) = event.physical_key {
                     if let Some(name) = keys::java_key_name(code) {
-                        self.game.input.key_toggled(name, event.state == ElementState::Pressed);
+                        self.game
+                            .input
+                            .key_toggled(name, event.state == ElementState::Pressed);
                     } else {
                         println!("INPUT: Could not find keyname for key {code:?}");
                     }

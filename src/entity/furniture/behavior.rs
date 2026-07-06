@@ -1,7 +1,7 @@
 //! Behavior of the Java `Furniture` base class (tick/render/push/take/use dispatch).
 
 use crate::core::game::Game;
-use crate::entity::{behavior, Direction, Entity, EntityKind};
+use crate::entity::{Direction, Entity, EntityKind, behavior};
 use crate::gfx::Screen;
 use crate::item::{ItemKind, registry};
 
@@ -59,14 +59,13 @@ pub fn take(g: &mut Game, e: &mut Entity, player: &mut Entity) {
 /// Returns true if the furniture handled it.
 pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool {
     match &e.kind {
-        // TODO(port:screen): Chest opens ContainerDisplay; Crafter opens CraftingDisplay;
-        // DungeonChest has its own use; Bed sleeps.
         EntityKind::DungeonChest(_) => super::dungeon_chest_behavior::use_furniture(g, e, player),
         EntityKind::Chest(_) | EntityKind::DeathChest(_) => {
             super::chest_behavior::use_furniture(g, e, player)
         }
         EntityKind::Crafter(_) => super::crafter_behavior::use_furniture(g, e, player),
         EntityKind::Bed(_) => super::bed_behavior::use_furniture(g, e, player),
+        EntityKind::Spawner(_) => super::spawner_behavior::use_furniture(g, e, player),
         _ => false,
     }
 }

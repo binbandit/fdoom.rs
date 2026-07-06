@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use crate::core::game::Game;
 use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::gfx::color;
-use crate::gfx::sprite::{compile_sprite_list, MobAnims, Sprite};
+use crate::gfx::sprite::{MobAnims, Sprite, compile_sprite_list};
 
 use super::PassiveMobData;
 
@@ -34,17 +34,35 @@ pub fn new(g: &Game) -> Entity {
     Entity::new(c, EntityKind::GlowWorm(GlowWormData { passive }))
 }
 
-/// Java `glow_worm.tick()`. TODO(port:entity-behavior): leaf behavior.
+/// Java `GlowWorm.tick()` — removes itself outside of evening/night.
 pub fn tick(g: &mut Game, e: &mut Entity) {
-    crate::entity::behavior::mobai_tick_base(g, e);
+    use crate::core::updater::Time;
+
+    if !crate::entity::behavior::mobai_tick_base(g, e) {
+        return;
+    }
+
+    let time = g.get_time();
+    if !(time == Time::Night || time == Time::Evening) {
+        crate::entity::behavior::remove_entity(g, e);
+    }
 }
 
-/// Java `glow_worm.die()`. TODO(port:entity-behavior): drops.
+/// Java `GlowWorm.die()` — no override; `PassiveMob.die()`.
 pub fn die(g: &mut Game, e: &mut Entity) {
     crate::entity::behavior::passive_mob_die(g, e);
 }
 
-/// TODO(port:entity-behavior): custom render.
-pub fn render(g: &mut Game, screen: &mut crate::gfx::Screen, e: &mut Entity) {
-    crate::entity::behavior::passive_mob_render(g, screen, e)
+/// Java `GlowWorm.render(screen)` — always the single standing sprite.
+pub fn render(_g: &mut Game, screen: &mut crate::gfx::Screen, e: &mut Entity) {
+    let xo = e.c.x - 8;
+    let yo = e.c.y - 11;
+
+    let mut col = e.c.col;
+    if e.mob().map(|m| m.hurt_time).unwrap_or(0) > 0 {
+        col = color::WHITE;
+    }
+
+    let cur_sprite = &SPRITES[0][0];
+    cur_sprite.render_color(screen, xo, yo, col);
 }

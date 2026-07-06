@@ -1,0 +1,200 @@
+//! Port of `fdoom.screen.WorldGenDisplay` — the "World Gen Options" screen.
+
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::rc::Rc;
+
+use crate::core::game::Game;
+use crate::gfx::{Screen, color, font};
+
+use super::book_display::BookDisplay;
+use super::display::{Display, DisplayBase};
+use super::entry::input_entry::{self, InputEntry, Validation};
+use super::entry::{EntryFlags, EntryHandle, ListEntry, SelectEntry, handle};
+use super::loading_display::LoadingDisplay;
+use super::menu::MenuBuilder;
+use super::rel_pos::RelPos;
+
+thread_local! {
+    /// The current text of the seed input — Java's static `worldSeed` InputEntry
+    /// (kept live by a change listener on the entry in the menu).
+    static WORLD_SEED: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Java `WorldGenDisplay.getSeed()`.
+pub fn get_seed(g: &mut Game) -> i64 {
+    let seed_str = WORLD_SEED.with(|s| s.borrow().clone());
+    if seed_str.is_empty() {
+        // JAVA: new Random().nextLong() — incidental randomness, so g.random (PORTING.md).
+        g.random.next_long()
+    } else {
+        // JAVA: Long.parseLong(seedStr) threw NumberFormatException past 19 digits; we
+        // fall back to 0 instead of crashing.
+        seed_str.parse().unwrap_or(0)
+    }
+}
+
+/// Java `WorldGenDisplay.makeWorldNameInput(prompt, takenNames, initValue)`.
+pub fn make_world_name_input(
+    prompt: &str,
+    taken_names: Vec<String>,
+    init_value: &str,
+) -> InputEntry {
+    let mut entry =
+        InputEntry::with_init(prompt, Some(input_entry::world_name_char), 36, init_value);
+    entry.set_validation(Validation::UniqueName(taken_names));
+    entry
+}
+
+/// Java's anonymous `SelectEntry` override: "Trouble with world name?" renders in a fixed
+/// dim color regardless of selection.
+struct NameHelpEntry {
+    inner: SelectEntry,
+}
+
+impl ListEntry for NameHelpEntry {
+    fn flags(&self) -> EntryFlags {
+        self.inner.flags()
+    }
+
+    fn flags_mut(&mut self) -> &mut EntryFlags {
+        self.inner.flags_mut()
+    }
+
+    fn tick(&mut self, g: &mut Game) {
+        self.inner.tick(g);
+    }
+
+    fn to_display_string(&self, g: &Game) -> String {
+        self.inner.to_display_string(g)
+    }
+
+    fn get_color(&self, _is_selected: bool) -> i32 {
+        color::get(-1, 444)
+    }
+}
+
+/// Java's anonymous `SelectEntry` override: "Create World" always renders cyan.
+struct CreateWorldEntry {
+    inner: SelectEntry,
+}
+
+impl ListEntry for CreateWorldEntry {
+    fn flags(&self) -> EntryFlags {
+        self.inner.flags()
+    }
+
+    fn flags_mut(&mut self) -> &mut EntryFlags {
+        self.inner.flags_mut()
+    }
+
+    fn tick(&mut self, g: &mut Game) {
+        self.inner.tick(g);
+    }
+
+    fn to_display_string(&self, g: &Game) -> String {
+        self.inner.to_display_string(g)
+    }
+
+    fn render(&mut self, screen: &mut Screen, g: &mut Game, x: i32, y: i32, _is_selected: bool) {
+        let text = self.to_display_string(g);
+        font::draw(&text, screen, x, y, color::CYAN);
+    }
+}
+
+pub struct WorldGenDisplay {
+    base: DisplayBase,
+}
+
+impl WorldGenDisplay {
+    pub fn new(g: &Game) -> WorldGenDisplay {
+        let name_field: Rc<RefCell<InputEntry>> = Rc::new(RefCell::new(make_world_name_input(
+            "Enter World Name",
+            super::world_select::get_world_names(g),
+            "",
+        )));
+
+        let mut name_help = NameHelpEntry {
+            inner: SelectEntry::new("Trouble with world name?", |g: &mut Game| {
+                g.set_menu(BookDisplay::new(g, "by default, w and s move the cursor up and down. This can be changed in the key binding menu. To type the letter instead of moving the cursor, hold the shift key while typing the world name."));
+            }),
+        };
+
+        name_help.set_visible(false);
+
+        let mut controls: HashSet<String> = HashSet::new();
+        controls.extend(g.input.get_mapping("up").split('/').map(str::to_string));
+        controls.extend(g.input.get_mapping("down").split('/').map(str::to_string));
+        for key in &controls {
+            // JAVA: key.matches("^\\w$") — a single word character.
+            let mut chars = key.chars();
+            if let (Some(ch), None) = (chars.next(), chars.next()) {
+                if ch.is_ascii_alphanumeric() || ch == '_' {
+                    name_help.set_visible(true);
+                    break;
+                }
+            }
+        }
+
+        // JAVA: worldSeed = new InputEntry("World Seed", "[0-9]+", 20) { isValid() → true }
+        WORLD_SEED.with(|s| s.borrow_mut().clear());
+        let mut world_seed = InputEntry::new("World Seed", Some(input_entry::digit_char), 20);
+        world_seed.set_validation(Validation::Always);
+        // Mirrors the Java static: getSeed() reads whatever is typed here.
+        world_seed.set_change_listener(Box::new(|text: &str| {
+            WORLD_SEED.with(|s| *s.borrow_mut() = text.to_string());
+        }));
+
+        let create_world = {
+            let name_field = name_field.clone();
+            CreateWorldEntry {
+                inner: SelectEntry::new("Create World", move |g: &mut Game| {
+                    if !name_field.borrow().is_valid() {
+                        return;
+                    }
+                    let name = name_field.borrow().get_user_input();
+                    super::world_select::set_world_name(g, &name, false);
+                    // Java's LevelGen read `WorldGenDisplay.getSeed()` at generation
+                    // time; the Rust world gen reads `g.world_seed`, so capture it here.
+                    g.world_seed = get_seed(g);
+                    g.set_menu(LoadingDisplay::new());
+                }),
+            }
+        };
+
+        let entries: Vec<EntryHandle> = vec![
+            name_field,
+            handle(name_help),
+            g.settings.get_entry("mode"),
+            g.settings.get_entry("scoretime"),
+            handle(create_world),
+            g.settings.get_entry("size"),
+            g.settings.get_entry("theme"),
+            g.settings.get_entry("type"),
+            handle(world_seed),
+        ];
+
+        let menu = MenuBuilder::new(false, 10, RelPos::Left, entries)
+            .set_display_length(5)
+            .set_scroll_policies(0.8, false)
+            .set_title("World Gen Options")
+            .create_menu(g);
+
+        WorldGenDisplay {
+            base: DisplayBase::new(true, true, vec![menu]),
+        }
+    }
+}
+
+impl Display for WorldGenDisplay {
+    fn base(&self) -> &DisplayBase {
+        &self.base
+    }
+
+    fn base_mut(&mut self) -> &mut DisplayBase {
+        &mut self.base
+    }
+
+    // JAVA: init forces the parent to a TitleDisplay when not opened from one; with the
+    // explicit display stack, exiting simply returns to whatever opened this screen.
+}

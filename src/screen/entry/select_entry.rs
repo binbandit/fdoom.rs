@@ -20,7 +20,11 @@ impl SelectEntry {
         Self::with_localize(text, on_select, true)
     }
 
-    pub fn with_localize(text: &str, on_select: impl FnMut(&mut Game) + 'static, localize: bool) -> SelectEntry {
+    pub fn with_localize(
+        text: &str,
+        on_select: impl FnMut(&mut Game) + 'static,
+        localize: bool,
+    ) -> SelectEntry {
         SelectEntry {
             on_select: Some(Box::new(on_select)),
             text: text.to_string(),
@@ -54,7 +58,11 @@ impl ListEntry for SelectEntry {
     }
 
     fn to_display_string(&self, g: &Game) -> String {
-        if self.localize { g.localization.get_localized(&self.text) } else { self.text.clone() }
+        if self.localize {
+            g.localization.get_localized(&self.text)
+        } else {
+            self.text.clone()
+        }
     }
 
     fn get_width(&self, g: &Game) -> i32 {

@@ -107,10 +107,20 @@ impl ArrayEntry {
     }
 
     /// Java `new ArrayEntry(label, wrap, localize, options...)`.
-    pub fn with_flags(label: &str, wrap: bool, localize: bool, options: Vec<Value>, loc: &Localization) -> ArrayEntry {
+    pub fn with_flags(
+        label: &str,
+        wrap: bool,
+        localize: bool,
+        options: Vec<Value>,
+        loc: &Localization,
+    ) -> ArrayEntry {
         let mut max_width = 0;
         for option in &options {
-            let text = if localize { loc.get_localized(&option.to_display()) } else { option.to_display() };
+            let text = if localize {
+                loc.get_localized(&option.to_display())
+            } else {
+                option.to_display()
+            };
             max_width = max_width.max(font::text_width(&text));
         }
         let option_vis = vec![true; options.len()];
@@ -130,7 +140,13 @@ impl ArrayEntry {
 
     /// Java `new BooleanEntry(label, initial)`.
     pub fn boolean(label: &str, initial: bool, loc: &Localization) -> ArrayEntry {
-        let mut e = Self::with_flags(label, true, true, vec![Value::Bool(true), Value::Bool(false)], loc);
+        let mut e = Self::with_flags(
+            label,
+            true,
+            true,
+            vec![Value::Bool(true), Value::Bool(false)],
+            loc,
+        );
         e.flavor = Flavor::Boolean;
         e.set_selection(if initial { 0 } else { 1 });
         e
@@ -179,7 +195,10 @@ impl ArrayEntry {
     }
 
     fn get_index(&self, value: &Value) -> Option<i32> {
-        self.options.iter().position(|o| o.matches(value)).map(|i| i as i32)
+        self.options
+            .iter()
+            .position(|o| o.matches(value))
+            .map(|i| i as i32)
     }
 
     pub fn set_value_visibility(&mut self, value: &Value, visible: bool) {
@@ -258,20 +277,29 @@ impl ListEntry for ArrayEntry {
             Flavor::Normal => {
                 let mut str = format!("{}: ", g.localization.get_localized(&self.label));
                 let option = self.options[self.selection as usize].to_display();
-                str.push_str(&if self.localize { g.localization.get_localized(&option) } else { option });
+                str.push_str(&if self.localize {
+                    g.localization.get_localized(&option)
+                } else {
+                    option
+                });
                 str
             }
             // JAVA: BooleanEntry does not localize its label
             Flavor::Boolean => format!(
                 "{}: {}",
                 self.label,
-                g.localization.get_localized(if self.get_value().as_bool() { "On" } else { "Off" })
+                g.localization.get_localized(if self.get_value().as_bool() {
+                    "On"
+                } else {
+                    "Off"
+                })
             ),
         }
     }
 
     fn get_width(&self, g: &Game) -> i32 {
-        font::text_width(&format!("{}: ", g.localization.get_localized(&self.label))) + self.max_width
+        font::text_width(&format!("{}: ", g.localization.get_localized(&self.label)))
+            + self.max_width
     }
 
     fn is_array_entry(&self) -> bool {

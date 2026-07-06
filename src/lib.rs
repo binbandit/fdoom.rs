@@ -9,6 +9,7 @@ pub mod gfx;
 pub mod item;
 pub mod java_random;
 pub mod level;
+pub mod network;
 pub mod platform;
 pub mod saveload;
 pub mod screen;
@@ -46,10 +47,14 @@ pub fn run(args: Vec<String>) {
     let game_dir = file_handler::determine_game_dir(&save_dir, debug);
 
     let mut game = Game::new(debug, true, game_dir);
+    // (Tiles.initTileList(), Sound.init(), Settings.init() all happen in Game::new)
 
-    // TODO(port:level) Tiles.initTileList()
-    // TODO(port:entity) World.resetGame(); player.eid = 0
-    // TODO(port:saveload) new Load(true) — load saved preferences
+    // World.resetGame() — "half"-starts a new game, to set up initial variables;
+    // the player entity gets eid 0 (g.player_id).
+    core::world::reset_game(&mut game, true);
+
+    // this loads any saved preferences (Java `new Load(true)`)
+    saveload::load::load_prefs(&mut game);
 
     game.set_menu(SplashMenu::new()); // sets menu to the title screen
 

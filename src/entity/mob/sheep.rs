@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use crate::core::game::Game;
 use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::gfx::color;
-use crate::gfx::sprite::{compile_mob_sprite_animations, MobAnims};
+use crate::gfx::sprite::{MobAnims, compile_mob_sprite_animations};
 
 use super::PassiveMobData;
 
@@ -25,12 +25,35 @@ pub fn new(g: &Game) -> Entity {
     Entity::new(c, EntityKind::Sheep(SheepData { passive }))
 }
 
-/// Java `sheep.tick()`. TODO(port:entity-behavior): leaf behavior.
+// JAVA: Sheep.java only overrides die(); it has no tick/touchedBy/interact overrides
+// (no wool-cutting mechanic exists in this fork).
+
+/// Java `Sheep.tick()` — no override; `MobAi.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
     crate::entity::behavior::mobai_tick_base(g, e);
 }
 
-/// Java `sheep.die()`. TODO(port:entity-behavior): drops.
+/// Java `Sheep.die()`.
 pub fn die(g: &mut Game, e: &mut Entity) {
+    use crate::item::registry;
+
+    let (mut min, mut max) = (0, 0);
+    let diff = g.settings.get("diff").as_str().to_string();
+    if diff == "Easy" {
+        min = 1;
+        max = 3;
+    }
+    if diff == "Normal" {
+        min = 1;
+        max = 2;
+    }
+    if diff == "Hard" {
+        min = 0;
+        max = 2;
+    }
+
+    let wool = registry::get(g, "wool");
+    crate::entity::behavior::mobai_drop_items(g, e, min, max, &[wool]);
+
     crate::entity::behavior::passive_mob_die(g, e);
 }

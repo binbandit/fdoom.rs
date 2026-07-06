@@ -2,7 +2,7 @@
 
 use super::font;
 use super::screen::{self, Screen};
-use super::{color, Dimension, Point, Rectangle};
+use super::{Dimension, Point, Rectangle, color};
 use crate::screen::rel_pos::RelPos;
 
 /// x and y offsets for each binary value in the "shadow location byte"; the values
@@ -59,7 +59,9 @@ impl FontStyle {
             let text_box = self.rel_text_pos.position_rect(size, self.anchor);
 
             let inner_size = text_bounds.size();
-            text_bounds = self.rel_line_pos.position_rect_in_container(inner_size, &text_box);
+            text_bounds = self
+                .rel_line_pos
+                .position_rect_in_container(inner_size, &text_box);
         }
 
         let x_pos = text_bounds.left();
@@ -69,7 +71,13 @@ impl FontStyle {
         let sides: Vec<char> = self.shadow_type.chars().collect();
         for i in 0..8.min(sides.len()) {
             if sides[i] == '1' {
-                font::draw(msg, screen, x_pos + SHADOW_POS_MAP[i], y_pos + SHADOW_POS_MAP[i + 8], self.shadow_color);
+                font::draw(
+                    msg,
+                    screen,
+                    x_pos + SHADOW_POS_MAP[i],
+                    y_pos + SHADOW_POS_MAP[i + 8],
+                    self.shadow_color,
+                );
             }
         }
 
@@ -99,7 +107,11 @@ impl FontStyle {
         }
 
         let mut text_area = self.para_bounds;
-        text_area.set_size(text_area.width(), font::text_height() + spacing, RelPos::TopLeft);
+        text_area.set_size(
+            text_area.width(),
+            font::text_height() + spacing,
+            RelPos::TopLeft,
+        );
         text_area.translate(0, line * text_area.height());
 
         // for the relpos to put the rect in the correct pos, the anchor is fetched with the opposite relpos
@@ -110,7 +122,13 @@ impl FontStyle {
     }
 
     /// Java `drawParagraphLine(para, line, spacing, screen)`.
-    pub fn draw_paragraph_line(&mut self, para: &[String], line: i32, spacing: i32, screen: &mut Screen) {
+    pub fn draw_paragraph_line(
+        &mut self,
+        para: &[String],
+        line: i32,
+        spacing: i32,
+        screen: &mut Screen,
+    ) {
         self.setup_paragraph_line(para, line, spacing);
         self.draw(&para[line as usize], screen);
         self.pad_x = 0;
@@ -131,8 +149,10 @@ impl FontStyle {
     pub fn set_x_pos_align(mut self, pos: i32, reset_alignment: bool) -> Self {
         self.anchor.x = pos;
         if reset_alignment {
-            self.rel_text_pos = RelPos::get_pos(RelPos::Right.x_index(), self.rel_text_pos.y_index());
-            self.rel_line_pos = RelPos::get_pos(RelPos::Left.x_index(), self.rel_line_pos.y_index());
+            self.rel_text_pos =
+                RelPos::get_pos(RelPos::Right.x_index(), self.rel_text_pos.y_index());
+            self.rel_line_pos =
+                RelPos::get_pos(RelPos::Left.x_index(), self.rel_line_pos.y_index());
         }
         self
     }
@@ -144,7 +164,8 @@ impl FontStyle {
     pub fn set_y_pos_align(mut self, pos: i32, reset_alignment: bool) -> Self {
         self.anchor.y = pos;
         if reset_alignment {
-            self.rel_text_pos = RelPos::get_pos(self.rel_text_pos.x_index(), RelPos::Bottom.y_index());
+            self.rel_text_pos =
+                RelPos::get_pos(self.rel_text_pos.x_index(), RelPos::Bottom.y_index());
             self.rel_line_pos = RelPos::get_pos(self.rel_line_pos.x_index(), RelPos::Top.y_index());
         }
         self

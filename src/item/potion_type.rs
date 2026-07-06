@@ -82,7 +82,11 @@ impl PotionType {
 
     /// Java `PotionType.name` field — "Potion" for None, "<Type> Potion" otherwise.
     pub fn item_name(self) -> String {
-        if self == PotionType::None { "Potion".to_string() } else { format!("{} Potion", self.enum_name()) }
+        if self == PotionType::None {
+            "Potion".to_string()
+        } else {
+            format!("{} Potion", self.enum_name())
+        }
     }
 
     pub fn ordinal(self) -> i32 {

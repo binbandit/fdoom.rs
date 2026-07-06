@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use crate::core::game::Game;
 use crate::entity::{Direction, Entity, EntityCommon, EntityKind};
-use crate::gfx::sprite::{compile_mob_sprite_animations, MobAnims};
+use crate::gfx::sprite::{MobAnims, compile_mob_sprite_animations};
 use crate::item::{Inventory, Item, PotionType};
 
 use super::MobData;
@@ -39,9 +39,12 @@ pub const HUNGER_STEP_COUNT: [i32; 3] = [8, 3, 1];
 pub const MIN_STARVE_HEALTH: [i32; 3] = [5, 3, 0];
 
 pub static SPRITES: LazyLock<MobAnims> = LazyLock::new(|| compile_mob_sprite_animations(0, 14));
-pub static CARRY_SPRITES: LazyLock<MobAnims> = LazyLock::new(|| compile_mob_sprite_animations(0, 16));
-pub static SUIT_SPRITES: LazyLock<MobAnims> = LazyLock::new(|| compile_mob_sprite_animations(18, 20));
-pub static CARRY_SUIT_SPRITES: LazyLock<MobAnims> = LazyLock::new(|| compile_mob_sprite_animations(18, 22));
+pub static CARRY_SPRITES: LazyLock<MobAnims> =
+    LazyLock::new(|| compile_mob_sprite_animations(0, 16));
+pub static SUIT_SPRITES: LazyLock<MobAnims> =
+    LazyLock::new(|| compile_mob_sprite_animations(18, 20));
+pub static CARRY_SUIT_SPRITES: LazyLock<MobAnims> =
+    LazyLock::new(|| compile_mob_sprite_animations(18, 22));
 
 #[derive(Debug, Clone)]
 pub struct PlayerData {

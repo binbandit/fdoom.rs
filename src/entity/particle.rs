@@ -2,7 +2,7 @@
 //! differ in constructor arguments) and `TextParticle`.
 
 use crate::entity::{Entity, EntityCommon, EntityKind};
-use crate::gfx::{color, FontStyle, Sprite};
+use crate::gfx::{FontStyle, Sprite, color};
 use crate::java_random::JavaRandom;
 
 #[derive(Debug, Clone)]
@@ -17,19 +17,38 @@ pub fn new_particle(x: i32, y: i32, xr: i32, lifetime: i32, sprite: Sprite) -> E
     let mut c = EntityCommon::new(xr, 1);
     c.x = x;
     c.y = y;
-    Entity::new(c, EntityKind::Particle(ParticleData { time: 0, lifetime, sprite }))
+    Entity::new(
+        c,
+        EntityKind::Particle(ParticleData {
+            time: 0,
+            lifetime,
+            sprite,
+        }),
+    )
 }
 
 /// Java `new FireParticle(x, y)` — used by Spawners when they spawn an entity.
 pub fn new_fire_particle(x: i32, y: i32) -> Entity {
-    new_particle(x, y, 1, 30, Sprite::new1x1(9, 19, color::get4(-1, 520, 550, 500)))
+    new_particle(
+        x,
+        y,
+        1,
+        30,
+        Sprite::new1x1(9, 19, color::get4(-1, 520, 550, 500)),
+    )
 }
 
 /// Java `new SmashParticle(x, y)`. (The monsterHurt sound is played by the caller-side
 /// helper in the behavior code, as the Java constructor did.)
 pub fn new_smash_particle(x: i32, y: i32) -> Entity {
     let mirrors: [Vec<i32>; 2] = [vec![2, 3], vec![0, 1]];
-    new_particle(x, y, 1, 10, Sprite::with_mirrors(5, 12, 2, 2, color::WHITE, true, &mirrors))
+    new_particle(
+        x,
+        y,
+        1,
+        10,
+        Sprite::with_mirrors(5, 12, 2, 2, color::WHITE, true, &mirrors),
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -54,7 +73,11 @@ pub fn new_text_particle(msg: &str, x: i32, y: i32, col: i32, random: &mut JavaR
     c.y = y;
     let style = FontStyle::new(col).set_shadow_type(color::BLACK, false);
     let data = TextParticleData {
-        particle: ParticleData { time: 0, lifetime: 60, sprite: Sprite::missing_texture(1, 1) },
+        particle: ParticleData {
+            time: 0,
+            lifetime: 60,
+            sprite: Sprite::missing_texture(1, 1),
+        },
         msg: msg.to_string(),
         xx: x as f64,
         yy: y as f64,

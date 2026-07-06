@@ -1,9 +1,9 @@
 //! Port of `fdoom.entity.furniture.Crafter`.
 
 use crate::entity::{Entity, EntityKind};
-use crate::gfx::{color, Sprite};
+use crate::gfx::{Sprite, color};
 
-use super::{furniture_common, FurnitureData};
+use super::{FurnitureData, furniture_common};
 
 /// Java `Crafter.Type`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,5 +67,11 @@ pub fn new(crafter_type: CrafterType) -> Entity {
     let furniture = FurnitureData::new(crafter_type.name(), crafter_type.sprite());
     let (xr, yr) = crafter_type.radius();
     let c = furniture_common(furniture.sprite.color, xr, yr);
-    Entity::new(c, EntityKind::Crafter(CrafterData { furniture, crafter_type }))
+    Entity::new(
+        c,
+        EntityKind::Crafter(CrafterData {
+            furniture,
+            crafter_type,
+        }),
+    )
 }

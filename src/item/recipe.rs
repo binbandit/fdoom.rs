@@ -1,7 +1,7 @@
 //! Port of `fdoom.item.Recipe` and `fdoom.item.Recipes`.
 
 use crate::core::game::Game;
-use crate::item::{registry, Inventory, Item};
+use crate::item::{Inventory, Item, registry};
 
 #[derive(Debug, Clone)]
 pub struct Recipe {
@@ -31,7 +31,12 @@ impl Recipe {
             }
         }
 
-        Recipe { costs, product, amount, can_craft: false }
+        Recipe {
+            costs,
+            product,
+            amount,
+            can_craft: false,
+        }
     }
 
     pub fn get_product(&self, g: &Game) -> Item {
@@ -135,7 +140,10 @@ impl Recipes {
         workbench.push(Recipe::new("Stone Door_1", &["Stone Brick_5"]));
         workbench.push(Recipe::new("Oven_1", &["Stone_15"]));
         workbench.push(Recipe::new("Furnace_1", &["Stone_20"]));
-        workbench.push(Recipe::new("Enchanter_1", &["Wood_5", "String_2", "Lapis_10"]));
+        workbench.push(Recipe::new(
+            "Enchanter_1",
+            &["Wood_5", "String_2", "Lapis_10"],
+        ));
         workbench.push(Recipe::new("Chest_1", &["Wood_20"]));
         workbench.push(Recipe::new("Anvil_1", &["iron_5"]));
         workbench.push(Recipe::new("Tnt_1", &["Gunpowder_10", "Sand_8"]));
@@ -154,9 +162,18 @@ impl Recipes {
         loom.push(Recipe::new("green clothes_1", &["cloth_5", "Cactus_1"]));
         loom.push(Recipe::new("yellow clothes_1", &["cloth_5", "Flower_1"]));
         loom.push(Recipe::new("black clothes_1", &["cloth_5", "coal_1"]));
-        loom.push(Recipe::new("orange clothes_1", &["cloth_5", "rose_1", "Flower_1"]));
-        loom.push(Recipe::new("purple clothes_1", &["cloth_5", "Lapis_1", "rose_1"]));
-        loom.push(Recipe::new("cyan clothes_1", &["cloth_5", "Lapis_1", "Cactus_1"]));
+        loom.push(Recipe::new(
+            "orange clothes_1",
+            &["cloth_5", "rose_1", "Flower_1"],
+        ));
+        loom.push(Recipe::new(
+            "purple clothes_1",
+            &["cloth_5", "Lapis_1", "rose_1"],
+        ));
+        loom.push(Recipe::new(
+            "cyan clothes_1",
+            &["cloth_5", "Lapis_1", "Cactus_1"],
+        ));
         loom.push(Recipe::new("reg clothes_1", &["cloth_5"]));
 
         workbench.push(Recipe::new("Wood Sword_1", &["Wood_5"]));
@@ -170,7 +187,10 @@ impl Recipes {
         workbench.push(Recipe::new("Rock Hoe_1", &["Wood_5", "Stone_5"]));
         workbench.push(Recipe::new("Rock Pickaxe_1", &["Wood_5", "Stone_5"]));
         workbench.push(Recipe::new("Rock Shovel_1", &["Wood_5", "Stone_5"]));
-        workbench.push(Recipe::new("Rock Bow_1", &["Wood_5", "Stone_5", "string_2"]));
+        workbench.push(Recipe::new(
+            "Rock Bow_1",
+            &["Wood_5", "Stone_5", "string_2"],
+        ));
 
         workbench.push(Recipe::new("arrow_3", &["Wood_2", "Stone_2"]));
         workbench.push(Recipe::new("Leather Armor_1", &["leather_10"]));
@@ -182,17 +202,29 @@ impl Recipes {
         anvil.push(Recipe::new("Gold Armor_1", &["gold_10"]));
         anvil.push(Recipe::new("Gem Armor_1", &["gem_65"]));
         anvil.push(Recipe::new("Empty Bucket_1", &["iron_5"]));
-        anvil.push(Recipe::new("Iron Lantern_1", &["iron_8", "slime_5", "glass_4"]));
-        anvil.push(Recipe::new("Gold Lantern_1", &["gold_10", "slime_5", "glass_4"]));
+        anvil.push(Recipe::new(
+            "Iron Lantern_1",
+            &["iron_8", "slime_5", "glass_4"],
+        ));
+        anvil.push(Recipe::new(
+            "Gold Lantern_1",
+            &["gold_10", "slime_5", "glass_4"],
+        ));
         anvil.push(Recipe::new("Iron Sword_1", &["Wood_5", "iron_5"]));
-        anvil.push(Recipe::new("Iron Claymore_1", &["Iron Sword_1", "shard_15"]));
+        anvil.push(Recipe::new(
+            "Iron Claymore_1",
+            &["Iron Sword_1", "shard_15"],
+        ));
         anvil.push(Recipe::new("Iron Axe_1", &["Wood_5", "iron_5"]));
         anvil.push(Recipe::new("Iron Hoe_1", &["Wood_5", "iron_5"]));
         anvil.push(Recipe::new("Iron Pickaxe_1", &["Wood_5", "iron_5"]));
         anvil.push(Recipe::new("Iron Shovel_1", &["Wood_5", "iron_5"]));
         anvil.push(Recipe::new("Iron Bow_1", &["Wood_5", "iron_5", "string_2"]));
         anvil.push(Recipe::new("Gold Sword_1", &["Wood_5", "gold_5"]));
-        anvil.push(Recipe::new("Gold Claymore_1", &["Gold Sword_1", "shard_15"]));
+        anvil.push(Recipe::new(
+            "Gold Claymore_1",
+            &["Gold Sword_1", "shard_15"],
+        ));
         anvil.push(Recipe::new("Gold Axe_1", &["Wood_5", "gold_5"]));
         anvil.push(Recipe::new("Gold Hoe_1", &["Wood_5", "gold_5"]));
         anvil.push(Recipe::new("Gold Pickaxe_1", &["Wood_5", "gold_5"]));
@@ -220,12 +252,26 @@ impl Recipes {
         enchant.push(Recipe::new("speed potion_1", &["potion_1", "Cactus_5"]));
         enchant.push(Recipe::new("light potion_1", &["potion_1", "slime_5"]));
         enchant.push(Recipe::new("swim potion_1", &["potion_1", "raw fish_5"]));
-        enchant.push(Recipe::new("haste potion_1", &["potion_1", "Wood_5", "Stone_5"]));
+        enchant.push(Recipe::new(
+            "haste potion_1",
+            &["potion_1", "Wood_5", "Stone_5"],
+        ));
         enchant.push(Recipe::new("lava potion_1", &["potion_1", "Lava Bucket_1"]));
         enchant.push(Recipe::new("energy potion_1", &["potion_1", "gem_25"]));
         enchant.push(Recipe::new("regen potion_1", &["potion_1", "Gold Apple_1"]));
-        enchant.push(Recipe::new("Health Potion_1", &["potion_1", "GunPowder_2", "Leather Armor_1"]));
+        enchant.push(Recipe::new(
+            "Health Potion_1",
+            &["potion_1", "GunPowder_2", "Leather Armor_1"],
+        ));
 
-        Recipes { anvil, oven, furnace, workbench, enchant, craft, loom }
+        Recipes {
+            anvil,
+            oven,
+            furnace,
+            workbench,
+            enchant,
+            craft,
+            loom,
+        }
     }
 }

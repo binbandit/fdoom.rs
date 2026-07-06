@@ -6,11 +6,11 @@
 //! (`tick`/`interact`/`hurt`/...) is in `dispatch.rs`, matching on `TileKind` and calling
 //! into the per-tile modules.
 
-pub mod dispatch;
 pub mod cactus;
 pub mod cloud;
 pub mod cloud_cactus;
 pub mod dirt;
+pub mod dispatch;
 pub mod door;
 pub mod exploded;
 pub mod farm;
@@ -88,12 +88,22 @@ pub struct ConnectorSprite {
 
 impl ConnectorSprite {
     pub fn new(sparse: Sprite, sides: Sprite, full: Sprite) -> ConnectorSprite {
-        ConnectorSprite { sparse, sides, full, check_corners: true }
+        ConnectorSprite {
+            sparse,
+            sides,
+            full,
+            check_corners: true,
+        }
     }
 
     /// Java 2-sprite constructor (sides = sparse, cornersMatter = false).
     pub fn simple(sparse: Sprite, full: Sprite) -> ConnectorSprite {
-        ConnectorSprite { sides: sparse.clone(), sparse, full, check_corners: false }
+        ConnectorSprite {
+            sides: sparse.clone(),
+            sparse,
+            full,
+            check_corners: false,
+        }
     }
 }
 
@@ -151,16 +161,23 @@ pub enum TileKind {
     Dirt,
     Flower,
     Hole,
-    Stairs { leads_up: bool },
+    Stairs {
+        leads_up: bool,
+    },
     Water,
     Rock,
     Tree,
-    Sapling { on_type: String, grows_to: String },
+    Sapling {
+        on_type: String,
+        grows_to: String,
+    },
     Sand,
     Cactus,
     Lava,
     LavaBrick,
-    Ore { ore_type: OreType },
+    Ore {
+        ore_type: OreType,
+    },
     Exploded,
     Farm,
     Wheat,
@@ -168,20 +185,32 @@ pub enum TileKind {
     InfiniteFall,
     Cloud,
     CloudCactus,
-    Floor { material: Material },
-    Wall { material: Material },
-    Door { material: Material },
+    Floor {
+        material: Material,
+    },
+    Wall {
+        material: Material,
+    },
+    Door {
+        material: Material,
+    },
     Wool,
     QuickSand,
     Snow,
     SnowTree,
-    TallGrass { kind: i32 },
+    TallGrass {
+        kind: i32,
+    },
     Pumpkin,
-    GraveStone { broken: bool },
+    GraveStone {
+        broken: bool,
+    },
     Fence,
     /// Java `TorchTile` — wraps the tile it stands on; registered dynamically at
     /// `onType.id + 128`.
-    Torch { on_type: String },
+    Torch {
+        on_type: String,
+    },
 }
 
 /// Java `Tiles` — the tile registry. Interior mutability because torch tiles register
@@ -216,10 +245,16 @@ impl Tiles {
         set(6, dispatch::make_water_tile("Water"));
         set(7, dispatch::make_rock_tile("Rock"));
         set(8, dispatch::make_tree_tile("Tree"));
-        set(9, dispatch::make_sapling_tile("Tree Sapling", "Grass", "Tree"));
+        set(
+            9,
+            dispatch::make_sapling_tile("Tree Sapling", "Grass", "Tree"),
+        );
         set(10, dispatch::make_sand_tile("Sand"));
         set(11, dispatch::make_cactus_tile("Cactus"));
-        set(12, dispatch::make_sapling_tile("Cactus Sapling", "Sand", "Cactus"));
+        set(
+            12,
+            dispatch::make_sapling_tile("Cactus Sapling", "Sand", "Cactus"),
+        );
         set(17, dispatch::make_lava_tile("Lava"));
         set(18, dispatch::make_lava_brick_tile("Lava Brick"));
         set(13, dispatch::make_ore_tile(OreType::Iron));
@@ -246,15 +281,26 @@ impl Tiles {
         set(36, dispatch::make_quicksand_tile("Quick Sand"));
         set(37, dispatch::make_snow_tile("Snow"));
         set(38, dispatch::make_snow_tree_tile("Snow Tree"));
-        set(39, dispatch::make_tall_grass_tile("Small Grass", "grass", 0));
-        set(40, dispatch::make_tall_grass_tile("Medium Grass", "grass", 1));
+        set(
+            39,
+            dispatch::make_tall_grass_tile("Small Grass", "grass", 0),
+        );
+        set(
+            40,
+            dispatch::make_tall_grass_tile("Medium Grass", "grass", 1),
+        );
         set(41, dispatch::make_tall_grass_tile("Tall Grass", "grass", 2));
         set(42, dispatch::make_pumpkin_tile("pumpkin", false));
         set(43, dispatch::make_grave_stone_tile("Grave stone", false));
-        set(44, dispatch::make_grave_stone_tile("Broken Grave Stone", true));
+        set(
+            44,
+            dispatch::make_grave_stone_tile("Broken Grave Stone", true),
+        );
         set(45, dispatch::make_fence_tile("Fence"));
 
-        Tiles { list: RefCell::new(t) }
+        Tiles {
+            list: RefCell::new(t),
+        }
     }
 
     /// Java `Tiles.get(name)` — handles "TORCH x" prefixes and "_data" suffixes.
@@ -287,7 +333,11 @@ impl Tiles {
             }
         };
 
-        if is_torch { self.get_torch_tile(getting) } else { getting }
+        if is_torch {
+            self.get_torch_tile(getting)
+        } else {
+            getting
+        }
     }
 
     /// Java `Tiles.get(id)`.

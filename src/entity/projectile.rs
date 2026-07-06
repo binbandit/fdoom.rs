@@ -28,7 +28,15 @@ pub fn new_arrow(owner_eid: i32, x: i32, y: i32, dir: Direction, dmg: i32) -> En
         6
     };
 
-    Entity::new(c, EntityKind::Arrow(ArrowData { dir, damage: dmg, owner: owner_eid, speed }))
+    Entity::new(
+        c,
+        EntityKind::Arrow(ArrowData {
+            dir,
+            damage: dmg,
+            owner: owner_eid,
+            speed,
+        }),
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -46,7 +54,14 @@ pub struct SparkData {
 }
 
 /// Java `new Spark(owner, xa, ya)`.
-pub fn new_spark(owner_eid: i32, owner_x: i32, owner_y: i32, xa: f64, ya: f64, random: &mut JavaRandom) -> Entity {
+pub fn new_spark(
+    owner_eid: i32,
+    owner_x: i32,
+    owner_y: i32,
+    xa: f64,
+    ya: f64,
+    random: &mut JavaRandom,
+) -> Entity {
     let mut c = EntityCommon::new(0, 0);
     c.x = owner_x;
     c.y = owner_y;

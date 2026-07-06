@@ -101,7 +101,9 @@ impl SoundPlayer {
             let sink = rodio::Player::connect_new(stream.mixer());
             channels.push(Channel { samples, sink });
         }
-        SoundPlayer { output: Some((stream, channels)) }
+        SoundPlayer {
+            output: Some((stream, channels)),
+        }
     }
 
     /// Silent player (used by tests and `--server` mode).

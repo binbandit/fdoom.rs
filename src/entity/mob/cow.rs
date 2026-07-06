@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use crate::core::game::Game;
 use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::gfx::color;
-use crate::gfx::sprite::{compile_mob_sprite_animations, MobAnims};
+use crate::gfx::sprite::{MobAnims, compile_mob_sprite_animations};
 
 use super::PassiveMobData;
 
@@ -25,12 +25,33 @@ pub fn new(g: &Game) -> Entity {
     Entity::new(c, EntityKind::Cow(CowData { passive }))
 }
 
-/// Java `cow.tick()`. TODO(port:entity-behavior): leaf behavior.
+/// Java `Cow.tick()` — no override; `MobAi.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
     crate::entity::behavior::mobai_tick_base(g, e);
 }
 
-/// Java `cow.die()`. TODO(port:entity-behavior): drops.
+/// Java `Cow.die()`.
 pub fn die(g: &mut Game, e: &mut Entity) {
+    use crate::item::registry;
+
+    let (mut min, mut max) = (0, 0);
+    let diff = g.settings.get("diff").as_str().to_string();
+    if diff == "Easy" {
+        min = 1;
+        max = 3;
+    }
+    if diff == "Normal" {
+        min = 1;
+        max = 2;
+    }
+    if diff == "Hard" {
+        min = 0;
+        max = 1;
+    }
+
+    let leather = registry::get(g, "leather");
+    let raw_beef = registry::get(g, "raw beef");
+    crate::entity::behavior::mobai_drop_items(g, e, min, max, &[leather, raw_beef]);
+
     crate::entity::behavior::passive_mob_die(g, e);
 }

@@ -46,11 +46,19 @@ impl Demo {
                 }
             })
             .collect();
-        Some(Demo { steps, idx: 0, wait_left: 0, release_next: None, pending_shot: None })
+        Some(Demo {
+            steps,
+            idx: 0,
+            wait_left: 0,
+            release_next: None,
+            pending_shot: None,
+        })
     }
 
     /// Called once per game tick, before `game.tick()`.
     pub fn on_tick(&mut self, game: &mut Game) {
+        // scripted runs must not depend on the OS granting window focus
+        game.has_focus = true;
         if let Some(key) = self.release_next.take() {
             game.input.key_toggled(&key, false);
         }

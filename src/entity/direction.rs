@@ -10,8 +10,13 @@ pub enum Direction {
 }
 
 impl Direction {
-    pub const VALUES: [Direction; 5] =
-        [Direction::None, Direction::Down, Direction::Up, Direction::Left, Direction::Right];
+    pub const VALUES: [Direction; 5] = [
+        Direction::None,
+        Direction::Down,
+        Direction::Up,
+        Direction::Left,
+        Direction::Right,
+    ];
 
     pub fn x(self) -> i32 {
         match self {
@@ -36,7 +41,11 @@ impl Direction {
         }
         if xd.abs() > yd.abs() {
             // the x distance is more prominent than the y distance
-            if xd < 0 { Direction::Left } else { Direction::Right }
+            if xd < 0 {
+                Direction::Left
+            } else {
+                Direction::Right
+            }
         } else if yd < 0 {
             Direction::Up
         } else {

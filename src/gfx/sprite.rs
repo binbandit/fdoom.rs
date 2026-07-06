@@ -18,7 +18,10 @@ pub struct Px {
 
 impl Px {
     pub fn new(sheet_x: i32, sheet_y: i32, mirroring: i32) -> Px {
-        Px { sheet_pos: sheet_x + 32 * sheet_y, mirror: mirroring }
+        Px {
+            sheet_pos: sheet_x + 32 * sheet_y,
+            mirror: mirroring,
+        }
     }
 }
 
@@ -52,20 +55,44 @@ impl Sprite {
     }
 
     /// Java `new Sprite(sx, sy, sw, sh, color, mirror, onepixel)`.
-    pub fn new_onepixel(sx: i32, sy: i32, sw: i32, sh: i32, color: i32, mirror: i32, onepixel: bool) -> Sprite {
+    pub fn new_onepixel(
+        sx: i32,
+        sy: i32,
+        sw: i32,
+        sh: i32,
+        color: i32,
+        mirror: i32,
+        onepixel: bool,
+    ) -> Sprite {
         let mut sprite_pixels = Vec::with_capacity(sh as usize);
         for r in 0..sh {
             let mut row = Vec::with_capacity(sw as usize);
             for c in 0..sw {
-                row.push(Px::new(sx + if onepixel { 0 } else { c }, sy + if onepixel { 0 } else { r }, mirror));
+                row.push(Px::new(
+                    sx + if onepixel { 0 } else { c },
+                    sy + if onepixel { 0 } else { r },
+                    mirror,
+                ));
             }
             sprite_pixels.push(row);
         }
-        Sprite { sprite_pixels, color, sheet_loc: (sx, sy, sw, sh) }
+        Sprite {
+            sprite_pixels,
+            color,
+            sheet_loc: (sx, sy, sw, sh),
+        }
     }
 
     /// Java `new Sprite(sx, sy, sw, sh, color, onepixel, int[][] mirrors)`.
-    pub fn with_mirrors(sx: i32, sy: i32, sw: i32, sh: i32, color: i32, onepixel: bool, mirrors: &[Vec<i32>]) -> Sprite {
+    pub fn with_mirrors(
+        sx: i32,
+        sy: i32,
+        sw: i32,
+        sh: i32,
+        color: i32,
+        onepixel: bool,
+        mirrors: &[Vec<i32>],
+    ) -> Sprite {
         let mut sprite_pixels = Vec::with_capacity(sh as usize);
         for r in 0..sh {
             let mut row = Vec::with_capacity(sw as usize);
@@ -78,12 +105,20 @@ impl Sprite {
             }
             sprite_pixels.push(row);
         }
-        Sprite { sprite_pixels, color, sheet_loc: (sx, sy, sw, sh) }
+        Sprite {
+            sprite_pixels,
+            color,
+            sheet_loc: (sx, sy, sw, sh),
+        }
     }
 
     /// Java `new Sprite(Px[][] pixels, color)`.
     pub fn from_pixels(pixels: Vec<Vec<Px>>, color: i32) -> Sprite {
-        Sprite { sprite_pixels: pixels, color, sheet_loc: (0, 0, 0, 0) }
+        Sprite {
+            sprite_pixels: pixels,
+            color,
+            sheet_loc: (0, 0, 0, 0),
+        }
     }
 
     /// Java `MobSprite(sx, sy, w, h, mirror)` — whole-sprite flipping.
@@ -100,7 +135,11 @@ impl Sprite {
             }
             sprite_pixels.push(row);
         }
-        Sprite { sprite_pixels, color: 0, sheet_loc: (sx, sy, w, h) }
+        Sprite {
+            sprite_pixels,
+            color: 0,
+            sheet_loc: (sx, sy, w, h),
+        }
     }
 
     /// Java `Sprite.missingTexture(w, h)`.
@@ -127,8 +166,12 @@ impl Sprite {
     pub fn random_dots(seed: i64, col: i32) -> Sprite {
         let mut ran = JavaRandom::new(seed);
         let mirror = ran.next_int_bound(4);
-        let coords =
-            [ran.next_int_bound(4), ran.next_int_bound(4), ran.next_int_bound(4), ran.next_int_bound(4)];
+        let coords = [
+            ran.next_int_bound(4),
+            ran.next_int_bound(4),
+            ran.next_int_bound(4),
+            ran.next_int_bound(4),
+        ];
         make_sprite(2, 2, col, mirror, false, &coords)
     }
 
@@ -167,15 +210,32 @@ impl Sprite {
         self.render_pixel_color(c, r, screen, x, y, self.color);
     }
 
-    pub fn render_pixel_color(&self, c: i32, r: i32, screen: &mut Screen, x: i32, y: i32, col: i32) {
+    pub fn render_pixel_color(
+        &self,
+        c: i32,
+        r: i32,
+        screen: &mut Screen,
+        x: i32,
+        y: i32,
+        col: i32,
+    ) {
         let px = self.sprite_pixels[r as usize][c as usize];
         screen.render(x, y, px.sheet_pos, col, px.mirror);
     }
 }
 
 /// Java `MobSprite.compileSpriteList(sheetX, sheetY, width, height, mirror, number)`.
-pub fn compile_sprite_list(sheet_x: i32, sheet_y: i32, width: i32, height: i32, mirror: i32, number: i32) -> Vec<Sprite> {
-    (0..number).map(|i| Sprite::mob(sheet_x + width * i, sheet_y, width, height, mirror)).collect()
+pub fn compile_sprite_list(
+    sheet_x: i32,
+    sheet_y: i32,
+    width: i32,
+    height: i32,
+    mirror: i32,
+    number: i32,
+) -> Vec<Sprite> {
+    (0..number)
+        .map(|i| Sprite::mob(sheet_x + width * i, sheet_y, width, height, mirror))
+        .collect()
 }
 
 /// Java `MobSprite.compileMobSpriteAnimations(sheetX, sheetY)`.
@@ -190,7 +250,14 @@ pub fn compile_mob_sprite_animations(sheet_x: i32, sheet_y: i32) -> MobAnims {
 }
 
 /// Java `ConnectorSprite.makeSprite(w, h, color, mirror, repeat, coords...)`.
-pub fn make_sprite(w: i32, h: i32, color: i32, mirror: i32, repeat: bool, coords: &[i32]) -> Sprite {
+pub fn make_sprite(
+    w: i32,
+    h: i32,
+    color: i32,
+    mirror: i32,
+    repeat: bool,
+    coords: &[i32],
+) -> Sprite {
     let mut pixels: Vec<Vec<Px>> = vec![vec![Px::new(0, 0, 0); w as usize]; h as usize];
     let mut i = 0usize;
     'outer: for row in pixels.iter_mut() {

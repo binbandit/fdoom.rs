@@ -5,6 +5,11 @@
 
 pub mod array_entry;
 pub mod blank_entry;
+pub mod input_entry;
+pub mod item_entry;
+pub mod item_listing;
+pub mod key_input_entry;
+pub mod recipe_entry;
 pub mod select_entry;
 pub mod string_entry;
 
@@ -12,7 +17,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::core::game::Game;
-use crate::gfx::{color, font, Screen};
+use crate::gfx::{Screen, color, font};
 
 pub use array_entry::{ArrayEntry, Value};
 pub use blank_entry::BlankEntry;
@@ -42,7 +47,10 @@ pub struct EntryFlags {
 
 impl Default for EntryFlags {
     fn default() -> Self {
-        EntryFlags { selectable: true, visible: true }
+        EntryFlags {
+            selectable: true,
+            visible: true,
+        }
     }
 }
 

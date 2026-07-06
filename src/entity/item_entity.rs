@@ -87,5 +87,9 @@ pub fn get_data(data: &ItemEntityData) -> String {
 
 /// Java's `Double.toString` — always includes a decimal point.
 pub fn format_double(v: f64) -> String {
-    if v == v.trunc() && v.abs() < 1e7 { format!("{v:.1}") } else { format!("{v}") }
+    if v == v.trunc() && v.abs() < 1e7 {
+        format!("{v:.1}")
+    } else {
+        format!("{v}")
+    }
 }

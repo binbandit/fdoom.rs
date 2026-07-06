@@ -2,7 +2,7 @@
 
 use crate::core::game::Game;
 use crate::core::renderer;
-use crate::gfx::{color, Screen};
+use crate::gfx::{Screen, color};
 
 use super::display::{Display, DisplayBase};
 use super::title_display::TitleDisplay;
@@ -21,7 +21,11 @@ impl Default for SplashMenu {
 
 impl SplashMenu {
     pub fn new() -> SplashMenu {
-        SplashMenu { base: DisplayBase::default(), rdm: 0, tickc: 0 }
+        SplashMenu {
+            base: DisplayBase::default(),
+            rdm: 0,
+            tickc: 0,
+        }
     }
 }
 

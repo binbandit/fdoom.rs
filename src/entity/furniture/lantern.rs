@@ -1,9 +1,9 @@
 //! Port of `fdoom.entity.furniture.Lantern`.
 
 use crate::entity::{Entity, EntityKind};
-use crate::gfx::{color, Sprite};
+use crate::gfx::{Sprite, color};
 
-use super::{furniture_common, FurnitureData};
+use super::{FurnitureData, furniture_common};
 
 /// Java `Lantern.Type`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,8 +49,16 @@ pub struct LanternData {
 
 /// Java `new Lantern(type)`.
 pub fn new(lantern_type: LanternType) -> Entity {
-    let furniture =
-        FurnitureData::new(lantern_type.title(), Sprite::new(10, 8, 2, 2, lantern_type.col(), 0));
+    let furniture = FurnitureData::new(
+        lantern_type.title(),
+        Sprite::new(10, 8, 2, 2, lantern_type.col(), 0),
+    );
     let c = furniture_common(furniture.sprite.color, 3, 2);
-    Entity::new(c, EntityKind::Lantern(LanternData { furniture, lantern_type }))
+    Entity::new(
+        c,
+        EntityKind::Lantern(LanternData {
+            furniture,
+            lantern_type,
+        }),
+    )
 }

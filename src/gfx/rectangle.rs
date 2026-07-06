@@ -46,7 +46,11 @@ impl Rectangle {
             p.y,
             d.width,
             d.height,
-            if is_center { Self::CENTER_DIMS } else { Self::CORNER_DIMS },
+            if is_center {
+                Self::CENTER_DIMS
+            } else {
+                Self::CORNER_DIMS
+            },
         )
     }
 

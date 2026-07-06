@@ -23,7 +23,9 @@ impl SpriteSheet {
         let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
         let mut reader = decoder.read_info().expect("invalid spritesheet png");
         let mut buf = vec![0u8; reader.output_buffer_size().expect("png too large")];
-        let info = reader.next_frame(&mut buf).expect("invalid spritesheet png");
+        let info = reader
+            .next_frame(&mut buf)
+            .expect("invalid spritesheet png");
         let width = info.width as i32;
         let height = info.height as i32;
 
@@ -48,6 +50,10 @@ impl SpriteSheet {
             };
             pixels.push(blue / 64);
         }
-        SpriteSheet { width, height, pixels }
+        SpriteSheet {
+            width,
+            height,
+            pixels,
+        }
     }
 }

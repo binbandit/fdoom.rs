@@ -28,7 +28,10 @@ impl Localization {
             known_unlocalized_strings: RefCell::new(HashSet::new()),
             localization: HashMap::new(),
             selected_language: "english".to_string(),
-            loaded_languages: assets::LOCALIZATIONS.iter().map(|(name, _)| name.to_string()).collect(),
+            loaded_languages: assets::LOCALIZATIONS
+                .iter()
+                .map(|(name, _)| name.to_string())
+                .collect(),
             debug: Cell::new(true),
         };
         loc.load_selected_language_file();
@@ -86,7 +89,8 @@ impl Localization {
             if current_key.is_empty() {
                 current_key = line.to_string();
             } else {
-                self.localization.insert(std::mem::take(&mut current_key), line.to_string());
+                self.localization
+                    .insert(std::mem::take(&mut current_key), line.to_string());
             }
         }
     }

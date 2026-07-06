@@ -8,3 +8,4 @@ pub mod io;
 pub mod my_utils;
 pub mod renderer;
 pub mod updater;
+pub mod world;

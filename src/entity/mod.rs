@@ -8,13 +8,13 @@
 pub mod behavior;
 pub mod direction;
 pub mod furniture;
-pub mod item_entity_behavior;
-pub mod particle_behavior;
-pub mod projectile_behavior;
 pub mod item_entity;
+pub mod item_entity_behavior;
 pub mod mob;
 pub mod particle;
+pub mod particle_behavior;
 pub mod projectile;
+pub mod projectile_behavior;
 
 use crate::gfx::Rectangle;
 use crate::java_random::JavaRandom;
@@ -45,12 +45,27 @@ pub struct EntityCommon {
 
 impl EntityCommon {
     pub fn new(xr: i32, yr: i32) -> EntityCommon {
-        EntityCommon { x: 0, y: 0, xr, yr, removed: true, level: None, col: 0, eid: -1 }
+        EntityCommon {
+            x: 0,
+            y: 0,
+            xr,
+            yr,
+            removed: true,
+            level: None,
+            col: 0,
+            eid: -1,
+        }
     }
 
     /// Java `getBounds()`.
     pub fn bounds(&self) -> Rectangle {
-        Rectangle::new(self.x, self.y, self.xr * 2, self.yr * 2, Rectangle::CENTER_DIMS)
+        Rectangle::new(
+            self.x,
+            self.y,
+            self.xr * 2,
+            self.yr * 2,
+            Rectangle::CENTER_DIMS,
+        )
     }
 
     /// Java `isTouching(area)`.
@@ -133,7 +148,10 @@ impl Entity {
 
     /// Java `instanceof Particle`.
     pub fn is_particle(&self) -> bool {
-        matches!(self.kind, EntityKind::Particle(_) | EntityKind::TextParticle(_))
+        matches!(
+            self.kind,
+            EntityKind::Particle(_) | EntityKind::TextParticle(_)
+        )
     }
 
     /// Java `instanceof Chest`.

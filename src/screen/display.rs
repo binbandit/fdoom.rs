@@ -21,7 +21,12 @@ pub struct DisplayBase {
 impl DisplayBase {
     /// Java `new Display(clearScreen, canExit, menus...)`.
     pub fn new(clear_screen: bool, can_exit: bool, menus: Vec<Menu>) -> DisplayBase {
-        DisplayBase { menus, selection: 0, can_exit, clear_screen }
+        DisplayBase {
+            menus,
+            selection: 0,
+            can_exit,
+            clear_screen,
+        }
     }
 }
 
@@ -162,7 +167,10 @@ pub struct DisplayManager {
 
 impl Default for DisplayManager {
     fn default() -> Self {
-        DisplayManager { stack: Vec::new(), pending: PendingMenu::NoChange }
+        DisplayManager {
+            stack: Vec::new(),
+            pending: PendingMenu::NoChange,
+        }
     }
 }
 

@@ -73,7 +73,13 @@ pub struct MobAiData {
 
 impl MobAiData {
     /// Java `MobAi(sprites, maxHealth, lifetime, rwTime, rwChance)`.
-    pub fn new(sprites: &'static MobAnims, max_health: i32, lifetime: i32, rw_time: i32, rw_chance: i32) -> MobAiData {
+    pub fn new(
+        sprites: &'static MobAnims,
+        max_health: i32,
+        lifetime: i32,
+        rw_time: i32,
+        rw_chance: i32,
+    ) -> MobAiData {
         let mut mob = MobData::new(sprites, max_health);
         mob.walk_time = 2;
         MobAiData {
@@ -124,7 +130,12 @@ impl EnemyMobData {
         let lvl = if lvl == 0 { 1 } else { lvl };
         let col = lvlcols[(lvl - 1) as usize];
         (
-            EnemyMobData { ai, lvl, lvlcols: lvlcols.to_vec(), detect_dist },
+            EnemyMobData {
+                ai,
+                lvl,
+                lvlcols: lvlcols.to_vec(),
+                detect_dist,
+            },
             col, // Java set `this.col` (EntityCommon) from lvlcols
         )
     }
@@ -165,7 +176,17 @@ impl EnemyMobData {
         detect_dist: i32,
         diff_idx: i32,
     ) -> (EnemyMobData, i32) {
-        Self::with_default_lifetime(lvl, sprites, lvlcols, health, true, detect_dist, 60, 200, diff_idx)
+        Self::with_default_lifetime(
+            lvl,
+            sprites,
+            lvlcols,
+            health,
+            true,
+            detect_dist,
+            60,
+            200,
+            diff_idx,
+        )
     }
 }
 
@@ -178,7 +199,12 @@ pub struct PassiveMobData {
 
 impl PassiveMobData {
     /// Java `PassiveMob(sprites, color, healthFactor)`; returns (data, col).
-    pub fn new(sprites: &'static MobAnims, color: i32, health_factor: i32, diff_idx: i32) -> (PassiveMobData, i32) {
+    pub fn new(
+        sprites: &'static MobAnims,
+        color: i32,
+        health_factor: i32,
+        diff_idx: i32,
+    ) -> (PassiveMobData, i32) {
         let ai = MobAiData::new(
             sprites,
             5 + health_factor * diff_idx,

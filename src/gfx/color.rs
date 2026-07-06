@@ -184,7 +184,11 @@ pub fn mix_rgb_color(rgb_int1: i32, rgb_int2: i32) -> i32 {
     }
     let c1 = decode_rgb_color(rgb_int1);
     let c2 = decode_rgb_color(rgb_int2);
-    rgb_color((c1[0] + c2[0]) / 2, (c1[1] + c2[1]) / 2, (c1[2] + c2[2]) / 2)
+    rgb_color(
+        (c1[0] + c2[0]) / 2,
+        (c1[1] + c2[1]) / 2,
+        (c1[2] + c2[2]) / 2,
+    )
 }
 
 /// Java `Color.rgbColor(r, g, b)`.
@@ -286,8 +290,14 @@ mod tests {
 
     #[test]
     fn separate_and_decode_match_java() {
-        assert_eq!(separate_encoded_sprite(get4(-1, 100, 530, 211)), [255, 36, 198, 79]);
-        assert_eq!(separate_encoded_sprite_readable(get4(-1, 100, 530, 211)), [103, 100, 530, 211]);
+        assert_eq!(
+            separate_encoded_sprite(get4(-1, 100, 530, 211)),
+            [255, 36, 198, 79]
+        );
+        assert_eq!(
+            separate_encoded_sprite_readable(get4(-1, 100, 530, 211)),
+            [103, 100, 530, 211]
+        );
         assert_eq!(decode_rgb(211), [5, 5, 1]);
         assert_eq!(un_get(135), 343);
         assert_eq!(mix_rgb(100, 200), 150);

@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use crate::core::game::Game;
 use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::gfx::color;
-use crate::gfx::sprite::{compile_mob_sprite_animations, MobAnims};
+use crate::gfx::sprite::{MobAnims, compile_mob_sprite_animations};
 
 use super::PassiveMobData;
 
@@ -25,12 +25,32 @@ pub fn new(g: &Game) -> Entity {
     Entity::new(c, EntityKind::Pig(PigData { passive }))
 }
 
-/// Java `pig.tick()`. TODO(port:entity-behavior): leaf behavior.
+/// Java `Pig.tick()` — no override; `MobAi.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
     crate::entity::behavior::mobai_tick_base(g, e);
 }
 
-/// Java `pig.die()`. TODO(port:entity-behavior): drops.
+/// Java `Pig.die()`.
 pub fn die(g: &mut Game, e: &mut Entity) {
+    use crate::item::registry;
+
+    let (mut min, mut max) = (0, 0);
+    let diff = g.settings.get("diff").as_str().to_string();
+    if diff == "Easy" {
+        min = 1;
+        max = 3;
+    }
+    if diff == "Normal" {
+        min = 1;
+        max = 2;
+    }
+    if diff == "Hard" {
+        min = 0;
+        max = 2;
+    }
+
+    let raw_pork = registry::get(g, "raw pork");
+    crate::entity::behavior::mobai_drop_items(g, e, min, max, &[raw_pork]);
+
     crate::entity::behavior::passive_mob_die(g, e);
 }

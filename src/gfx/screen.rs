@@ -36,7 +36,12 @@ pub struct Screen {
 
 impl Screen {
     pub fn new(sheet: Arc<SpriteSheet>) -> Screen {
-        Screen { x_offset: 0, y_offset: 0, pixels: vec![0; (W * H) as usize], sheet }
+        Screen {
+            x_offset: 0,
+            y_offset: 0,
+            pixels: vec![0; (W * H) as usize],
+            sheet,
+        }
     }
 
     /// Java `clear(color)`.
@@ -83,12 +88,20 @@ impl Screen {
     }
 
     /// Java `renderPixelArray(xp, yp, width, height, imgPixels)`.
-    pub fn render_pixel_array(&mut self, xp: i32, yp: i32, width: i32, height: i32, img_pixels: &[i32]) {
+    pub fn render_pixel_array(
+        &mut self,
+        xp: i32,
+        yp: i32,
+        width: i32,
+        height: i32,
+        img_pixels: &[i32],
+    ) {
         for y in 0..height {
             if y + yp >= 0 && y + yp < H {
                 for x in 0..width {
                     if x + xp >= 0 && x + xp < W {
-                        self.pixels[(x + xp + (y + yp) * W) as usize] = img_pixels[(x + y * width) as usize];
+                        self.pixels[(x + xp + (y + yp) * W) as usize] =
+                            img_pixels[(x + y * width) as usize];
                     }
                 }
             }
@@ -132,7 +145,11 @@ impl Screen {
                 Time::Night => MAXDARK as f64,
             };
             if current_level > 3 {
-                tint_factor -= if tint_factor < 10.0 { tint_factor } else { 10.0 };
+                tint_factor -= if tint_factor < 10.0 {
+                    tint_factor
+                } else {
+                    10.0
+                };
             }
             tint_factor *= -1.0; // all previous operations were assuming this was a darkening factor
         } else if current_level >= 5 {
@@ -164,7 +181,8 @@ impl Screen {
     pub fn copy_rect(&self, screen2: &mut Screen, x2: i32, y2: i32, w2: i32, h2: i32) {
         for y in 0..h2 {
             for x in 0..w2 {
-                screen2.pixels[((x + x2) + (y + y2) * W) as usize] = self.pixels[(x + y * W) as usize];
+                screen2.pixels[((x + x2) + (y + y2) * W) as usize] =
+                    self.pixels[(x + y * W) as usize];
             }
         }
     }

@@ -2,7 +2,7 @@
 
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
-use crate::gfx::{color, font, sprite_sheet, Dimension, Insets, Point, Rectangle, Screen};
+use crate::gfx::{Dimension, Insets, Point, Rectangle, Screen, color, font, sprite_sheet};
 
 use super::entry::{self, EntryHandle};
 use super::rel_pos::RelPos;
@@ -74,7 +74,10 @@ impl Menu {
 
         self.selection = self.selection.min(self.entries.len() as i32 - 1).max(0);
 
-        if !self.entries[self.selection as usize].borrow().is_selectable() {
+        if !self.entries[self.selection as usize]
+            .borrow()
+            .is_selectable()
+        {
             let prev_sel = self.selection;
             loop {
                 self.selection += 1;
@@ -82,7 +85,11 @@ impl Menu {
                     self.selection = self.entries.len() as i32 - 1;
                 }
                 self.selection %= self.entries.len() as i32;
-                if self.entries[self.selection as usize].borrow().is_selectable() || self.selection == prev_sel {
+                if self.entries[self.selection as usize]
+                    .borrow()
+                    .is_selectable()
+                    || self.selection == prev_sel
+                {
                     break;
                 }
             }
@@ -119,7 +126,11 @@ impl Menu {
 
     /// Java `getCurEntry()`.
     pub fn get_cur_entry(&self) -> Option<EntryHandle> {
-        if self.entries.is_empty() { None } else { Some(self.entries[self.selection as usize].clone()) }
+        if self.entries.is_empty() {
+            None
+        } else {
+            Some(self.entries[self.selection as usize].clone())
+        }
     }
 
     pub fn get_num_options(&self) -> i32 {
@@ -207,7 +218,8 @@ impl Menu {
         let num_entries = self.entries.len() as i32;
 
         // for scrolling up
-        while (self.disp_selection < self.padding || !self.wrap && offset + self.display_length > num_entries)
+        while (self.disp_selection < self.padding
+            || !self.wrap && offset + self.display_length > num_entries)
             && (self.wrap || offset > 0)
         {
             offset -= 1;
@@ -215,7 +227,8 @@ impl Menu {
         }
 
         // for scrolling down
-        while (self.display_length - self.disp_selection <= self.padding || !self.wrap && offset < 0)
+        while (self.display_length - self.disp_selection <= self.padding
+            || !self.wrap && offset < 0)
             && (self.wrap || offset + self.display_length < num_entries)
         {
             offset += 1;
@@ -250,7 +263,13 @@ impl Menu {
                     );
                 }
             } else {
-                font::draw(&self.title, screen, self.title_loc.x, self.title_loc.y, self.title_color);
+                font::draw(
+                    &self.title,
+                    screen,
+                    self.title_loc.x,
+                    self.title_loc.y,
+                    self.title_color,
+                );
             }
         }
 
@@ -263,7 +282,11 @@ impl Menu {
             let extra = diff * (entry::entry_height() + self.spacing) / 2;
             y += extra;
         }
-        let end = if self.wrap { self.offset + self.display_length } else { (self.offset + self.display_length).min(num_entries) };
+        let end = if self.wrap {
+            self.offset + self.display_length
+        } else {
+            (self.offset + self.display_length).min(num_entries)
+        };
         for i in self.offset..end {
             if special && i - self.offset >= num_entries {
                 break;
@@ -277,13 +300,25 @@ impl Menu {
                 let width = entry.get_width(g);
                 let pos = self.entry_pos.position_rect_in(
                     Dimension::new(width, entry::entry_height()),
-                    &Rectangle::new(self.entry_bounds.left(), y, self.entry_bounds.width(), entry::entry_height(), Rectangle::CORNER_DIMS),
+                    &Rectangle::new(
+                        self.entry_bounds.left(),
+                        y,
+                        self.entry_bounds.width(),
+                        entry::entry_height(),
+                        Rectangle::CORNER_DIMS,
+                    ),
                 );
                 let selected = idx as i32 == self.selection;
                 entry.render(screen, g, pos.x, pos.y, selected);
                 if selected && entry.is_selectable() {
                     // draw the arrows
-                    font::draw("> ", screen, pos.x - font::text_width("> "), y, entry::COL_SLCT);
+                    font::draw(
+                        "> ",
+                        screen,
+                        pos.x - font::text_width("> "),
+                        y,
+                        entry::COL_SLCT,
+                    );
                     font::draw(" <", screen, pos.x + width, y, entry::COL_SLCT);
                 }
             }
@@ -319,7 +354,14 @@ impl Menu {
         self.frame_fill_color = color::get(fill_col, fill_col);
         self.frame_edge_color = color::get4(-1, edge_stroke_col, fill_col, edge_fill_col);
         let title_cols = color::separate_encoded_sprite_readable(self.title_color);
-        self.title_color = color::get(fill_col, if title_cols[3] < 0 { 550 } else { title_cols[3] });
+        self.title_color = color::get(
+            fill_col,
+            if title_cols[3] < 0 {
+                550
+            } else {
+                title_cols[3]
+            },
+        );
     }
 
     pub fn set_frame_colors_from(&mut self, model: &Menu) {
@@ -342,9 +384,19 @@ impl Menu {
             while x <= right {
                 let xend = x == self.bounds.left() || x == right;
                 let yend = y == self.bounds.top() || y == bottom;
-                let spriteoffset = if xend && yend { 0 } else if yend { 1 } else { 2 };
+                let spriteoffset = if xend && yend {
+                    0
+                } else if yend {
+                    1
+                } else {
+                    2
+                };
                 let mirrors = (if x == right { 1 } else { 0 }) + (if y == bottom { 2 } else { 0 });
-                let color = if xend || yend { self.frame_edge_color } else { self.frame_fill_color };
+                let color = if xend || yend {
+                    self.frame_edge_color
+                } else {
+                    self.frame_fill_color
+                };
 
                 screen.render(x, y, spriteoffset + 13 * 32, color, mirrors);
 
@@ -382,7 +434,12 @@ pub struct MenuBuilder {
 }
 
 impl MenuBuilder {
-    pub fn new(has_frame: bool, entry_spacing: i32, entry_pos: RelPos, entries: Vec<EntryHandle>) -> MenuBuilder {
+    pub fn new(
+        has_frame: bool,
+        entry_spacing: i32,
+        entry_pos: RelPos,
+        entries: Vec<EntryHandle>,
+    ) -> MenuBuilder {
         let mut menu = Menu::empty();
         menu.entries = entries;
         menu.has_frame = has_frame;
@@ -579,7 +636,8 @@ impl MenuBuilder {
 
             if menu.display_length > 0 {
                 // has been set; use to determine entry bounds
-                let height = (entry::entry_height() + menu.spacing) * menu.display_length - menu.spacing;
+                let height =
+                    (entry::entry_height() + menu.spacing) * menu.display_length - menu.spacing;
                 entry_size = Dimension::new(width, height);
             } else {
                 // no set size; just keep going to the edges of the screen
@@ -596,7 +654,8 @@ impl MenuBuilder {
 
                 let entry_height = menu.spacing + entry::entry_height();
                 let total_height = entry_height * menu.entries.len() as i32 - menu.spacing;
-                max_height = ((max_height + menu.spacing) / entry_height) * entry_height - menu.spacing;
+                max_height =
+                    ((max_height + menu.spacing) / entry_height) * entry_height - menu.spacing;
 
                 entry_size = Dimension::new(width, max_height.min(total_height));
             }
@@ -606,7 +665,8 @@ impl MenuBuilder {
 
         // set default max display length (needs size first)
         if menu.display_length <= 0 && !menu.entries.is_empty() {
-            menu.display_length = (entry_size.height + menu.spacing) / (entry::entry_height() + menu.spacing);
+            menu.display_length =
+                (entry_size.height + menu.spacing) / (entry::entry_height() + menu.spacing);
         }
 
         // based on the menu centering, and the anchor, determine the upper-left point from
@@ -631,14 +691,26 @@ impl MenuBuilder {
                     self.title_col = if menu.has_frame { 550 } else { 555 };
                 }
                 // make it match the frame color, or be transparent
-                menu.title_color = color::get(if menu.has_frame { self.frame_fill_col } else { -1 }, self.title_col);
+                menu.title_color = color::get(
+                    if menu.has_frame {
+                        self.frame_fill_col
+                    } else {
+                        -1
+                    },
+                    self.title_col,
+                );
             }
         }
 
         // set the menu frame colors
         if menu.has_frame {
             menu.frame_fill_color = color::get(self.frame_fill_col, self.frame_fill_col);
-            menu.frame_edge_color = color::get4(-1, self.frame_edge_stroke, self.frame_fill_col, self.frame_edge_fill);
+            menu.frame_edge_color = color::get4(
+                -1,
+                self.frame_edge_stroke,
+                self.frame_fill_col,
+                self.frame_edge_fill,
+            );
         }
 
         let padding = self.padding.clamp(0.0, 1.0);

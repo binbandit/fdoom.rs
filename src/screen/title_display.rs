@@ -1,13 +1,18 @@
 //! Port of `fdoom.screen.TitleDisplay`.
 
 use crate::core::game::{self, Game};
-use crate::gfx::{color, font, Point, Screen};
+use crate::gfx::{Point, Screen, color, font};
 use crate::java_random::JavaRandom;
 
-use super::display::{display_render_default, display_tick_default, Display, DisplayBase};
-use super::entry::{handle, BlankEntry, EntryHandle, SelectEntry, StringEntry};
+use super::book_display::BookDisplay;
+use super::display::{Display, DisplayBase, display_render_default, display_tick_default};
+use super::entry::{BlankEntry, EntryHandle, SelectEntry, StringEntry, handle};
 use super::menu::MenuBuilder;
+use super::multiplayer_display::MultiplayerDisplay;
+use super::options_display::OptionsDisplay;
 use super::rel_pos::RelPos;
+use super::world_gen_display::WorldGenDisplay;
+use super::world_select::WorldSelectDisplay;
 
 pub struct TitleDisplay {
     base: DisplayBase,
@@ -30,27 +35,44 @@ fn display_factory(entry_text: &str, entries: Vec<EntryHandle>) -> EntryHandle {
 impl TitleDisplay {
     pub fn new(g: &Game) -> TitleDisplay {
         let entries: Vec<EntryHandle> = vec![
-            handle(StringEntry::with_color("Checking for updates...", color::BLUE)),
+            handle(StringEntry::with_color(
+                "Checking for updates...",
+                color::BLUE,
+            )),
             handle(BlankEntry::new()),
             handle(BlankEntry::new()),
             handle(SelectEntry::new("Play", |g: &mut Game| {
-                // TODO(port:screen): WorldSelectDisplay/WorldGenDisplay
-                g.notify_all("World menus not yet ported");
+                if !crate::screen::world_select::get_world_names(g).is_empty() {
+                    let menu = MenuBuilder::new(
+                        false,
+                        2,
+                        RelPos::Center,
+                        vec![
+                            handle(SelectEntry::new("Load World", |g: &mut Game| {
+                                g.set_menu(WorldSelectDisplay::new());
+                            })),
+                            handle(SelectEntry::new("New World", |g: &mut Game| {
+                                g.set_menu(WorldGenDisplay::new(g));
+                            })),
+                        ],
+                    )
+                    .create_menu(g);
+                    g.set_menu(super::plain_display(true, true, vec![menu]));
+                } else {
+                    g.set_menu(WorldGenDisplay::new(g));
+                }
             })),
             handle(SelectEntry::new("Join Online World", |g: &mut Game| {
-                // TODO(port:screen): MultiplayerDisplay
-                g.notify_all("Multiplayer not available");
+                g.set_menu(MultiplayerDisplay::new());
             })),
             handle(SelectEntry::new("Options", |g: &mut Game| {
-                // TODO(port:screen): OptionsDisplay
-                g.notify_all("Options not yet ported");
+                g.set_menu(OptionsDisplay::new(g));
             })),
             display_factory(
                 "Help",
                 vec![
                     handle(SelectEntry::new("Instructions", |g: &mut Game| {
-                        // TODO(port:screen): BookDisplay
-                        g.notify_all("Books not yet ported");
+                        g.set_menu(BookDisplay::new(g, super::book_data::INSTRUCTIONS));
                     })),
                     handle(BlankEntry::new()),
                     handle(BlankEntry::new()),
@@ -60,7 +82,10 @@ impl TitleDisplay {
         ];
 
         let menu = MenuBuilder::new(false, 2, RelPos::Center, entries)
-            .set_positioning(Point::new(crate::gfx::screen::W / 2, crate::gfx::screen::H * 3 / 5), RelPos::Center)
+            .set_positioning(
+                Point::new(crate::gfx::screen::W / 2, crate::gfx::screen::H * 3 / 5),
+                RelPos::Center,
+            )
             .create_menu(g);
 
         TitleDisplay {
@@ -92,7 +117,13 @@ impl Display for TitleDisplay {
 
         self.rand = self.random.next_int_bound(SPLASHES.len() as i32);
 
-        // TODO(port:level,entity): World.levels reset; World.resetGame(false) if needed
+        // JAVA: World.levels = new Level[World.levels.length];
+        for level in g.levels.iter_mut() {
+            *level = None;
+        }
+
+        // JAVA: World.resetGame(false) only ran when the player was null or a
+        // RemotePlayer (after online play); the singleplayer player always exists here.
     }
 
     fn tick(&mut self, g: &mut Game) {
@@ -130,7 +161,13 @@ impl Display for TitleDisplay {
             }
         }
 
-        font::draw(&format!("Version {}", game::version()), screen, 1, 1, color::get(-1, 111));
+        font::draw(
+            &format!("Version {}", game::version()),
+            screen,
+            1,
+            1,
+            color::get(-1, 111),
+        );
 
         let up_string = format!(
             "({}, {}{})",
@@ -138,14 +175,35 @@ impl Display for TitleDisplay {
             g.input.get_mapping("down"),
             g.localization.get_localized(" to select")
         );
-        let select_string =
-            format!("({}{})", g.input.get_mapping("select"), g.localization.get_localized(" to accept"));
-        let exit_string =
-            format!("({}{})", g.input.get_mapping("exit"), g.localization.get_localized(" to return"));
+        let select_string = format!(
+            "({}{})",
+            g.input.get_mapping("select"),
+            g.localization.get_localized(" to accept")
+        );
+        let exit_string = format!(
+            "({}{})",
+            g.input.get_mapping("exit"),
+            g.localization.get_localized(" to return")
+        );
 
-        font::draw_centered(&up_string, screen, crate::gfx::screen::H - 32, color::get(-1, 111));
-        font::draw_centered(&select_string, screen, crate::gfx::screen::H - 22, color::get(-1, 111));
-        font::draw_centered(&exit_string, screen, crate::gfx::screen::H - 12, color::get(-1, 111));
+        font::draw_centered(
+            &up_string,
+            screen,
+            crate::gfx::screen::H - 32,
+            color::get(-1, 111),
+        );
+        font::draw_centered(
+            &select_string,
+            screen,
+            crate::gfx::screen::H - 22,
+            color::get(-1, 111),
+        );
+        font::draw_centered(
+            &exit_string,
+            screen,
+            crate::gfx::screen::H - 12,
+            color::get(-1, 111),
+        );
     }
 }
 

@@ -1,29 +1,23 @@
-//! Port of `fdoom.level.tile.InfiniteFallTile`. TODO(port:tile): full port pending.
+//! Port of `fdoom.level.tile.InfiniteFallTile`.
 
-use crate::core::game::Game;
-use crate::entity::Entity;
-use crate::gfx::Screen;
-use super::dispatch;
 use super::{TileDef, TileKind};
+use crate::core::game::Game;
+use crate::entity::{Entity, EntityKind};
+use crate::gfx::Screen;
 
-/// Java `InfiniteFallTile` constructor — sprite/config TODO(port:tile).
-#[allow(unused_variables)]
-pub fn make(name:&str) -> TileDef {
+/// Java `InfiniteFallTile` constructor — `super(name, (Sprite)null)`.
+pub fn make(name: &str) -> TileDef {
     TileDef::new(name, TileKind::InfiniteFall)
 }
 
+/// Java `render` — renders nothing.
 #[allow(clippy::too_many_arguments)]
-pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity) -> bool {
-    let _ = (g, def, lvl, x, y, e); // TODO(port:tile)
-    true
-}
+pub fn render(_g: &mut Game, _screen: &mut Screen, _def: &TileDef, _lvl: usize, _x: i32, _y: i32) {}
+
+/// Java `tick` — does nothing.
+pub fn tick(_g: &mut Game, _def: &TileDef, _lvl: usize, _xt: i32, _yt: i32) {}
 
 #[allow(clippy::too_many_arguments)]
-pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    dispatch::default_render(g, screen, def, lvl, x, y); // TODO(port:tile)
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
-    let _ = (g, def, lvl, xt, yt); // TODO(port:tile)
+pub fn may_pass(_g: &Game, _def: &TileDef, _lvl: usize, _x: i32, _y: i32, e: &Entity) -> bool {
+    matches!(e.kind, EntityKind::AirWizard(_)) || e.is_player() && e.player().skinon
 }

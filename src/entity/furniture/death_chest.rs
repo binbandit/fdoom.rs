@@ -29,5 +29,13 @@ pub fn new(g: &Game) -> Entity {
         _ => 0,
     };
     let c = furniture_common(chest.furniture.sprite.color, 3, 3);
-    Entity::new(c, EntityKind::DeathChest(DeathChestData { chest, time, redtick: 0, reverse: false }))
+    Entity::new(
+        c,
+        EntityKind::DeathChest(DeathChestData {
+            chest,
+            time,
+            redtick: 0,
+            reverse: false,
+        }),
+    )
 }

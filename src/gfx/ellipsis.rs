@@ -37,12 +37,29 @@ pub struct Ellipsis {
 impl Ellipsis {
     /// Java `new SmoothEllipsis(new TickUpdater())`.
     pub fn smooth_tick() -> Ellipsis {
-        Ellipsis::new(Kind::Smooth { dots: [' ', ' ', ' '] }, Method::Tick { last_tick: 0, started: false }, NORM_SPEED)
+        Ellipsis::new(
+            Kind::Smooth {
+                dots: [' ', ' ', ' '],
+            },
+            Method::Tick {
+                last_tick: 0,
+                started: false,
+            },
+            NORM_SPEED,
+        )
     }
 
     /// Java `new SmoothEllipsis()` (TimeUpdater, 750ms per cycle).
     pub fn smooth_time() -> Ellipsis {
-        Ellipsis::new(Kind::Smooth { dots: [' ', ' ', ' '] }, Method::Time { last_time: std::time::Instant::now() }, 750)
+        Ellipsis::new(
+            Kind::Smooth {
+                dots: [' ', ' ', ' '],
+            },
+            Method::Time {
+                last_time: std::time::Instant::now(),
+            },
+            750,
+        )
     }
 
     /// Java `new SequentialEllipsis()` (CallUpdater, normSpeed*2/3 calls per cycle).
@@ -55,8 +72,16 @@ impl Ellipsis {
             Kind::Sequential => 3,
             Kind::Smooth { dots } => dots.len() as i32 * 2,
         };
-        let count_per_interval = 1.max((count_per_cycle as f32 / interval_count as f32).round() as i32);
-        Ellipsis { kind, method, interval_count, cur_interval: 0, count_per_interval, counter: 0 }
+        let count_per_interval =
+            1.max((count_per_cycle as f32 / interval_count as f32).round() as i32);
+        Ellipsis {
+            kind,
+            method,
+            interval_count,
+            cur_interval: 0,
+            count_per_interval,
+            counter: 0,
+        }
     }
 
     /// Java `updateAndGet()`; `tick_count` feeds the Tick method (others ignore it).
@@ -99,7 +124,11 @@ impl Ellipsis {
             for i in self.cur_interval + 1..=self.cur_interval + amt {
                 let interval = i % interval_count;
                 let epos = (interval % dots.len() as i32) as usize;
-                let set = if interval < interval_count / 2 { '.' } else { ' ' };
+                let set = if interval < interval_count / 2 {
+                    '.'
+                } else {
+                    ' '
+                };
                 dots[epos] = set;
             }
         }
