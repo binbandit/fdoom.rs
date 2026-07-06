@@ -120,7 +120,14 @@ mod tests {
     fn next_int_bound_matches_jvm() {
         let mut r = JavaRandom::new(42);
         let vals: Vec<i32> = (0..8).map(|_| r.next_int_bound(100)).collect();
-        assert_eq!(vals, vec![0, 63, 11, 15, 94, 50, 18, 71]);
+        assert_eq!(vals, vec![30, 63, 48, 84, 70, 25, 5, 18]);
+    }
+
+    #[test]
+    fn next_long_matches_jvm() {
+        let mut r = JavaRandom::new(42);
+        assert_eq!(r.next_long(), -5025562857975149833);
+        assert_eq!(r.next_long(), -5843495416241995736);
     }
 
     #[test]
@@ -134,7 +141,7 @@ mod tests {
     fn next_boolean_and_float_match_jvm() {
         let mut r = JavaRandom::new(12345);
         let bools: Vec<bool> = (0..6).map(|_| r.next_boolean()).collect();
-        assert_eq!(bools, vec![false, true, false, false, true, true]);
+        assert_eq!(bools, vec![false, true, true, true, true, false]);
         let mut r = JavaRandom::new(12345);
         assert!((r.next_float() - 0.36180305).abs() < 1e-7);
     }

@@ -1,0 +1,24 @@
+//! Embedded game resources (Java loaded these from the jar via `getResourceAsStream`).
+
+pub const ICONS_PNG: &[u8] = include_bytes!("../assets/icons.png");
+pub const LOGO_PNG: &[u8] = include_bytes!("../assets/logo.png");
+
+pub const ANTIDOUS_TXT: &str = include_str!("../assets/antidous.txt");
+pub const STORY_GUIDE_TXT: &str = include_str!("../assets/story_guide.txt");
+
+pub const SOUND_PLAYER_HURT: &[u8] = include_bytes!("../assets/playerhurt.wav");
+pub const SOUND_PLAYER_DEATH: &[u8] = include_bytes!("../assets/death.wav");
+pub const SOUND_MONSTER_HURT: &[u8] = include_bytes!("../assets/monsterhurt.wav");
+pub const SOUND_BOSS_DEATH: &[u8] = include_bytes!("../assets/bossdeath.wav");
+pub const SOUND_FUSE: &[u8] = include_bytes!("../assets/fuse.wav");
+pub const SOUND_EXPLODE: &[u8] = include_bytes!("../assets/explode.wav");
+pub const SOUND_PICKUP: &[u8] = include_bytes!("../assets/pickup.wav");
+pub const SOUND_CRAFT: &[u8] = include_bytes!("../assets/craft.wav");
+pub const SOUND_SELECT: &[u8] = include_bytes!("../assets/select.wav");
+pub const SOUND_CONFIRM: &[u8] = include_bytes!("../assets/confirm.wav");
+
+pub const LOCALIZATIONS: &[(&str, &str)] = &[
+    ("english", include_str!("../assets/localization/english.mcpl")),
+    ("italiano", include_str!("../assets/localization/italiano.mcpl")),
+    ("norsk", include_str!("../assets/localization/norsk.mcpl")),
+];
