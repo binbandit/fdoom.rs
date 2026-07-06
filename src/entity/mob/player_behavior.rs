@@ -22,7 +22,7 @@ use crate::entity::projectile::new_arrow;
 use crate::entity::{Direction, Entity, EntityKind};
 use crate::gfx::{MobAnims, Point, Rectangle, Screen, color};
 use crate::item::{Item, ItemKind, PotionType, ToolType, interact as item_interact, registry};
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 use crate::level;
 use crate::level::tile::dispatch as tiles;
 
@@ -990,9 +990,9 @@ pub fn pickup_item(g: &mut Game, player: &mut Entity, item_entity: &mut Entity) 
 /// position for the player.
 ///
 /// JAVA: the seeded variant did `random.setSeed(spawnSeed)` on the entity's own Random;
-/// here a local `JavaRandom` stands in for the freshly-reseeded instance.
+/// here a local `Rng` stands in for the freshly-reseeded instance.
 pub fn find_start_pos(g: &mut Game, player: &mut Entity, lvl: usize, spawn_seed: Option<i64>) {
-    let mut seeded = spawn_seed.map(JavaRandom::new);
+    let mut seeded = spawn_seed.map(Rng::new);
 
     let grass_id = g.tiles.get("grass").id;
     let mut spawn_tile_positions =

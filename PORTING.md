@@ -1,7 +1,11 @@
 # Fossickers Doom — Java → Rust Port
 
-This repository is a faithful 1:1 port of [Fossicker](https://github.com/binbandit/Fossicker)
-(a Minicraft-Plus-derived 2D top-down game, Java package `fdoom`, version "2.6") to Rust.
+This repository began as a faithful 1:1 port of
+[Fossicker](https://github.com/binbandit/Fossicker) (a Minicraft-Plus-derived 2D top-down
+game, Java package `fdoom`, version "2.6") to Rust. **The tag `v0.1.0` marks the pure
+conversion**; development after that tag deliberately evolves beyond the Java original
+(cleanups, modernized controls, infinite worlds), so "faithful" below describes the ported
+baseline, not a constraint on new work.
 
 "Faithful" means: identical rendering (same software renderer, same palette math, same
 sprite sheet), identical game logic (same tick rates, same formulas, same RNG behavior for
@@ -17,7 +21,7 @@ we preserve the quirk and mark it with a `// JAVA:` comment rather than "fixing"
 | Framebuffer blit   | `BufferedImage`+`BufferStrategy`  | `softbuffer` (CPU nearest-neighbor scale)|
 | Audio              | `javax.sound.sampled.Clip`        | `rodio` 0.22 (one restartable sink per sound)|
 | Sprite sheet decode| `ImageIO.read`                    | `png` crate, assets embedded via `include_bytes!`|
-| RNG                | `java.util.Random`                | `JavaRandom` (exact LCG re-implementation, `src/java_random.rs`)|
+| RNG                | `java.util.Random`                | `Rng` (xoshiro256++, `src/rng.rs`) — post-v0.1.0; the tagged v0.1.0 release used an exact `java.util.Random` port |
 
 Everything else — the renderer, font, tiles, entities, items, menus, world gen, save/load —
 is a direct port with no engine dependency. The game core never touches winit/softbuffer/rodio
@@ -109,14 +113,13 @@ transparent, `0xFFFFFFFF` is `-1`). `Screen.pixels` is `Vec<i32>`; conversion to
 XRGB happens only in the platform blit. Color functions are ported bit-for-bit and covered
 by unit tests with values captured from the Java implementation.
 
-### 7. `JavaRandom`
+### 7. Randomness
 
-World generation must produce byte-identical maps for a given seed, so `java.util.Random`
-(48-bit LCG, including `nextInt(bound)` rejection sampling and `nextGaussian` polar method)
-is re-implemented in `src/java_random.rs` with tests against values from the JVM.
-Everywhere Java code constructed `new Random()` for *distribution* (not reproducibility) —
-per-entity randomness, drops — we use one shared time-seeded `JavaRandom` in `g.random`
-(documented deviation: Java had one instance per entity; the distributions are identical).
+Until v0.1.0, `java.util.Random` was re-implemented bit-for-bit so worlds were
+byte-identical to the JVM for a given seed (verified against 12 JVM dumps). Java-save/seed
+compatibility was then dropped by request; `src/rng.rs` (xoshiro256++) replaces it with the
+same ergonomic API. Generation is still fully deterministic per seed
+(`tests/level_gen_determinism.rs`). Incidental randomness uses the shared `g.random`.
 
 ### 8. Threads → incremental state machines
 

@@ -2,7 +2,7 @@
 
 use crate::core::game::{self, Game};
 use crate::gfx::{Point, Screen, color, font};
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 
 use super::book_display::BookDisplay;
 use super::display::{Display, DisplayBase, display_render_default, display_tick_default};
@@ -20,7 +20,7 @@ pub struct TitleDisplay {
     rand: i32,
     count: i32, // this and reverse are for the logo; they produce the fade-in/out effect
     reverse: bool,
-    random: JavaRandom,
+    random: Rng,
 }
 
 /// Java `displayFactory(entryText, entries...)` — a submenu-in-a-plain-Display button.
@@ -93,7 +93,7 @@ impl TitleDisplay {
             rand: 0,
             count: 0,
             reverse: false,
-            random: JavaRandom::from_time(),
+            random: Rng::from_time(),
         }
     }
 }

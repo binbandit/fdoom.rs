@@ -13,7 +13,7 @@ use std::rc::Rc;
 use crate::core::game::Game;
 use crate::entity::{Entity, EntityKind};
 use crate::gfx::{Point, Rectangle};
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 
 use tile::TileDef;
 
@@ -83,7 +83,7 @@ pub struct Level {
     /// eids queued for removal on the next level tick (Java `entitiesToRemove`).
     pub entities_to_remove: Vec<i32>,
 
-    pub random: JavaRandom,
+    pub random: Rng,
 }
 
 impl Level {
@@ -106,7 +106,7 @@ impl Level {
             mob_count: 0,
             entities_to_add: Vec::new(),
             entities_to_remove: Vec::new(),
-            random: JavaRandom::from_time(),
+            random: Rng::from_time(),
         };
         if depth != -4 && depth != 0 {
             level.monster_density = 8;

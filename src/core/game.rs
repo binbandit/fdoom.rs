@@ -15,7 +15,7 @@ use crate::entity::EntityArena;
 use crate::entity::furniture::bed::BedState;
 use crate::item::Item;
 use crate::item::recipe::Recipes;
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 use crate::level::Level;
 use crate::level::tile::Tiles;
 use crate::saveload::version::Version;
@@ -83,8 +83,8 @@ pub struct Game {
     pub fra: i32,
     pub tik: i32,
 
-    /// Shared incidental RNG (see PORTING.md "JavaRandom").
-    pub random: JavaRandom,
+    /// Shared incidental RNG (see PORTING.md "Rng").
+    pub random: Rng,
 
     /// The item prototype registry (Java `Items`' static list).
     pub items: Rc<Vec<Item>>,
@@ -161,7 +161,7 @@ impl Game {
             has_focus: true,
             fra: 0,
             tik: 0,
-            random: JavaRandom::from_time(),
+            random: Rng::from_time(),
             items: Rc::new(Vec::new()),
             recipes: Rc::new(Recipes::new()),
             entities: EntityArena::default(),

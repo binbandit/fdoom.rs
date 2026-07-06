@@ -11,7 +11,7 @@ pub fn clamp(val: i32, min: i32, max: i32) -> i32 {
 }
 
 /// Java `MyUtils.randInt(min, max)` (Java used `Math.random()`; we thread the game RNG).
-pub fn rand_int(random: &mut crate::java_random::JavaRandom, min: i32, max: i32) -> i32 {
+pub fn rand_int(random: &mut crate::rng::Rng, min: i32, max: i32) -> i32 {
     (random.next_double() * (max - min + 1) as f64) as i32 + min
 }
 

@@ -3,7 +3,7 @@
 
 use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::gfx::{FontStyle, Sprite, color};
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 
 #[derive(Debug, Clone)]
 pub struct ParticleData {
@@ -67,7 +67,7 @@ pub struct TextParticleData {
 }
 
 /// Java `new TextParticle(msg, x, y, col)`.
-pub fn new_text_particle(msg: &str, x: i32, y: i32, col: i32, random: &mut JavaRandom) -> Entity {
+pub fn new_text_particle(msg: &str, x: i32, y: i32, col: i32, random: &mut Rng) -> Entity {
     let mut c = EntityCommon::new(msg.chars().count() as i32, 1);
     c.x = x;
     c.y = y;

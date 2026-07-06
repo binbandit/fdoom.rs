@@ -13,9 +13,10 @@ a scratch clone outside this repo; when in doubt about behavior, defer to the Ja
 
 ## Porting conventions (mandatory)
 
-1. **1:1 fidelity.** Port logic line-for-line where Rust allows. Keep constants, formulas,
-   integer math (Java `int` = `i32`, `>>` = arithmetic shift on i32), string formats, and
-   even quirky/buggy-looking behavior. Mark preserved quirks with `// JAVA:` comments.
+1. **Post-port era** (after tag `v0.1.0`): the codebase no longer preserves Java quirks
+   for their own sake — prefer clear, idiomatic Rust and fix inherited bugs. `// JAVA:`
+   comments remain as provenance notes. When porting any *remaining* Java behavior,
+   match it first, then improve deliberately.
 2. **`g: &mut Game`** replaces all Java statics (`Game.*`, `Updater.*`, `World.*`,
    `Settings`, `Sound`). Renderer/Screens live outside `Game`; render fns take
    `(&mut Screen, &Game)`, tick fns take `&mut Game`.
@@ -24,8 +25,8 @@ a scratch clone outside this repo; when in doubt about behavior, defer to the Ja
    parent layer's shared function.
 4. **Naming**: Java camelCase → Rust snake_case; class names stay PascalCase. File layout
    mirrors the Java package layout (see PORTING.md module map).
-5. **Randomness**: only `JavaRandom`. World gen uses its own seeded instances exactly as
-   Java does; incidental randomness uses `g.random`. Never `rand` crate.
+5. **Randomness**: only `crate::rng::Rng` (deterministic per seed). World gen seeds its
+   own instances; incidental randomness uses `g.random`. No `rand` crate dependency.
 6. **No new dependencies** without updating PORTING.md. Platform code (winit/softbuffer/
    rodio) is confined to `src/platform/`.
 7. Doc-comment each ported item with a short note of its Java origin only when the mapping

@@ -17,7 +17,7 @@ pub mod projectile;
 pub mod projectile_behavior;
 
 use crate::gfx::Rectangle;
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 
 pub use direction::Direction;
 pub use furniture::FurnitureData;
@@ -375,7 +375,7 @@ impl EntityArena {
 
     /// Insert an entity, assigning a unique eid if it has none
     /// (Java `Network.generateUniqueEntityId`).
-    pub fn insert(&mut self, mut e: Entity, random: &mut JavaRandom) -> i32 {
+    pub fn insert(&mut self, mut e: Entity, random: &mut Rng) -> i32 {
         if e.c.eid < 0 {
             e.c.eid = self.generate_unique_entity_id(random);
         }
@@ -384,7 +384,7 @@ impl EntityArena {
         eid
     }
 
-    fn generate_unique_entity_id(&self, random: &mut JavaRandom) -> i32 {
+    fn generate_unique_entity_id(&self, random: &mut Rng) -> i32 {
         loop {
             let eid = random.next_int();
             // JAVA: ids must be positive; 0 is reserved for the main player.

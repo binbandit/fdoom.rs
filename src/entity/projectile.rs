@@ -2,7 +2,7 @@
 
 use crate::entity::{Direction, Entity, EntityCommon, EntityKind};
 use crate::gfx::color;
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 
 #[derive(Debug, Clone)]
 pub struct ArrowData {
@@ -60,7 +60,7 @@ pub fn new_spark(
     owner_y: i32,
     xa: f64,
     ya: f64,
-    random: &mut JavaRandom,
+    random: &mut Rng,
 ) -> Entity {
     let mut c = EntityCommon::new(0, 0);
     c.x = owner_x;

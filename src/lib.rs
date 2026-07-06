@@ -7,10 +7,10 @@ pub mod core;
 pub mod entity;
 pub mod gfx;
 pub mod item;
-pub mod java_random;
 pub mod level;
 pub mod network;
 pub mod platform;
+pub mod rng;
 pub mod saveload;
 pub mod screen;
 

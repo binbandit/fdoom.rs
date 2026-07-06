@@ -7,7 +7,7 @@
 
 use super::color;
 use super::screen::Screen;
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 
 /// Java `Sprite.Px` — one 8x8 cell: position on the sheet plus mirroring.
 #[derive(Debug, Clone, Copy)]
@@ -164,7 +164,7 @@ impl Sprite {
 
     /// Java `Sprite.randomDots(seed, col)`.
     pub fn random_dots(seed: i64, col: i32) -> Sprite {
-        let mut ran = JavaRandom::new(seed);
+        let mut ran = Rng::new(seed);
         let mirror = ran.next_int_bound(4);
         let coords = [
             ran.next_int_bound(4),

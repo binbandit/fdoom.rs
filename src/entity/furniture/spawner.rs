@@ -2,7 +2,7 @@
 
 use crate::entity::{Entity, EntityKind};
 use crate::gfx::Sprite;
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 
 use super::{FurnitureData, furniture_common};
 
@@ -56,7 +56,7 @@ pub fn max_mob_level(mob: &Entity) -> i32 {
 }
 
 /// Java `new Spawner(m)`.
-pub fn new(mob: Entity, random: &mut JavaRandom) -> Entity {
+pub fn new(mob: Entity, random: &mut Rng) -> Entity {
     let name = format!("{} Spawner", mob_class_name(&mob));
     let sprite = Sprite::new(20, 8, 2, 2, mob.c.col, 0);
     let furniture = FurnitureData::new(&name, sprite);

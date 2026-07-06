@@ -6,7 +6,7 @@
 //! The port makes that explicit: the caller passes `world_seed` into
 //! [`create_and_validate_map`] (obtaining it exactly as Java does — the typed-in world
 //! seed, or `new Random().nextLong()` when the seed field is empty), and each
-//! `create_and_validate_*` constructs a fresh `JavaRandom::new(world_seed)`, which is
+//! `create_and_validate_*` constructs a fresh `Rng::new(world_seed)`, which is
 //! bit-identical to Java's `setSeed`. Identical seeds therefore produce byte-identical
 //! maps (see `tests/level_gen_parity.rs`).
 //!
@@ -18,7 +18,7 @@
 // on the u8 ids here, exactly as `(byte) & 0xff` round-trips are in the Java bodies).
 #![allow(clippy::identity_op)]
 
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 use crate::level::tile::Tiles;
 
 // JAVA: `private static int d = 0;` — unused field, omitted.
@@ -37,7 +37,7 @@ pub struct LevelGen {
 impl LevelGen {
     /// Java `LevelGen(w, h, featureSize)` — creates noise for level generation.
     /// The Java constructor draws from the shared static `random`; here it is passed in.
-    pub fn new(w: i32, h: i32, feature_size: i32, random: &mut JavaRandom) -> LevelGen {
+    pub fn new(w: i32, h: i32, feature_size: i32, random: &mut Rng) -> LevelGen {
         let mut lg = LevelGen {
             values: vec![0.0; (w * h) as usize],
             w,
@@ -136,7 +136,7 @@ impl LevelGen {
 /// `history_random` replaces `HistoryGen`'s `private Random rand = new Random()`.
 // JAVA: HistoryGen constructed a fresh *time-seeded* Random per call, so Java surface
 // maps are not reproducible from the world seed alone. Per PORTING.md the port threads
-// one shared JavaRandom (`g.random` in-game) through instead; distributions identical.
+// one shared Rng (`g.random` in-game) through instead; distributions identical.
 #[allow(clippy::too_many_arguments)]
 pub fn create_and_validate_map(
     w: i32,
@@ -146,7 +146,7 @@ pub fn create_and_validate_map(
     world_seed: i64,
     gen_type: &str,
     theme: &str,
-    history_random: &mut JavaRandom,
+    history_random: &mut Rng,
 ) -> Option<(Vec<u8>, Vec<u8>)> {
     if level == 1 {
         return Some(create_and_validate_sky_map(w, h, tiles, world_seed));
@@ -193,9 +193,9 @@ fn create_and_validate_top_map(
     world_seed: i64,
     gen_type: &str,
     theme: &str,
-    history_random: &mut JavaRandom,
+    history_random: &mut Rng,
 ) -> (Vec<u8>, Vec<u8>) {
-    let mut random = JavaRandom::new(world_seed); // Java random.setSeed(worldSeed)
+    let mut random = Rng::new(world_seed); // Java random.setSeed(worldSeed)
     let mut attempt = 0;
     loop {
         let result = create_top_map(w, h, tiles, &mut random, gen_type, theme);
@@ -278,7 +278,7 @@ fn create_and_validate_underground_map(
     tiles: &Tiles,
     world_seed: i64,
 ) -> (Vec<u8>, Vec<u8>) {
-    let mut random = JavaRandom::new(world_seed);
+    let mut random = Rng::new(world_seed);
     loop {
         let result = create_underground_map(w, h, depth, tiles, &mut random);
 
@@ -311,7 +311,7 @@ fn create_and_validate_dungeon(
     tiles: &Tiles,
     world_seed: i64,
 ) -> (Vec<u8>, Vec<u8>) {
-    let mut random = JavaRandom::new(world_seed);
+    let mut random = Rng::new(world_seed);
     // JAVA: unused `int attempt = 0;` omitted.
     loop {
         let result = create_dungeon(w, h, tiles, &mut random);
@@ -338,7 +338,7 @@ fn create_and_validate_sky_map(
     tiles: &Tiles,
     world_seed: i64,
 ) -> (Vec<u8>, Vec<u8>) {
-    let mut random = JavaRandom::new(world_seed);
+    let mut random = Rng::new(world_seed);
     // JAVA: unused `int attempt = 0;` omitted.
     loop {
         let result = create_sky_map(w, h, tiles, &mut random);
@@ -363,7 +363,7 @@ fn create_top_map(
     w: i32,
     h: i32,
     tiles: &Tiles,
-    random: &mut JavaRandom,
+    random: &mut Rng,
     gen_type: &str,
     theme: &str,
 ) -> (Vec<u8>, Vec<u8>) {
@@ -709,7 +709,7 @@ fn create_top_map(
     (map, data)
 }
 
-fn create_dungeon(w: i32, h: i32, tiles: &Tiles, random: &mut JavaRandom) -> (Vec<u8>, Vec<u8>) {
+fn create_dungeon(w: i32, h: i32, tiles: &Tiles, random: &mut Rng) -> (Vec<u8>, Vec<u8>) {
     let noise1 = LevelGen::new(w, h, 8, random);
     let noise2 = LevelGen::new(w, h, 8, random);
 
@@ -772,7 +772,7 @@ fn create_underground_map(
     h: i32,
     depth: i32,
     tiles: &Tiles,
-    random: &mut JavaRandom,
+    random: &mut Rng,
 ) -> (Vec<u8>, Vec<u8>) {
     let mnoise1 = LevelGen::new(w, h, 16, random);
     let mnoise2 = LevelGen::new(w, h, 16, random);
@@ -940,7 +940,7 @@ fn create_underground_map(
     (map, data)
 }
 
-fn create_sky_map(w: i32, h: i32, tiles: &Tiles, random: &mut JavaRandom) -> (Vec<u8>, Vec<u8>) {
+fn create_sky_map(w: i32, h: i32, tiles: &Tiles, random: &mut Rng) -> (Vec<u8>, Vec<u8>) {
     let noise1 = LevelGen::new(w, h, 8, random);
     let noise2 = LevelGen::new(w, h, 8, random);
 
@@ -1028,7 +1028,7 @@ fn create_sky_map(w: i32, h: i32, tiles: &Tiles, random: &mut JavaRandom) -> (Ve
 /// from `LevelGen.createAndValidateTopMap`, so they live here rather than as their own
 /// modules).
 mod history_gen {
-    use crate::java_random::JavaRandom;
+    use crate::rng::Rng;
     use crate::level::tile::Tiles;
 
     /* ---------------- HistoryGenPattern ---------------- */
@@ -1082,14 +1082,14 @@ mod history_gen {
 
     /// Java `HistoryGen.addHistoryToMap(originalMap, w, h)`.
     // JAVA: HistoryGen's `rand` is a fresh time-seeded `new Random()` per instance; the
-    // port takes it as a parameter (one shared JavaRandom) — see create_and_validate_map.
+    // port takes it as a parameter (one shared Rng) — see create_and_validate_map.
     #[allow(clippy::manual_memcpy)] // JAVA: element-wise copy loop kept verbatim
     pub fn add_history_to_map(
         original_map: &(Vec<u8>, Vec<u8>),
         w: i32,
         h: i32,
         tiles: &Tiles,
-        rand: &mut JavaRandom,
+        rand: &mut Rng,
     ) -> (Vec<u8>, Vec<u8>) {
         let mut map = vec![0u8; (w * h) as usize];
         let mut data = vec![0u8; (w * h) as usize];
@@ -1129,7 +1129,7 @@ mod history_gen {
         threshold: f64,
         w: i32,
         h: i32,
-        rand: &mut JavaRandom,
+        rand: &mut Rng,
     ) -> bool {
         // Pick a random pattern
         let pattern = scenery[rand.next_int_bound(scenery.len() as i32) as usize];
@@ -1165,7 +1165,7 @@ mod history_gen {
         threshold: f64,
         w: i32,
         h: i32,
-        rand: &mut JavaRandom,
+        rand: &mut Rng,
     ) -> i32 {
         let mut attempt = 0;
         while attempt < 100 {

@@ -2,7 +2,7 @@
 
 use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::item::Item;
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 
 #[derive(Debug, Clone)]
 pub struct ItemEntityData {
@@ -21,7 +21,7 @@ pub struct ItemEntityData {
 }
 
 /// Java `new ItemEntity(item, x, y)`.
-pub fn new(item: Item, x: i32, y: i32, random: &mut JavaRandom) -> Entity {
+pub fn new(item: Item, x: i32, y: i32, random: &mut Rng) -> Entity {
     let mut c = EntityCommon::new(2, 2);
     c.x = x;
     c.y = y;
@@ -57,7 +57,7 @@ pub fn with_motion(
     xa: f64,
     ya: f64,
     za: f64,
-    random: &mut JavaRandom,
+    random: &mut Rng,
 ) -> Entity {
     let mut e = new(item, x, y, random);
     if let EntityKind::ItemEntity(data) = &mut e.kind {

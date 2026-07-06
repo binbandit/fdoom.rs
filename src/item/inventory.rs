@@ -5,7 +5,7 @@
 //! player tick (Java read `Game.isMode("creative")` live; see PORTING.md).
 
 use crate::item::{Item, ItemKind};
-use crate::java_random::JavaRandom;
+use crate::rng::Rng;
 
 #[derive(Debug, Clone, Default)]
 pub struct Inventory {
@@ -221,7 +221,7 @@ impl Inventory {
     /// Java `tryAdd(chance, item, num, allOrNothing)`.
     pub fn try_add_all_or_nothing(
         &mut self,
-        random: &mut JavaRandom,
+        random: &mut Rng,
         chance: i32,
         item: &Item,
         num: i32,
@@ -239,7 +239,7 @@ impl Inventory {
     /// Java `tryAdd(chance, item, num)`.
     pub fn try_add_num(
         &mut self,
-        random: &mut JavaRandom,
+        random: &mut Rng,
         chance: i32,
         item: Option<Item>,
         num: i32,
@@ -254,7 +254,7 @@ impl Inventory {
     }
 
     /// Java `tryAdd(chance, item)`.
-    pub fn try_add(&mut self, random: &mut JavaRandom, chance: i32, item: Option<Item>) {
+    pub fn try_add(&mut self, random: &mut Rng, chance: i32, item: Option<Item>) {
         self.try_add_num(random, chance, item, 1);
     }
 }
