@@ -72,10 +72,18 @@ impl Key {
     }
 }
 
+/// One action binding: an action name mapped to a "KEY|OTHER-KEY" expression.
+#[derive(Debug, Clone)]
+struct Mapping {
+    action: String,
+    keys: String,
+    /// Debug-build-only cheats (formerly the Java "=debug" name-suffix hack).
+    debug_only: bool,
+}
+
 pub struct InputHandler {
-    /// The symbolic map of actions to physical key names (Java LinkedHashMap — insertion
-    /// order matters for the key-binding screen).
-    keymap: Vec<(String, String)>,
+    /// Action bindings, in display order for the key-binding screen.
+    keymap: Vec<Mapping>,
     /// The actual map of physical key names to Key state (auto-generated on demand).
     keyboard: HashMap<String, Key>,
     last_key_typed: String,
@@ -116,34 +124,38 @@ impl InputHandler {
     }
 
     fn init_key_map(&mut self) {
-        let defaults: &[(&str, &str)] = &[
-            ("UP", "UP|W"),
-            ("DOWN", "DOWN|S"),
-            ("LEFT", "LEFT|A"),
-            ("RIGHT", "RIGHT|D"),
-            ("SELECT", "ENTER"),
-            ("EXIT", "ESCAPE"),
-            // modern defaults (v0.1.0 had Java's: ATTACK=C|SPACE|ENTER, MENU=X|E,
-            // PICKUP=V|P clashing with POTIONEFFECTS=P, NIGHT always bound):
-            ("ATTACK", "SPACE|C"),
-            ("MENU", "X"),
-            ("INVENTORY", "E|I"),
-            ("CRAFT", "Z|SHIFT-E"),
-            ("PICKUP", "V"),
-            ("DROP-ONE", "Q"),
-            ("DROP-STACK", "SHIFT-Q"),
-            ("SAVE", "R"),
-            ("PAUSE", "ESCAPE"),
-            ("MAP", "M"),
-            ("NIGHT=debug", "N"),
-            ("SURVIVAL=debug", "SHIFT-S|SHIFT-1"),
-            ("CREATIVE=debug", "SHIFT-C|SHIFT-2"),
-            ("POTIONEFFECTS", "P"),
-            ("INFO", "SHIFT-I"),
+        // modern defaults (v0.1.0 had Java's: ATTACK=C|SPACE|ENTER, MENU=X|E,
+        // PICKUP=V|P clashing with POTIONEFFECTS=P, NIGHT always bound)
+        let defaults: &[(&str, &str, bool)] = &[
+            ("UP", "UP|W", false),
+            ("DOWN", "DOWN|S", false),
+            ("LEFT", "LEFT|A", false),
+            ("RIGHT", "RIGHT|D", false),
+            ("SELECT", "ENTER", false),
+            ("EXIT", "ESCAPE", false),
+            ("ATTACK", "SPACE|C", false),
+            ("MENU", "X", false),
+            ("INVENTORY", "E|I", false),
+            ("CRAFT", "Z|SHIFT-E", false),
+            ("PICKUP", "V", false),
+            ("DROP-ONE", "Q", false),
+            ("DROP-STACK", "SHIFT-Q", false),
+            ("SAVE", "R", false),
+            ("PAUSE", "ESCAPE", false),
+            ("MAP", "M", false),
+            ("NIGHT", "N", true),
+            ("SURVIVAL", "SHIFT-S|SHIFT-1", true),
+            ("CREATIVE", "SHIFT-C|SHIFT-2", true),
+            ("POTIONEFFECTS", "P", false),
+            ("INFO", "SHIFT-I", false),
         ];
         self.keymap = defaults
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(action, keys, debug_only)| Mapping {
+                action: (*action).to_string(),
+                keys: (*keys).to_string(),
+                debug_only: *debug_only,
+            })
             .collect();
     }
 
@@ -151,18 +163,19 @@ impl InputHandler {
         self.init_key_map();
     }
 
-    fn keymap_get(&self, key: &str) -> Option<&str> {
-        self.keymap
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
+    fn keymap_get(&self, action: &str) -> Option<&Mapping> {
+        self.keymap.iter().find(|m| m.action == action)
     }
 
-    fn keymap_put(&mut self, key: &str, value: String) {
-        if let Some(entry) = self.keymap.iter_mut().find(|(k, _)| k == key) {
-            entry.1 = value;
+    fn keymap_put(&mut self, action: &str, keys: String) {
+        if let Some(m) = self.keymap.iter_mut().find(|m| m.action == action) {
+            m.keys = keys;
         } else {
-            self.keymap.push((key.to_string(), value));
+            self.keymap.push(Mapping {
+                action: action.to_string(),
+                keys,
+                debug_only: false,
+            });
         }
     }
 
@@ -171,8 +184,11 @@ impl InputHandler {
         let key = self.key_changed.take();
         match key {
             Some(k) => {
-                let mapping = self.keymap_get(&k).unwrap_or("").to_string();
-                format!("{k};{mapping}")
+                let keys = self
+                    .keymap_get(&k)
+                    .map(|m| m.keys.clone())
+                    .unwrap_or_default();
+                format!("{k};{keys}")
             }
             None => "null;".to_string(),
         }
@@ -195,8 +211,12 @@ impl InputHandler {
 
     /// Java `setKey(keymapKey, keyboardKey)` — for changing default bindings.
     pub fn set_key(&mut self, keymap_key: &str, keyboard_key: &str, debug: bool) {
-        if self.keymap_get(keymap_key).is_some() && (!keymap_key.contains("=debug") || debug) {
-            self.keymap_put(keymap_key, keyboard_key.to_string());
+        // tolerate the old on-disk "ACTION=debug" names from pre-refactor prefs files
+        let action = keymap_key.split("=debug").next().unwrap_or(keymap_key);
+        if let Some(m) = self.keymap_get(action) {
+            if !m.debug_only || debug {
+                self.keymap_put(action, keyboard_key.to_string());
+            }
         }
     }
 
@@ -204,7 +224,7 @@ impl InputHandler {
     pub fn get_mapping(&self, action_key: &str) -> String {
         let action_key = action_key.to_uppercase();
         match self.keymap_get(&action_key) {
-            Some(v) => v.replace('|', "/"),
+            Some(m) => m.keys.replace('|', "/"),
             None => "NO_KEY".to_string(),
         }
     }
@@ -222,17 +242,12 @@ impl InputHandler {
 
         let mut keytext = keytext.to_uppercase();
 
-        // JAVA: the "=debug" branch ("this should never be run" per the Java comment).
-        if self.keymap_get(&format!("{keytext}=debug")).is_some() {
-            if !debug {
-                return KeyState::default();
-            }
-            keytext = format!("{keytext}=debug");
-        }
-
         if get_from_map {
-            if let Some(mapped) = self.keymap_get(&keytext) {
-                keytext = mapped.to_string();
+            if let Some(m) = self.keymap_get(&keytext) {
+                if m.debug_only && !debug {
+                    return KeyState::default(); // debug-only cheat outside --debug
+                }
+                keytext = m.keys.clone();
             }
         }
 
@@ -332,7 +347,12 @@ impl InputHandler {
                 if self.overwrite {
                     String::new()
                 } else {
-                    format!("{}|", self.keymap_get(&to_change).unwrap_or(""))
+                    format!(
+                        "{}|",
+                        self.keymap_get(&to_change)
+                            .map(|m| m.keys.as_str())
+                            .unwrap_or("")
+                    )
                 },
                 self.get_cur_modifiers(),
                 keytext
@@ -379,8 +399,8 @@ impl InputHandler {
     pub fn get_key_prefs(&self, debug: bool) -> Vec<String> {
         self.keymap
             .iter()
-            .filter(|(k, _)| !k.contains("=debug") || debug)
-            .map(|(k, v)| format!("{k};{v}"))
+            .filter(|m| !m.debug_only || debug)
+            .map(|m| format!("{};{}", m.action, m.keys))
             .collect()
     }
 
