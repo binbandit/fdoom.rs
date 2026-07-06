@@ -11,6 +11,8 @@ use crate::entity::furniture::bed::BedState;
 use crate::entity::EntityArena;
 use crate::item::recipe::Recipes;
 use crate::item::Item;
+use crate::level::tile::Tiles;
+use crate::level::Level;
 use crate::core::io::localization::Localization;
 use crate::core::io::settings::Settings;
 use crate::core::io::sound::{Sound, SoundPlayer};
@@ -63,7 +65,10 @@ pub struct Game {
     /// Java `Tile.tickCount` (a static on Tile, but game state).
     pub tile_tick_count: i32,
 
-    // Java `World` statics
+    // Java `World` statics + levels
+    pub levels: Vec<Option<Level>>,
+    /// Java `Tiles` static registry.
+    pub tiles: Tiles,
     pub player_dead_time: i32,
     pub pending_level_change: i32,
     pub world_size: i32,
@@ -133,6 +138,8 @@ impl Game {
             saving: false,
             save_cooldown: 0,
             tile_tick_count: 0,
+            levels: (0..6).map(|_| None).collect(),
+            tiles: Tiles::new(),
             player_dead_time: 0,
             pending_level_change: 0,
             world_size: 128,

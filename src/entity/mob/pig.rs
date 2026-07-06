@@ -24,3 +24,13 @@ pub fn new(g: &Game) -> Entity {
     c.col = col;
     Entity::new(c, EntityKind::Pig(PigData { passive }))
 }
+
+/// Java `pig.tick()`. TODO(port:entity-behavior): leaf behavior.
+pub fn tick(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::mobai_tick_base(g, e);
+}
+
+/// Java `pig.die()`. TODO(port:entity-behavior): drops.
+pub fn die(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::passive_mob_die(g, e);
+}

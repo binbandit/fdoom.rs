@@ -5,8 +5,12 @@
 //! nested data structs (see PORTING.md). All live entities are stored in one
 //! `EntityArena` keyed by eid; ticking uses the take-out pattern (`Game::with_entity`).
 
+pub mod behavior;
 pub mod direction;
 pub mod furniture;
+pub mod item_entity_behavior;
+pub mod particle_behavior;
+pub mod projectile_behavior;
 pub mod item_entity;
 pub mod mob;
 pub mod particle;

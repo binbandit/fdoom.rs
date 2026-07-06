@@ -33,3 +33,18 @@ pub fn new(g: &Game) -> Entity {
     c.col = col;
     Entity::new(c, EntityKind::GlowWorm(GlowWormData { passive }))
 }
+
+/// Java `glow_worm.tick()`. TODO(port:entity-behavior): leaf behavior.
+pub fn tick(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::mobai_tick_base(g, e);
+}
+
+/// Java `glow_worm.die()`. TODO(port:entity-behavior): drops.
+pub fn die(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::passive_mob_die(g, e);
+}
+
+/// TODO(port:entity-behavior): custom render.
+pub fn render(g: &mut Game, screen: &mut crate::gfx::Screen, e: &mut Entity) {
+    crate::entity::behavior::passive_mob_render(g, screen, e)
+}

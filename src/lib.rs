@@ -8,6 +8,7 @@ pub mod entity;
 pub mod gfx;
 pub mod item;
 pub mod java_random;
+pub mod level;
 pub mod platform;
 pub mod saveload;
 pub mod screen;

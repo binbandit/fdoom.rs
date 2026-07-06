@@ -41,3 +41,23 @@ pub fn new(g: &Game, lvl: i32) -> Entity {
     c.col = col;
     Entity::new(c, EntityKind::Creeper(CreeperData { enemy, fuse_time: 0, fuse_lit: false }))
 }
+
+/// Java `creeper.tick()`. TODO(port:entity-behavior): leaf behavior.
+pub fn tick(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::enemy_mob_tick_base(g, e);
+}
+
+/// Java `creeper.die()`. TODO(port:entity-behavior): drops.
+pub fn die(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::enemy_mob_die(g, e);
+}
+
+/// TODO(port:entity-behavior): custom render.
+pub fn render(g: &mut Game, screen: &mut crate::gfx::Screen, e: &mut Entity) {
+    crate::entity::behavior::enemy_mob_render(g, screen, e)
+}
+
+/// TODO(port:entity-behavior): custom touchedBy.
+pub fn touched_by(g: &mut Game, this_e: &mut Entity, by: &mut Entity) {
+    let _ = (g, this_e, by);
+}

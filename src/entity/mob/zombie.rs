@@ -31,3 +31,13 @@ pub fn new(g: &Game, lvl: i32) -> Entity {
     c.col = col;
     Entity::new(c, EntityKind::Zombie(ZombieData { enemy }))
 }
+
+/// Java `zombie.tick()`. TODO(port:entity-behavior): leaf behavior.
+pub fn tick(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::enemy_mob_tick_base(g, e);
+}
+
+/// Java `zombie.die()`. TODO(port:entity-behavior): drops.
+pub fn die(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::enemy_mob_die(g, e);
+}

@@ -62,3 +62,18 @@ pub fn new(g: &Game, secondform: bool) -> Entity {
         }),
     )
 }
+
+/// Java `air_wizard.tick()`. TODO(port:entity-behavior): leaf behavior.
+pub fn tick(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::enemy_mob_tick_base(g, e);
+}
+
+/// Java `air_wizard.die()`. TODO(port:entity-behavior): drops.
+pub fn die(g: &mut Game, e: &mut Entity) {
+    crate::entity::behavior::enemy_mob_die(g, e);
+}
+
+/// TODO(port:entity-behavior): custom render.
+pub fn render(g: &mut Game, screen: &mut crate::gfx::Screen, e: &mut Entity) {
+    crate::entity::behavior::enemy_mob_render(g, screen, e)
+}

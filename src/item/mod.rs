@@ -4,6 +4,7 @@
 //! `ItemKind` enum. Item *behaviors* (`interactOn` etc., which need level/player context)
 //! live in `interact.rs`; this module holds the data model and the `Items` registry.
 
+pub mod interact;
 pub mod inventory;
 pub mod potion_type;
 pub mod recipe;

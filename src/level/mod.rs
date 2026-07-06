@@ -1,0 +1,394 @@
+//! Port of `fdoom.level.Level` (plus `LevelGen`/`Structure` in their own modules).
+//!
+//! Levels own the tile arrays; entities live in the global arena (`g.entities`) with a
+//! `level` index, so the entity-related Level methods are free functions taking
+//! `(g, lvl)` — see PORTING.md.
+
+pub mod level_gen;
+pub mod structure;
+pub mod tile;
+
+use std::rc::Rc;
+
+use crate::core::game::Game;
+use crate::entity::{Entity, EntityKind};
+use crate::gfx::{Point, Rectangle};
+use crate::java_random::JavaRandom;
+
+use tile::TileDef;
+
+const LEVEL_NAMES: [&str; 6] = ["Sky", "Surface", "Iron", "Gold", "Lava", "Dungeon"];
+
+/// Java `Level.getLevelName(depth)`.
+pub fn get_level_name(depth: i32) -> &'static str {
+    LEVEL_NAMES[(-depth + 1) as usize]
+}
+
+/// Java `Level.getDepthString(depth)`.
+pub fn get_depth_string(depth: i32) -> String {
+    format!("Level {}", if depth < 0 { format!("B{}", -depth) } else { depth.to_string() })
+}
+
+/// Java `Level.MOB_SPAWN_FACTOR`.
+pub const MOB_SPAWN_FACTOR: i32 = 100;
+
+/// Java `World.idxToDepth`.
+pub const IDX_TO_DEPTH: [i32; 6] = [-3, -2, -1, 0, 1, -4];
+pub const MIN_LEVEL_DEPTH: i32 = -4;
+pub const MAX_LEVEL_DEPTH: i32 = 1;
+
+/// Java `World.lvlIdx(depth)`.
+pub fn lvl_idx(depth: i32) -> usize {
+    if depth > MAX_LEVEL_DEPTH {
+        return lvl_idx(MIN_LEVEL_DEPTH);
+    }
+    if depth < MIN_LEVEL_DEPTH {
+        return lvl_idx(MAX_LEVEL_DEPTH);
+    }
+    if depth == -4 {
+        return 5;
+    }
+    (depth + 3) as usize
+}
+
+pub struct Level {
+    pub w: i32,
+    pub h: i32,
+    pub depth: i32,
+
+    pub tiles: Vec<u8>,
+    pub data: Vec<u8>,
+    pub visible: Vec<bool>,
+
+    pub grass_color: i32,
+    pub dirt_color: i32,
+    pub sand_color: i32,
+
+    /// affects the number of monsters on the level; bigger = fewer spawns.
+    pub monster_density: i32,
+    pub max_mob_count: i32,
+    pub chest_count: i32,
+    pub mob_count: i32,
+
+    /// entities queued to be added to the arena on the next level tick (Java
+    /// `entitiesToAdd`).
+    pub entities_to_add: Vec<Entity>,
+    /// eids queued for removal on the next level tick (Java `entitiesToRemove`).
+    pub entities_to_remove: Vec<i32>,
+
+    pub random: JavaRandom,
+}
+
+impl Level {
+    /// The non-generating part of the Java constructor (`makeWorld == false` path plus
+    /// common setup). World generation/population is in `level::init` (needs `g`).
+    pub fn empty(w: i32, h: i32, depth: i32, diff_idx: i32) -> Level {
+        let mut level = Level {
+            w,
+            h,
+            depth,
+            tiles: vec![0; (w * h) as usize],
+            data: vec![0; (w * h) as usize],
+            visible: vec![false; (w * h) as usize],
+            grass_color: 141,
+            dirt_color: 322,
+            sand_color: 550,
+            monster_density: 16,
+            max_mob_count: 0,
+            chest_count: 0,
+            mob_count: 0,
+            entities_to_add: Vec::new(),
+            entities_to_remove: Vec::new(),
+            random: JavaRandom::from_time(),
+        };
+        if depth != -4 && depth != 0 {
+            level.monster_density = 8;
+        }
+        level.update_mob_cap(diff_idx);
+        level
+    }
+
+    /// Java `updateMobCap()`.
+    pub fn update_mob_cap(&mut self, diff_idx: i32) {
+        self.max_mob_count = 150 + 150 * diff_idx;
+        if self.depth == 1 {
+            self.max_mob_count /= 2;
+        }
+        if self.depth == 0 || self.depth == -4 {
+            self.max_mob_count = self.max_mob_count * 2 / 3;
+        }
+    }
+
+    /// Raw tile id at (x, y); out of bounds yields None (Java returned "rock" — handled
+    /// by `Game::tile_at`).
+    pub fn tile_id(&self, x: i32, y: i32) -> Option<u8> {
+        if x < 0 || y < 0 || x >= self.w || y >= self.h {
+            return None;
+        }
+        Some(self.tiles[(x + y * self.w) as usize])
+    }
+
+    /// Java `getData(x, y)`.
+    pub fn get_data(&self, x: i32, y: i32) -> i32 {
+        if x < 0 || y < 0 || x >= self.w || y >= self.h {
+            return 0;
+        }
+        (self.data[(x + y * self.w) as usize] & 0xff) as i32
+    }
+
+    /// Java `setData(x, y, val)`.
+    pub fn set_data(&mut self, x: i32, y: i32, val: i32) {
+        if x < 0 || y < 0 || x >= self.w || y >= self.h {
+            return;
+        }
+        self.data[(x + y * self.w) as usize] = val as u8;
+    }
+
+    /// Java `setTile(x, y, t, dataVal)` (the singleplayer path).
+    pub fn set_tile_id(&mut self, x: i32, y: i32, id: u8, data_val: i32) {
+        if x < 0 || y < 0 || x >= self.w || y >= self.h {
+            return;
+        }
+        self.tiles[(x + y * self.w) as usize] = id;
+        self.data[(x + y * self.w) as usize] = data_val as u8;
+    }
+
+    /// Java `add(entity, x, y, tileCoords)` — queues the entity for the next tick.
+    pub fn add_at(&mut self, mut entity: Entity, x: i32, y: i32, tile_coords: bool, lvl_idx: usize) {
+        let (x, y) = if tile_coords { (x * 16 + 8, y * 16 + 8) } else { (x, y) };
+        // Java entity.setLevel(level, x, y)
+        entity.c.level = Some(lvl_idx);
+        entity.c.removed = false;
+        entity.c.x = x;
+        entity.c.y = y;
+
+        // to make sure the most recent request is satisfied
+        if entity.c.eid >= 0 {
+            self.entities_to_remove.retain(|&eid| eid != entity.c.eid);
+            self.entities_to_add.retain(|e| e.c.eid != entity.c.eid);
+        }
+        self.entities_to_add.push(entity);
+    }
+
+    /// Java `add(entity)` — uses the entity's current position.
+    pub fn add(&mut self, entity: Entity, lvl_idx: usize) {
+        let (x, y) = (entity.c.x, entity.c.y);
+        self.add_at(entity, x, y, false, lvl_idx);
+    }
+
+    /// Java `remove(e)`.
+    pub fn remove(&mut self, eid: i32) {
+        self.entities_to_add.retain(|e| e.c.eid != eid);
+        if !self.entities_to_remove.contains(&eid) {
+            self.entities_to_remove.push(eid);
+        }
+    }
+}
+
+/* ------------- Game-level helpers (Java Level methods that need globals) ------------- */
+
+impl Game {
+    /// Panicking accessor mirroring Java's implicit non-null level references.
+    pub fn level(&self, i: usize) -> &Level {
+        self.levels[i].as_ref().expect("level not loaded")
+    }
+
+    pub fn level_mut(&mut self, i: usize) -> &mut Level {
+        self.levels[i].as_mut().expect("level not loaded")
+    }
+
+    /// Java `level.getTile(x, y)` — out of bounds returns "rock".
+    pub fn tile_at(&self, lvl: usize, x: i32, y: i32) -> Rc<TileDef> {
+        match self.levels[lvl].as_ref().and_then(|l| l.tile_id(x, y)) {
+            Some(id) => self.tiles.get_id(id as i32),
+            None => self.tiles.get("rock"),
+        }
+    }
+
+    /// Java `level.setTile(x, y, t, dataVal)`.
+    pub fn set_tile(&mut self, lvl: usize, x: i32, y: i32, t: &TileDef, data_val: i32) {
+        if let Some(level) = self.levels[lvl].as_mut() {
+            level.set_tile_id(x, y, t.id, data_val);
+        }
+    }
+
+    /// Java `level.setTile(x, y, t)` — uses the tile's default data.
+    pub fn set_tile_default(&mut self, lvl: usize, x: i32, y: i32, t: &TileDef) {
+        self.set_tile(lvl, x, y, t, tile::dispatch::get_default_data(t));
+    }
+
+    /// Java `level.setTile(x, y, "name_data")`.
+    pub fn set_tile_named(&mut self, lvl: usize, x: i32, y: i32, tilewithdata: &str) {
+        if !tilewithdata.contains('_') {
+            let t = self.tiles.get(tilewithdata);
+            self.set_tile_default(lvl, x, y, &t);
+            return;
+        }
+        let idx = tilewithdata.find('_').unwrap();
+        let name = &tilewithdata[..idx];
+        let t = self.tiles.get(name);
+        let data = tile::dispatch::get_data_str(&t, &tilewithdata[idx + 1..]);
+        self.set_tile(lvl, x, y, &t, data);
+    }
+}
+
+/* ---------------- entity queries (Java Level methods over the arena) ---------------- */
+
+/// Java `level.getEntitiesInRect(area)` — eids of entities on the level touching area.
+pub fn get_entities_in_rect(g: &Game, lvl: usize, area: &Rectangle) -> Vec<i32> {
+    g.entities
+        .entities_on_level(lvl)
+        .filter(|e| e.c.is_touching(area))
+        .map(|e| e.c.eid)
+        .collect()
+}
+
+/// Java `level.getEntitiesInTiles(xt0, yt0, xt1, yt1)`.
+pub fn get_entities_in_tiles(g: &Game, lvl: usize, xt0: i32, yt0: i32, xt1: i32, yt1: i32) -> Vec<i32> {
+    g.entities
+        .entities_on_level(lvl)
+        .filter(|e| {
+            let xt = e.c.x >> 4;
+            let yt = e.c.y >> 4;
+            xt >= xt0 && xt <= xt1 && yt >= yt0 && yt <= yt1
+        })
+        .map(|e| e.c.eid)
+        .collect()
+}
+
+/// Java `level.getPlayers()` — in singleplayer, the player's eid if on this level.
+pub fn get_players(g: &Game, lvl: usize) -> Vec<i32> {
+    g.entities
+        .entities_on_level(lvl)
+        .filter(|e| e.is_player())
+        .map(|e| e.c.eid)
+        .collect()
+}
+
+/// Java `level.getClosestPlayer(x, y)`.
+pub fn get_closest_player(g: &Game, lvl: usize, x: i32, y: i32) -> Option<i32> {
+    let mut best: Option<(i32, i64)> = None;
+    for e in g.entities.entities_on_level(lvl).filter(|e| e.is_player()) {
+        let xd = (e.c.x - x) as i64;
+        let yd = (e.c.y - y) as i64;
+        let d = xd * xd + yd * yd;
+        if best.is_none() || d < best.unwrap().1 {
+            best = Some((e.c.eid, d));
+        }
+    }
+    best.map(|(eid, _)| eid)
+}
+
+/// Java `level.getAreaTilePositions(x, y, rx, ry)`.
+pub fn get_area_tile_positions(g: &Game, lvl: usize, x: i32, y: i32, rx: i32, ry: i32) -> Vec<Point> {
+    let level = g.level(lvl);
+    let mut local = Vec::new();
+    for yp in y - ry..=y + ry {
+        for xp in x - rx..=x + rx {
+            if xp >= 0 && xp < level.w && yp >= 0 && yp < level.h {
+                local.push(Point::new(xp, yp));
+            }
+        }
+    }
+    local
+}
+
+/// Java `level.getAreaTiles(x, y, rx, ry)`.
+pub fn get_area_tiles(g: &Game, lvl: usize, x: i32, y: i32, rx: i32, ry: i32) -> Vec<Rc<TileDef>> {
+    get_area_tile_positions(g, lvl, x, y, rx, ry)
+        .into_iter()
+        .map(|p| g.tile_at(lvl, p.x, p.y))
+        .collect()
+}
+
+/// Java `level.setAreaTiles(xt, yt, r, tile, data, overwriteStairs)`.
+pub fn set_area_tiles(g: &mut Game, lvl: usize, xt: i32, yt: i32, r: i32, tile: &TileDef, data: i32, overwrite_stairs: bool) {
+    for y in yt - r..=yt + r {
+        for x in xt - r..=xt + r {
+            if overwrite_stairs || !g.tile_at(lvl, x, y).name.to_lowercase().contains("stairs") {
+                g.set_tile(lvl, x, y, tile, data);
+            }
+        }
+    }
+}
+
+/// Java `level.getMatchingTiles(condition)`.
+pub fn get_matching_tiles(g: &Game, lvl: usize, mut condition: impl FnMut(&Game, &TileDef, i32, i32) -> bool) -> Vec<Point> {
+    let (w, h) = {
+        let level = g.level(lvl);
+        (level.w, level.h)
+    };
+    let mut matches = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            if condition(g, &g.tile_at(lvl, x, y), x, y) {
+                matches.push(Point::new(x, y));
+            }
+        }
+    }
+    matches
+}
+
+/// Java `level.isLight(x, y)`.
+pub fn is_light(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    get_area_tiles(g, lvl, x, y, 3, 3).iter().any(|t| matches!(t.kind, tile::TileKind::Torch { .. }))
+}
+
+/// Java `level.dropItem(x, y, item)`.
+pub fn drop_item(g: &mut Game, lvl: usize, x: i32, y: i32, item: crate::item::Item) -> i32 {
+    let (mut ranx, mut rany);
+    loop {
+        let level = g.level_mut(lvl);
+        ranx = x + level.random.next_int_bound(11) - 5;
+        rany = y + level.random.next_int_bound(11) - 5;
+        if ranx >> 4 == x >> 4 && rany >> 4 == y >> 4 {
+            break;
+        }
+    }
+    let ie = crate::entity::item_entity::new(item, ranx, rany, &mut g.random);
+    let eid_tmp = ie.c.eid;
+    g.level_mut(lvl).add(ie, lvl);
+    eid_tmp
+}
+
+/// Java `level.dropItem(x, y, mincount, maxcount, items...)`.
+pub fn drop_items_counted(g: &mut Game, lvl: usize, x: i32, y: i32, mincount: i32, maxcount: i32, items: &[crate::item::Item]) {
+    let count = mincount + g.level_mut(lvl).random.next_int_bound(maxcount - mincount + 1);
+    for _ in 0..count {
+        for item in items {
+            drop_item(g, lvl, x, y, item.clone());
+        }
+    }
+}
+
+/// Java `level.clearEntities()` (offline path).
+pub fn clear_entities(g: &mut Game, lvl: usize) {
+    let ids = g.entities.ids_on_level(lvl);
+    for eid in ids {
+        if eid != g.player_id {
+            g.entities.delete(eid);
+        } else if let Some(p) = g.entities.get_mut(eid) {
+            p.c.level = None;
+        }
+    }
+}
+
+/// Java `level.removeAllEnemies()`.
+pub fn remove_all_enemies(g: &mut Game, lvl: usize) {
+    let creative = g.is_mode("creative");
+    let ids: Vec<i32> = g
+        .entities
+        .entities_on_level(lvl)
+        .filter(|e| {
+            e.is_enemy_mob() && (!matches!(e.kind, EntityKind::AirWizard(_)) || creative)
+        })
+        .map(|e| e.c.eid)
+        .collect();
+    for eid in ids {
+        // Java calls e.remove(), which queues level removal
+        if let Some(e) = g.entities.get_mut(eid) {
+            e.c.removed = true;
+        }
+        g.level_mut(lvl).remove(eid);
+    }
+}

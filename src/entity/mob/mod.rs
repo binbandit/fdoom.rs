@@ -9,6 +9,7 @@ pub mod glow_worm;
 pub mod knight;
 pub mod pig;
 pub mod player;
+pub mod player_behavior;
 pub mod sheep;
 pub mod skeleton;
 pub mod slime;
