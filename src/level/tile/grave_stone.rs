@@ -1,7 +1,5 @@
 //! Port of `fdoom.level.tile.GraveStoneTile`.
 
-use std::cell::Cell;
-
 use super::dispatch;
 use super::{TileDef, TileKind};
 use crate::core::game::Game;
@@ -11,14 +9,15 @@ use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
 use crate::item::Item;
 
-// JAVA: hasRunTonight/hasSpawnedZombie are instance fields on the tile-class singleton,
-// shared by every grave stone tile on every level (and not saved). hasSpawnedZombie is
-// only touched by the broken instance and hasRunTonight only by the unbroken one, so one
-// pair of statics reproduces the Java behavior.
-thread_local! {
-    static HAS_RUN_TONIGHT: Cell<bool> = const { Cell::new(false) };
-    static HAS_SPAWNED_ZOMBIE: Cell<bool> = const { Cell::new(false) };
-}
+// JAVA: hasRunTonight/hasSpawnedZombie were instance fields on the tile-class singleton,
+// shared by every grave stone tile on every level and never reset — the state leaked
+// across worlds (one grave crumbling stopped every other grave from ever crumbling).
+// FIX: the flag lives in the tile's per-position data byte instead (grave stones never
+// used their data value), so each grave tracks its own state, it is world-scoped, and it
+// round-trips through saves for free. For an unbroken grave the flag means "already
+// rolled the crumble chance tonight"; for a broken grave it means "already spawned its
+// night zombie".
+const FLAG_SET: i32 = 1;
 
 /// Java static `sprite` (unbroken).
 fn sprite() -> Sprite {

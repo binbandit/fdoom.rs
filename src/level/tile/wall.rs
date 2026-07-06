@@ -67,8 +67,10 @@ pub fn hurt_by(
         return false;
     };
     if g.level(lvl).depth != -3 || material != Material::Obsidian || g.air_wizard_beaten {
-        // JAVA: random.nextInt(6) / 6 * dmg / 2 — integer division, always 0.
-        let d = g.random.next_int_bound(6) / 6 * dmg / 2;
+        // JAVA: `random.nextInt(6) / 6 * dmg / 2` — integer division made this always 0,
+        // so bare-hand/mob hits never damaged walls. FIX: multiply before dividing so the
+        // intended random scaling (0..dmg/2, averaging ~dmg/5) actually applies.
+        let d = dmg * g.random.next_int_bound(6) / 6 / 2;
         hurt_dmg(g, def, lvl, x, y, d);
         true
     } else {
@@ -167,6 +169,11 @@ pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {
 }
 
 /// Java `WallTile.getName(data)`.
-pub fn get_name(_def: &TileDef, data: i32) -> String {
-    format!("{} Wall", Material::VALUES[data as usize].name())
+pub fn get_name(def: &TileDef, data: i32) -> String {
+    // JAVA: `Material.values[data]` — an out-of-range data value threw
+    // ArrayIndexOutOfBoundsException. FIX: fall back to the def's own name.
+    match Material::VALUES.get(data as usize) {
+        Some(material) => format!("{} Wall", material.name()),
+        None => def.name.clone(),
+    }
 }

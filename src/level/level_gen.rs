@@ -167,17 +167,10 @@ pub fn create_and_validate_map(
     }
 
     if level > -4 && level < 0 {
-        // JAVA: the underground generator call is commented out; underground levels use
-        // the top-map generator too.
-        //return createAndValidateUndergroundMap(w, h, -level);
-        return Some(create_and_validate_top_map(
-            w,
-            h,
-            tiles,
-            world_seed,
-            gen_type,
-            theme,
-            history_random,
+        // JAVA: the fork had commented this out and reused the surface generator for
+        // the mines, leaving them without ore veins/caves; restored post-v0.1.0.
+        return Some(create_and_validate_underground_map(
+            w, h, -level, tiles, world_seed,
         ));
     }
 
@@ -268,9 +261,8 @@ fn create_and_validate_top_map(
     }
 }
 
-/// Java `createAndValidateUndergroundMap` — dead code (its only call site is commented
-/// out in `createAndValidateMap`); ported for fidelity.
-#[allow(dead_code)]
+/// Java `createAndValidateUndergroundMap` — the cave/ore generator for depths -1..-3
+/// (disabled in the Java fork; restored here).
 fn create_and_validate_underground_map(
     w: i32,
     h: i32,
@@ -765,8 +757,7 @@ fn create_dungeon(w: i32, h: i32, tiles: &Tiles, random: &mut Rng) -> (Vec<u8>, 
     (map, data)
 }
 
-/// Java `createUndergroundMap` — dead code, see `create_and_validate_underground_map`.
-#[allow(dead_code)]
+/// Java `createUndergroundMap`.
 fn create_underground_map(
     w: i32,
     h: i32,

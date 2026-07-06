@@ -29,51 +29,32 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let ur = g.tile_at(lvl, x + 1, y - 1).id == def.id;
     let dr = g.tile_at(lvl, x + 1, y + 1).id == def.id;
 
-    // JAVA: every branch renders the same 1x1 sprite at the raw tile coordinates
-    // (x, y), not pixel coordinates — preserved as-is.
-    if ul {
-        Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-    } else {
-        if u {
-            Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-        }
-        if l {
-            Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-        }
-    }
-    if dl {
-        Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-    } else {
-        if d {
-            Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-        }
-        if l {
-            Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-        }
-    }
-    if ur {
-        Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-    } else {
-        if u {
-            Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-        }
-        if r {
-            Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-        }
-    }
-    if dr {
-        Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-    } else {
-        if d {
-            Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-        }
-        if r {
-            Sprite::new1x1(6, 4, transition_color).render(screen, x, y);
-        }
-    }
-
+    // JAVA: every branch rendered the same 1x1 sprite at the raw tile coordinates
+    // (x, y) instead of pixel coordinates, and the dirt ground tile was drawn *after*
+    // the fence sprites, overdrawing them — fences were invisible. FIX: draw the ground
+    // first, then one 8x8 fence sprite per connected quadrant at pixel coordinates
+    // (x << 4, y << 4), and always draw a center post so an isolated fence is visible.
     let dirt = g.tiles.get("dirt");
     dispatch::render(g, screen, &dirt, lvl, x, y);
+
+    let sprite = Sprite::new1x1(6, 4, transition_color);
+    let (px, py) = (x << 4, y << 4);
+    if ul || u || l {
+        sprite.render(screen, px, py);
+    }
+    if dl || d || l {
+        sprite.render(screen, px, py + 8);
+    }
+    if ur || u || r {
+        sprite.render(screen, px + 8, py);
+    }
+    if dr || d || r {
+        sprite.render(screen, px + 8, py + 8);
+    }
+    if !(u || d || l || r || ul || dl || ur || dr) {
+        // Lone fence post: render the sprite centered so the tile isn't empty.
+        sprite.render(screen, px + 4, py + 4);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
