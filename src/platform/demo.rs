@@ -111,6 +111,9 @@ impl Demo {
 }
 
 fn dump_png(path: &str, pixels: &[i32]) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let file = std::fs::File::create(path)?;
     let mut enc = png::Encoder::new(std::io::BufWriter::new(file), W as u32, H as u32);
     enc.set_color(png::ColorType::Rgb);
