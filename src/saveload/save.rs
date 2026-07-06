@@ -10,7 +10,6 @@ use std::path::PathBuf;
 
 use crate::core::game::Game;
 use crate::entity::{Entity, EntityKind};
-use crate::screen::entry::array_entry::Value;
 
 /// Java `Save.extension`.
 pub const EXTENSION: &str = ".miniplussave";
@@ -131,17 +130,13 @@ impl Save {
             self.data.push("AirSkin".to_string());
         }
 
-        if g.settings
-            .get_entry("scoretime")
-            .borrow()
-            .get_value_visibility(&Value::Int(10))
+        if g.settings.scoretime_visible(10)
+            && crate::core::io::settings::LOCKED_SCORETIMES.contains(&10)
         {
             self.data.push("10_ScoreTime".to_string());
         }
-        if g.settings
-            .get_entry("scoretime")
-            .borrow()
-            .get_value_visibility(&Value::Int(120))
+        if g.settings.scoretime_visible(120)
+            && crate::core::io::settings::LOCKED_SCORETIMES.contains(&120)
         {
             self.data.push("120_ScoreTime".to_string());
         }

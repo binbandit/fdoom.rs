@@ -21,7 +21,6 @@ use crate::item::Inventory;
 use crate::level::Level;
 use crate::saveload::save::EXTENSION;
 use crate::saveload::version::Version;
-use crate::screen::entry::array_entry::Value;
 
 /// Java `Tiles.oldids` — the pre-1.9.4-dev6 numeric tile id table (from `Tiles.java`'s
 /// static block). Unlisted ids were `null` in Java.
@@ -391,11 +390,9 @@ impl Load {
                 .replace("2H_ScoreTime", "120_ScoreTime");
 
             if unlock.contains("_ScoreTime") {
-                let num: i32 = unlock[..unlock.find('_').unwrap()].parse().unwrap();
-                g.settings
-                    .get_entry("scoretime")
-                    .borrow_mut()
-                    .set_value_visibility(&Value::Int(num), true);
+                if let Ok(num) = unlock[..unlock.find('_').unwrap_or(0)].parse::<i32>() {
+                    g.settings.unlock_scoretime(num);
+                }
             }
         }
     }

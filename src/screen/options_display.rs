@@ -1,8 +1,10 @@
 //! Port of `fdoom.screen.OptionsDisplay`.
 
 use crate::core::game::Game;
+use crate::screen::entry::ListEntry;
+use crate::screen::settings_widgets::{self, SettingEntry};
 
-use super::display::{Display, DisplayBase};
+use super::display::{Display, DisplayBase, display_tick_default};
 use super::entry::{EntryHandle, SelectEntry, handle};
 use super::key_input_display::KeyInputDisplay;
 use super::menu::MenuBuilder;
@@ -10,22 +12,32 @@ use super::rel_pos::RelPos;
 
 pub struct OptionsDisplay {
     base: DisplayBase,
+    settings: Vec<SettingEntry>,
 }
 
 impl OptionsDisplay {
     pub fn new(g: &Game) -> OptionsDisplay {
-        // The settings entries are the same shared objects Java passed around
-        // (Settings.getEntry returns the live entry).
+        let settings: Vec<SettingEntry> =
+            ["diff", "fps", "sound", "autosave", "skinon", "language"]
+                .iter()
+                .map(|key| settings_widgets::make_entry(g, key))
+                .collect();
+
+        // the suit toggle is only shown once the suit is unlocked
+        if !g.settings.get("unlockedskin").as_bool() {
+            settings[4].1.borrow_mut().set_visible(false);
+        }
+
         let entries: Vec<EntryHandle> = vec![
-            g.settings.get_entry("diff"),
-            g.settings.get_entry("fps"),
-            g.settings.get_entry("sound"),
-            g.settings.get_entry("autosave"),
-            g.settings.get_entry("skinon"),
+            settings[0].1.clone(),
+            settings[1].1.clone(),
+            settings[2].1.clone(),
+            settings[3].1.clone(),
+            settings[4].1.clone(),
             handle(SelectEntry::new("Change Key Bindings", |g: &mut Game| {
                 g.set_menu(KeyInputDisplay::new(g));
             })),
-            g.settings.get_entry("language"),
+            settings[5].1.clone(),
         ];
 
         let menu = MenuBuilder::new(false, 6, RelPos::Left, entries)
@@ -34,6 +46,7 @@ impl OptionsDisplay {
 
         OptionsDisplay {
             base: DisplayBase::new(true, true, vec![menu]),
+            settings,
         }
     }
 }
@@ -47,10 +60,16 @@ impl Display for OptionsDisplay {
         &mut self.base
     }
 
+    fn tick(&mut self, g: &mut Game) {
+        display_tick_default(&mut self.base, g);
+        settings_widgets::sync(g, &self.settings);
+    }
+
     fn on_exit(&mut self, g: &mut Game) {
+        settings_widgets::sync(g, &self.settings);
         let language = g.settings.get("language").as_str().to_string();
         g.localization.change_language(&language);
-        // JAVA: new Save() — TODO(port:saveload): global preferences save pending.
+        crate::saveload::save::save_prefs(g); // JAVA: new Save()
         g.max_fps = g.settings.get("fps").as_int();
     }
 }

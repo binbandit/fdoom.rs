@@ -118,7 +118,7 @@ impl Game {
     pub fn new(debug: bool, has_gui: bool, game_dir: PathBuf) -> Game {
         let localization = Localization::new();
         localization.debug.set(debug);
-        let settings = Settings::new(&localization);
+        let settings = Settings::new(localization.get_languages());
         let max_fps = settings.get("fps").as_int();
         let mut input = InputHandler::new();
         input.debug = debug;

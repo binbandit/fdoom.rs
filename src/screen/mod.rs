@@ -22,6 +22,7 @@ pub mod player_death_display;
 pub mod player_inv_display;
 pub mod recipe_menu;
 pub mod rel_pos;
+pub mod settings_widgets;
 pub mod splash_menu;
 pub mod temp_display;
 pub mod title_display;

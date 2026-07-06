@@ -95,27 +95,23 @@ fn get_and_write_unlocks(g: &mut Game, finalscore: i32) -> Vec<EntryHandle> {
     let score_time = g.settings.get("scoretime").as_int();
     let mut unlocks: Vec<i32> = Vec::new();
 
-    let scoretime_entry = g.settings.get_entry("scoretime");
-
-    if score_time == 20 && !scoretime_entry.borrow().value_is(&Value::Int(10)) && finalscore > 1000
+    if score_time == 20
+        && !g.settings.get("scoretime").matches(&Value::Int(10))
+        && finalscore > 1000
     {
         unlocks.push(10);
-        scoretime_entry
-            .borrow_mut()
-            .set_value_visibility(&Value::Int(10), true);
+        g.settings.unlock_scoretime(10);
     }
 
     if score_time == 60
-        && !scoretime_entry.borrow().value_is(&Value::Int(120))
+        && !g.settings.get("scoretime").matches(&Value::Int(120))
         && finalscore > 100000
     {
         unlocks.push(120);
-        scoretime_entry
-            .borrow_mut()
-            .set_value_visibility(&Value::Int(120), true);
+        g.settings.unlock_scoretime(120);
     }
 
-    // JAVA: new Save() — writes unlocks and preferences. TODO(port:saveload): pending.
+    crate::saveload::save::save_prefs(g); // JAVA: new Save() — persists the unlocks
 
     unlocks
         .into_iter()

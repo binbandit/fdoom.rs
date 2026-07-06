@@ -48,8 +48,8 @@ impl Value {
         }
     }
 
-    /// Java `ArrayEntry.getIndex` equality: strings compare case-insensitively.
-    fn matches(&self, other: &Value) -> bool {
+    /// Equality with case-insensitive strings (Java `ArrayEntry.getIndex` semantics).
+    pub fn matches(&self, other: &Value) -> bool {
         match (self, other) {
             (Value::Str(a), Value::Str(b)) => a.eq_ignore_ascii_case(b),
             (a, b) => a == b,

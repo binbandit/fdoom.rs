@@ -7,7 +7,6 @@ use fdoom::core::game::Game;
 use fdoom::entity::EntityKind;
 use fdoom::item::PotionType;
 use fdoom::saveload::{load, save};
-use fdoom::screen::entry::array_entry::Value;
 
 fn temp_game_dir(name: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
@@ -34,14 +33,8 @@ fn prefs_roundtrip() {
     g1.settings.set("autosave", true);
     g1.settings.set("fps", 90);
     g1.settings.set("unlockedskin", true);
-    g1.settings
-        .get_entry("scoretime")
-        .borrow_mut()
-        .set_value_visibility(&Value::Int(10), true);
-    g1.settings
-        .get_entry("scoretime")
-        .borrow_mut()
-        .set_value_visibility(&Value::Int(120), true);
+    g1.settings.unlock_scoretime(10);
+    g1.settings.unlock_scoretime(120);
     g1.input.set_key("UP", "K", g1.debug);
 
     save::save_prefs(&mut g1);
@@ -72,18 +65,8 @@ fn prefs_roundtrip() {
     assert_eq!(g2.settings.get("fps").as_int(), 90);
     assert_eq!(g2.input.get_mapping("UP"), "K");
     assert!(g2.settings.get("unlockedskin").as_bool());
-    assert!(
-        g2.settings
-            .get_entry("scoretime")
-            .borrow()
-            .get_value_visibility(&Value::Int(10))
-    );
-    assert!(
-        g2.settings
-            .get_entry("scoretime")
-            .borrow()
-            .get_value_visibility(&Value::Int(120))
-    );
+    assert!(g2.settings.scoretime_visible(10));
+    assert!(g2.settings.scoretime_visible(120));
 }
 
 #[test]
