@@ -23,8 +23,9 @@ impl Px {
 }
 
 /// Direction (index) + walk-animation-frame indexed sprite set for mobs
-/// (Java `MobSprite[][]`; dir order: down, up, left, right).
-pub type MobAnims = [[Sprite; 2]; 4];
+/// (Java `MobSprite[][]`; dir order: down, up, left, right — though some mobs
+/// use irregular shapes, e.g. Slime's single row).
+pub type MobAnims = Vec<Vec<Sprite>>;
 
 #[derive(Debug, Clone)]
 pub struct Sprite {
@@ -185,7 +186,7 @@ pub fn compile_mob_sprite_animations(sheet_x: i32, sheet_y: i32) -> MobAnims {
     let set2 = compile_sprite_list(sheet_x, sheet_y, 2, 2, 1, 4);
     let [d1, u1, r1, r2]: [Sprite; 4] = set1.try_into().unwrap();
     let [d2, u2, l1, l2]: [Sprite; 4] = set2.try_into().unwrap();
-    [[d1, d2], [u1, u2], [l1, l2], [r1, r2]]
+    vec![vec![d1, d2], vec![u1, u2], vec![l1, l2], vec![r1, r2]]
 }
 
 /// Java `ConnectorSprite.makeSprite(w, h, color, mirror, repeat, coords...)`.

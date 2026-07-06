@@ -4,8 +4,13 @@
 //! See PORTING.md ("One `Game` struct instead of Java statics").
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use crate::core::io::input_handler::InputHandler;
+use crate::entity::furniture::bed::BedState;
+use crate::entity::EntityArena;
+use crate::item::recipe::Recipes;
+use crate::item::Item;
 use crate::core::io::localization::Localization;
 use crate::core::io::settings::Settings;
 use crate::core::io::sound::{Sound, SoundPlayer};
@@ -75,6 +80,21 @@ pub struct Game {
 
     /// Shared incidental RNG (see PORTING.md "JavaRandom").
     pub random: JavaRandom,
+
+    /// The item prototype registry (Java `Items`' static list).
+    pub items: Rc<Vec<Item>>,
+    /// Java `Recipes`' static lists.
+    pub recipes: Rc<Recipes>,
+
+    /// All live entities (see PORTING.md).
+    pub entities: EntityArena,
+    /// eid of the main player (Java `Game.player`; main() sets it to 0).
+    pub player_id: i32,
+
+    /// Java `Bed`'s static sleep-tracking state.
+    pub bed_state: BedState,
+    /// Java `AirWizard.beaten` static.
+    pub air_wizard_beaten: bool,
 }
 
 impl Game {
@@ -86,7 +106,7 @@ impl Game {
         let mut input = InputHandler::new();
         input.debug = debug;
 
-        Game {
+        let mut g = Game {
             debug,
             has_gui,
             continous: true,
@@ -123,7 +143,17 @@ impl Game {
             fra: 0,
             tik: 0,
             random: JavaRandom::from_time(),
-        }
+            items: Rc::new(Vec::new()),
+            recipes: Rc::new(Recipes::new()),
+            entities: EntityArena::default(),
+            player_id: 0,
+            bed_state: BedState::default(),
+            air_wizard_beaten: false,
+        };
+        // The item registry reads settings (difficulty) during construction, mirroring
+        // Java's static-init ordering.
+        g.items = Rc::new(crate::item::registry::build_registry(&g));
+        g
     }
 
     /* ------------------------- menus (Java Game.setMenu etc.) ------------------------- */
