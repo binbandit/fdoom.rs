@@ -2,5 +2,9 @@
 //! renderer/updater. The Java statics of `Game`/`Updater`/`Renderer`/`World` become the
 //! `Game` struct (see PORTING.md).
 
+pub mod file_handler;
+pub mod game;
+pub mod io;
 pub mod my_utils;
+pub mod renderer;
 pub mod updater;

@@ -103,6 +103,7 @@ impl Screen {
 
     /// Java `overlay(screen2, currentLevel, xa, ya)` — overlays the light screen for
     /// darkness/dithering. `tick_count`/`past_day1`/`time` were Java `Updater` statics.
+    #[allow(clippy::too_many_arguments)]
     pub fn overlay(
         &mut self,
         screen2: &Screen,

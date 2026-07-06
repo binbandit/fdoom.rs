@@ -192,13 +192,13 @@ pub fn compile_mob_sprite_animations(sheet_x: i32, sheet_y: i32) -> MobAnims {
 pub fn make_sprite(w: i32, h: i32, color: i32, mirror: i32, repeat: bool, coords: &[i32]) -> Sprite {
     let mut pixels: Vec<Vec<Px>> = vec![vec![Px::new(0, 0, 0); w as usize]; h as usize];
     let mut i = 0usize;
-    'outer: for r in 0..h as usize {
-        for c in 0..w as usize {
+    'outer: for row in pixels.iter_mut() {
+        for px in row.iter_mut() {
             if i >= coords.len() {
                 break 'outer;
             }
             let pos = coords[i];
-            pixels[r][c] = Px::new(pos % 32, pos / 32, mirror);
+            *px = Px::new(pos % 32, pos / 32, mirror);
             i += 1;
             if i == coords.len() && repeat {
                 i = 0;

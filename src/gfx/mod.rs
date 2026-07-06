@@ -18,6 +18,7 @@ pub mod sprite_sheet;
 
 pub use dimension::Dimension;
 pub use font_style::FontStyle;
+pub use insets::Insets;
 pub use point::Point;
 pub use rectangle::Rectangle;
 pub use screen::Screen;
