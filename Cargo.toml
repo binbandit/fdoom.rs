@@ -1,0 +1,20 @@
+[package]
+name = "fdoom"
+version = "2.6.0"
+edition = "2024"
+description = "Fossickers Doom — Rust port of the Java game Fossicker"
+license = "MIT"
+rust-version = "1.85"
+
+[dependencies]
+winit = "0.30"
+softbuffer = "0.4"
+rodio = { version = "0.22", default-features = false, features = ["wav", "playback"] }
+png = "0.18"
+
+[profile.dev]
+# The software renderer is hot; keep debug builds playable.
+opt-level = 1
+
+[profile.release]
+lto = "thin"
