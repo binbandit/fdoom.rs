@@ -15,9 +15,9 @@ use crate::entity::EntityArena;
 use crate::entity::furniture::bed::BedState;
 use crate::item::Item;
 use crate::item::recipe::Recipes;
-use crate::rng::Rng;
 use crate::level::Level;
 use crate::level::tile::Tiles;
+use crate::rng::Rng;
 use crate::saveload::version::Version;
 use crate::screen::display::{Display, DisplayManager, PendingMenu};
 

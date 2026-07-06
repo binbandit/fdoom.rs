@@ -98,6 +98,12 @@ pub trait ListEntry {
         false
     }
 
+    /// True for text-entry rows: while selected, letters type instead of navigating, so
+    /// the menu only navigates with the physical arrow keys.
+    fn captures_typing(&self) -> bool {
+        false
+    }
+
     fn set_selectable(&mut self, selectable: bool) {
         self.flags_mut().selectable = selectable;
     }

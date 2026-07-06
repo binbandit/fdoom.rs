@@ -167,10 +167,23 @@ impl Menu {
 
         let prev_sel = self.selection;
         let mut selection = self.selection;
-        if g.input.get_key("up").clicked {
+        // text-entry rows capture letters, so navigate with the physical arrows only
+        let typing = self
+            .get_cur_entry()
+            .map(|e| e.borrow().captures_typing())
+            .unwrap_or(false);
+        let (up, down) = if typing {
+            (
+                g.input.get_physical_key("UP"),
+                g.input.get_physical_key("DOWN"),
+            )
+        } else {
+            (g.input.get_key("up"), g.input.get_key("down"))
+        };
+        if up.clicked {
             selection -= 1;
         }
-        if g.input.get_key("down").clicked {
+        if down.clicked {
             selection += 1;
         }
 

@@ -111,6 +111,10 @@ impl InputEntry {
 }
 
 impl ListEntry for InputEntry {
+    fn captures_typing(&self) -> bool {
+        true
+    }
+
     fn flags(&self) -> EntryFlags {
         self.flags
     }

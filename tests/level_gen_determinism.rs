@@ -8,8 +8,17 @@ use fdoom::rng::Rng;
 fn generate(seed: i64, depth: i32) -> (Vec<u8>, Vec<u8>) {
     let tiles = Tiles::new();
     let mut history = Rng::new(seed ^ 0x5DEECE66D);
-    create_and_validate_map(128, 128, depth, &tiles, seed, "Island", "Normal", &mut history)
-        .expect("generation failed")
+    create_and_validate_map(
+        128,
+        128,
+        depth,
+        &tiles,
+        seed,
+        "Island",
+        "Normal",
+        &mut history,
+    )
+    .expect("generation failed")
 }
 
 #[test]

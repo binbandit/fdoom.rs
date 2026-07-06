@@ -59,6 +59,9 @@ impl Demo {
     pub fn on_tick(&mut self, game: &mut Game) {
         // scripted runs must not depend on the OS granting window focus
         game.has_focus = true;
+        if self.pending_shot.is_some() {
+            return; // hold the script until the frame is actually rendered
+        }
         if let Some(key) = self.release_next.take() {
             game.input.key_toggled(&key, false);
         }

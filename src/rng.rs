@@ -20,7 +20,10 @@ fn split_mix64(state: &mut u64) -> u64 {
 
 impl Rng {
     pub fn new(seed: i64) -> Rng {
-        let mut r = Rng { state: [0; 4], next_gaussian: None };
+        let mut r = Rng {
+            state: [0; 4],
+            next_gaussian: None,
+        };
         r.set_seed(seed);
         r
     }

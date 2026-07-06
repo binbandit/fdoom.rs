@@ -18,8 +18,8 @@
 // on the u8 ids here, exactly as `(byte) & 0xff` round-trips are in the Java bodies).
 #![allow(clippy::identity_op)]
 
-use crate::rng::Rng;
 use crate::level::tile::Tiles;
+use crate::rng::Rng;
 
 // JAVA: `private static int d = 0;` — unused field, omitted.
 /// Java `stairRadius`.
@@ -1028,8 +1028,8 @@ fn create_sky_map(w: i32, h: i32, tiles: &Tiles, random: &mut Rng) -> (Vec<u8>, 
 /// from `LevelGen.createAndValidateTopMap`, so they live here rather than as their own
 /// modules).
 mod history_gen {
-    use crate::rng::Rng;
     use crate::level::tile::Tiles;
+    use crate::rng::Rng;
 
     /* ---------------- HistoryGenPattern ---------------- */
 

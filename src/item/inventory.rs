@@ -237,13 +237,7 @@ impl Inventory {
     }
 
     /// Java `tryAdd(chance, item, num)`.
-    pub fn try_add_num(
-        &mut self,
-        random: &mut Rng,
-        chance: i32,
-        item: Option<Item>,
-        num: i32,
-    ) {
+    pub fn try_add_num(&mut self, random: &mut Rng, chance: i32, item: Option<Item>, num: i32) {
         let Some(mut item) = item else { return };
         if item.is_stackable() {
             item.set_count(item.count() * num);

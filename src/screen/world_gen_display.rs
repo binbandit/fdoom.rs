@@ -1,7 +1,6 @@
 //! Port of `fdoom.screen.WorldGenDisplay` — the "World Gen Options" screen.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::rc::Rc;
 
 use crate::core::game::Game;
@@ -114,27 +113,17 @@ impl WorldGenDisplay {
             "",
         )));
 
+        // (The Java "Trouble with world name?" help entry is gone: text rows now capture
+        // typing, and menu navigation while typing uses the physical arrow keys.)
         let mut name_help = NameHelpEntry {
             inner: SelectEntry::new("Trouble with world name?", |g: &mut Game| {
-                g.set_menu(BookDisplay::new(g, "by default, w and s move the cursor up and down. This can be changed in the key binding menu. To type the letter instead of moving the cursor, hold the shift key while typing the world name."));
+                g.set_menu(BookDisplay::new(
+                    g,
+                    "While typing a name, letters always type; use the arrow keys to move between fields.",
+                ));
             }),
         };
-
         name_help.set_visible(false);
-
-        let mut controls: HashSet<String> = HashSet::new();
-        controls.extend(g.input.get_mapping("up").split('/').map(str::to_string));
-        controls.extend(g.input.get_mapping("down").split('/').map(str::to_string));
-        for key in &controls {
-            // JAVA: key.matches("^\\w$") — a single word character.
-            let mut chars = key.chars();
-            if let (Some(ch), None) = (chars.next(), chars.next()) {
-                if ch.is_ascii_alphanumeric() || ch == '_' {
-                    name_help.set_visible(true);
-                    break;
-                }
-            }
-        }
 
         // JAVA: worldSeed = new InputEntry("World Seed", "[0-9]+", 20) { isValid() → true }
         WORLD_SEED.with(|s| s.borrow_mut().clear());

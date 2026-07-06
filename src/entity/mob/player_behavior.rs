@@ -22,9 +22,9 @@ use crate::entity::projectile::new_arrow;
 use crate::entity::{Direction, Entity, EntityKind};
 use crate::gfx::{MobAnims, Point, Rectangle, Screen, color};
 use crate::item::{Item, ItemKind, PotionType, ToolType, interact as item_interact, registry};
-use crate::rng::Rng;
 use crate::level;
 use crate::level::tile::dispatch as tiles;
+use crate::rng::Rng;
 
 /// Java `Player.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
@@ -387,7 +387,7 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         }
 
         // JAVA: `!(this instanceof RemotePlayer) && !Game.isValidClient()` — both always true.
-        if g.input.get_key("r").clicked && !g.saving {
+        if g.input.get_key("save").clicked && !g.saving {
             g.saving = true;
             g.loading_percentage = 0.0;
             let name = crate::screen::world_select::get_world_name(g);

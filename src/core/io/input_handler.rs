@@ -123,16 +123,19 @@ impl InputHandler {
             ("RIGHT", "RIGHT|D"),
             ("SELECT", "ENTER"),
             ("EXIT", "ESCAPE"),
-            ("ATTACK", "C|SPACE|ENTER"),
-            ("MENU", "X|E"),
-            ("INVENTORY", "I"),
+            // modern defaults (v0.1.0 had Java's: ATTACK=C|SPACE|ENTER, MENU=X|E,
+            // PICKUP=V|P clashing with POTIONEFFECTS=P, NIGHT always bound):
+            ("ATTACK", "SPACE|C"),
+            ("MENU", "X"),
+            ("INVENTORY", "E|I"),
             ("CRAFT", "Z|SHIFT-E"),
-            ("PICKUP", "V|P"),
+            ("PICKUP", "V"),
             ("DROP-ONE", "Q"),
             ("DROP-STACK", "SHIFT-Q"),
+            ("SAVE", "R"),
             ("PAUSE", "ESCAPE"),
             ("MAP", "M"),
-            ("NIGHT", "N"),
+            ("NIGHT=debug", "N"),
             ("SURVIVAL=debug", "SHIFT-S|SHIFT-1"),
             ("CREATIVE=debug", "SHIFT-C|SHIFT-2"),
             ("POTIONEFFECTS", "P"),
@@ -292,6 +295,13 @@ impl InputHandler {
         }
 
         key
+    }
+
+    /// Query a physical key directly, bypassing the action keymap (used by text-entry
+    /// rows so typed letters never double as navigation).
+    pub fn get_physical_key(&mut self, keytext: &str) -> KeyState {
+        let debug = self.debug;
+        self.get_key_impl(keytext, false, debug)
     }
 
     /// Java `pressKey(keyname, pressed)` — press physical keys programmatically.

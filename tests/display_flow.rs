@@ -33,5 +33,8 @@ fn inventory_esc_closes() {
     eprintln!("stack len after esc tick: {}", g.display.stack.len());
     g.tick();
     eprintln!("stack len after next tick: {}", g.display.stack.len());
-    assert!(!g.display.menu_active(), "inventory should be closed after ESC");
+    assert!(
+        !g.display.menu_active(),
+        "inventory should be closed after ESC"
+    );
 }
