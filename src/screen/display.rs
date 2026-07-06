@@ -163,6 +163,10 @@ pub enum PendingMenu {
 pub struct DisplayManager {
     pub stack: Vec<Box<dyn Display>>,
     pub pending: PendingMenu,
+    /// True while the top display is temporarily popped for its tick/render (the
+    /// take-out pattern). Java's `menu` field stayed set during `menu.tick()`, so the
+    /// "is a menu open" checks must count the taken-out display.
+    pub taken_out: bool,
 }
 
 impl Default for DisplayManager {
@@ -170,6 +174,7 @@ impl Default for DisplayManager {
         DisplayManager {
             stack: Vec::new(),
             pending: PendingMenu::NoChange,
+            taken_out: false,
         }
     }
 }
@@ -178,16 +183,17 @@ impl DisplayManager {
     /// Whether a menu is (or is about to be) open — Java `getMenu() != null`, which read
     /// the *pending* `newMenu`.
     pub fn menu_open(&self) -> bool {
+        let live = self.stack.len() + usize::from(self.taken_out);
         match &self.pending {
-            PendingMenu::NoChange => !self.stack.is_empty(),
+            PendingMenu::NoChange => live > 0,
             PendingMenu::Set(_) => true,
             PendingMenu::Clear => false,
-            PendingMenu::Exit => self.stack.len() > 1,
+            PendingMenu::Exit => live > 1,
         }
     }
 
     /// Whether a menu is open right now (Java `menu != null` inside Updater.tick).
     pub fn menu_active(&self) -> bool {
-        !self.stack.is_empty()
+        !self.stack.is_empty() || self.taken_out
     }
 }

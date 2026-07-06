@@ -526,7 +526,9 @@ impl Game {
     /// Tick the current (top) display with the take-out pattern.
     pub fn tick_current_display(&mut self) {
         if let Some(mut top) = self.display.stack.pop() {
+            self.display.taken_out = true;
             top.tick(self);
+            self.display.taken_out = false;
             self.display.stack.push(top);
         }
     }

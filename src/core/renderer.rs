@@ -48,7 +48,9 @@ impl Renderer {
 
         // renders menu, if present (top display only, as in Java)
         if let Some(mut top) = g.display.stack.pop() {
+            g.display.taken_out = true;
             top.render(&mut self.screen, g);
+            g.display.taken_out = false;
             g.display.stack.push(top);
         }
 
