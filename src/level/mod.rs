@@ -854,6 +854,16 @@ pub fn render_light(
 /// Keep the chunks around the player generated, and drop clean far-away chunks.
 /// (Dirty chunks stay resident until the world saves them.)
 pub fn ensure_chunks(g: &mut Game, lvl: usize) {
+    let Some(player) = g.try_player() else { return };
+    if player.c.level != Some(lvl) {
+        return;
+    }
+    let (px, py) = (player.c.x, player.c.y);
+    ensure_chunks_at(g, lvl, px >> 4, py >> 4);
+}
+
+/// Same as [`ensure_chunks`] but around an arbitrary tile position (title flyover camera).
+pub fn ensure_chunks_at(g: &mut Game, lvl: usize, tile_x: i32, tile_y: i32) {
     if !g.levels[lvl]
         .as_ref()
         .map(|l| l.is_infinite())
@@ -861,12 +871,8 @@ pub fn ensure_chunks(g: &mut Game, lvl: usize) {
     {
         return;
     }
-    let Some(player) = g.try_player() else { return };
-    if player.c.level != Some(lvl) {
-        return;
-    }
-    let pcx = chunk::chunk_coord(player.c.x >> 4);
-    let pcy = chunk::chunk_coord(player.c.y >> 4);
+    let pcx = chunk::chunk_coord(tile_x);
+    let pcy = chunk::chunk_coord(tile_y);
     let seed = g.world_seed;
     let depth = g.level(lvl).depth;
 

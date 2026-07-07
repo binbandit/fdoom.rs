@@ -6,9 +6,8 @@ use crate::rng::Rng;
 
 use super::book_display::BookDisplay;
 use super::display::{Display, DisplayBase, display_render_default, display_tick_default};
-use super::entry::{BlankEntry, EntryHandle, SelectEntry, StringEntry, handle};
+use super::entry::{BlankEntry, EntryHandle, SelectEntry, handle};
 use super::menu::MenuBuilder;
-use super::multiplayer_display::MultiplayerDisplay;
 use super::options_display::OptionsDisplay;
 use super::rel_pos::RelPos;
 use super::world_gen_display::WorldGenDisplay;
@@ -34,13 +33,9 @@ fn display_factory(entry_text: &str, entries: Vec<EntryHandle>) -> EntryHandle {
 
 impl TitleDisplay {
     pub fn new(g: &Game) -> TitleDisplay {
+        // (Post-port cleanup: the dead "Checking for updates..." line and the stubbed
+        // "Join Online World" entry are gone — multiplayer was never wired up.)
         let entries: Vec<EntryHandle> = vec![
-            handle(StringEntry::with_color(
-                "Checking for updates...",
-                color::BLUE,
-            )),
-            handle(BlankEntry::new()),
-            handle(BlankEntry::new()),
             handle(SelectEntry::new("Play", |g: &mut Game| {
                 if !crate::screen::world_select::get_world_names(g).is_empty() {
                     let menu = MenuBuilder::new(
@@ -61,9 +56,6 @@ impl TitleDisplay {
                 } else {
                     g.set_menu(WorldGenDisplay::new(g));
                 }
-            })),
-            handle(SelectEntry::new("Join Online World", |g: &mut Game| {
-                g.set_menu(MultiplayerDisplay::new());
             })),
             handle(SelectEntry::new("Options", |g: &mut Game| {
                 g.set_menu(OptionsDisplay::new(g));
@@ -89,7 +81,8 @@ impl TitleDisplay {
             .create_menu(g);
 
         TitleDisplay {
-            base: DisplayBase::new(true, false, vec![menu]),
+            // clear_screen=false: the renderer draws the drone-flyover world behind us
+            base: DisplayBase::new(false, false, vec![menu]),
             rand: 0,
             count: 0,
             reverse: false,

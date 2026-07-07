@@ -16,7 +16,17 @@ use crate::screen::RelPos;
 pub const HEIGHT: i32 = screen::H;
 pub const WIDTH: i32 = screen::W;
 
+/// Title-screen drone-flyover state: a throwaway infinite surface slowly panned under
+/// the main menu.
+struct Flyover {
+    seed: i64,
+    cam_x: f64,
+    cam_y: f64,
+    heading: f64,
+}
+
 pub struct Renderer {
+    flyover: Option<Flyover>,
     pub screen: Screen,
     /// The darkness/fog-of-war overlay screen (JAVA: the overlay call is commented out in
     /// this fork, but the screen is still constructed).
@@ -28,6 +38,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(sheet: Arc<SpriteSheet>) -> Renderer {
         Renderer {
+            flyover: None,
             screen: Screen::new(sheet.clone()),
             light_screen: Screen::new(sheet),
             ellipsis: Ellipsis::smooth_tick(),
@@ -42,8 +53,11 @@ impl Renderer {
 
         if g.ready_to_render_gameplay {
             // (isValidServer branch removed — always singleplayer)
+            self.flyover = None;
             self.render_level(g);
             self.render_gui(g);
+        } else if g.display.menu_active() {
+            self.render_flyover(g);
         }
 
         // renders menu, if present (top display only, as in Java)
@@ -56,6 +70,56 @@ impl Renderer {
 
         if !g.has_focus && !g.is_online() && !g.continous {
             self.render_focus_nagger(g);
+        }
+    }
+
+    /// The title-screen backdrop: generate a throwaway infinite surface and drift a
+    /// camera over it, like a drone flyover. Torn down as soon as gameplay renders.
+    fn render_flyover(&mut self, g: &mut Game) {
+        const LVL: usize = 3; // surface slot; reset_game/init_world reclaim it later
+
+        if self.flyover.is_none() {
+            let seed = g.random.next_long();
+            // a fresh menu-world level in the surface slot (only when no game is loaded)
+            let mut level = crate::level::Level::empty(128, 128, 0, 1);
+            level.chunks = Some(crate::level::chunk::ChunkMap::default());
+            g.levels[LVL] = Some(level);
+            g.world_seed = seed;
+            // start over land so the shot opens on terrain, not open ocean
+            let (sx, sy) = crate::level::infinite_gen::find_surface_spawn(seed, &g.tiles);
+            self.flyover = Some(Flyover {
+                seed,
+                cam_x: (sx * 16) as f64,
+                cam_y: (sy * 16) as f64,
+                heading: 0.6,
+            });
+        }
+        let Some(fly) = self.flyover.as_mut() else {
+            return;
+        };
+        if g.levels[LVL].as_ref().is_none_or(|l| !l.is_infinite()) {
+            // a real world took the slot (loading screen etc.) — stop flying
+            self.flyover = None;
+            return;
+        }
+
+        // slow drift with a lazily wandering heading
+        fly.heading += 0.0007;
+        fly.cam_x += fly.heading.cos() * 0.35;
+        fly.cam_y += fly.heading.sin() * 0.35;
+        let (cx, cy) = (fly.cam_x as i32, fly.cam_y as i32);
+        let _ = fly.seed;
+
+        crate::level::ensure_chunks_at(g, LVL, cx >> 4, cy >> 4);
+
+        let x_scroll = cx - screen::W / 2;
+        let y_scroll = cy - (screen::H - 8) / 2;
+        crate::level::render_background(g, &mut self.screen, LVL, x_scroll, y_scroll);
+
+        // dusk dimming (~3/8 brightness) so menu text stays readable over bright tiles
+        for p in self.screen.pixels.iter_mut() {
+            let half = (*p >> 1) & 0x7F7F7F;
+            *p = half - ((half >> 2) & 0x1F1F1F);
         }
     }
 

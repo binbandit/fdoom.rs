@@ -1,15 +1,16 @@
-//! Port of `fdoom.screen.SplashMenu` — the animated splash before the title screen.
+//! The intro splash before the title screen.
+//!
+//! (The Java fork drew a full-screen animated diagonal pattern here; replaced with the
+//! game logo fading in over the title flyover world.)
 
 use crate::core::game::Game;
-use crate::core::renderer;
-use crate::gfx::{Screen, color};
+use crate::gfx::{Screen, color, font};
 
 use super::display::{Display, DisplayBase};
 use super::title_display::TitleDisplay;
 
 pub struct SplashMenu {
     base: DisplayBase,
-    rdm: i32,
     tickc: i32,
 }
 
@@ -23,7 +24,6 @@ impl SplashMenu {
     pub fn new() -> SplashMenu {
         SplashMenu {
             base: DisplayBase::default(),
-            rdm: 0,
             tickc: 0,
         }
     }
@@ -45,35 +45,33 @@ impl Display for SplashMenu {
 
     fn tick(&mut self, g: &mut Game) {
         self.tickc += 1;
-        if self.tickc >= 200 {
+        // a shorter beat than the Java fork's 200-tick pattern show
+        if self.tickc >= 90 || g.input.get_key("select").clicked {
             g.set_menu(TitleDisplay::new(g));
         }
     }
 
     fn render(&mut self, screen: &mut Screen, _g: &mut Game) {
-        let mut h = 5;
-        let mut w = 46;
-        self.rdm += 1;
-        screen.clear(0);
-        for y in 3..h {
-            for x in 17..w {
-                let title_color = color::get4(
-                    self.rdm + x * 8,
-                    self.rdm + x * 8,
-                    self.rdm + x * 8,
-                    self.rdm + x * 8,
-                );
-                screen.render(x * 4, y * 8, 352, title_color, 0);
-            }
-        }
-        h = renderer::HEIGHT;
-        w = renderer::WIDTH;
-        self.rdm += 1;
+        // The flyover world is already on screen (clear_screen=false); fade the logo in
+        // by stepping its shade with time.
+        let t = self.tickc.min(60);
+        let shade = match t {
+            0..=14 => 111,
+            15..=29 => 222,
+            30..=44 => 333,
+            _ => 444,
+        };
+        let logo_shade = color::get4(-1, 0, shade, 500);
+        let (w, h) = (14, 2);
+        let xo = (crate::gfx::screen::W - w * 8) / 2;
+        let yo = 60;
         for y in 0..h {
             for x in 0..w {
-                let title_color = color::get4(0, 0, self.rdm + x * 5 + y * 2, 551);
-                screen.render(x * 8, y * 8, 355, title_color, 0);
+                screen.render(xo + x * 8, yo + y * 8, x + (y + 6) * 32, logo_shade, 0);
             }
+        }
+        if t >= 45 {
+            font::draw_centered("A FOSSICKERS TALE", screen, 96, color::get(-1, 333));
         }
     }
 }
