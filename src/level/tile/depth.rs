@@ -65,6 +65,14 @@ pub fn deep_water_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, 
     let water = g.tiles.get("water");
     dispatch::render(g, screen, &water, lvl, x, y);
     screen.darken_rect(x * 16, y * 16, 16, 16, 96);
+
+    // rolling waves: a shadow crest drifts across each tile on a phase offset from the
+    // tile position, so the open ocean visibly swells instead of sitting flat
+    let phase = ((g.tick_count / 6) + (x * 5 + y * 11)) & 31;
+    if phase < 3 {
+        let row = (x * 3 + y * 7) & 7;
+        screen.darken_rect(x * 16, y * 16 + row * 2, 16, 2, 70);
+    }
 }
 
 /* ----------------------------------- dug pit ------------------------------------ */

@@ -25,6 +25,7 @@ pub mod hole;
 pub mod infinite_fall;
 pub mod lava;
 pub mod lava_brick;
+pub mod mud;
 pub mod ore;
 pub mod pumpkin;
 pub mod quicksand;
@@ -162,6 +163,7 @@ pub enum TileKind {
     Dirt,
     Flower,
     Hole,
+    Mud,
     DeepWater,
     DugPit,
     Chasm,
@@ -306,6 +308,7 @@ impl Tiles {
         set(47, super::tile::depth::make_dug_pit("Dug Pit"));
         set(48, super::tile::depth::make_chasm("Chasm"));
         set(49, super::tile::depth::make_ladder("Ladder"));
+        set(50, super::tile::mud::make("Mud"));
 
         Tiles {
             list: RefCell::new(t),

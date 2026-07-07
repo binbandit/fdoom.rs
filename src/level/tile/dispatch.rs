@@ -116,6 +116,7 @@ pub fn make_torch_tile(on: &TileDef) -> TileDef {
 /// Java `Tile.render` (default: sprite and/or csprite).
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     match &def.kind {
+        TileKind::Mud => mud::render(g, screen, lvl, x, y),
         TileKind::DeepWater => depth::deep_water_render(g, screen, lvl, x, y),
         TileKind::DugPit => depth::dug_pit_render(g, screen, lvl, x, y),
         TileKind::Chasm => depth::chasm_render(g, screen, lvl, x, y),
@@ -316,6 +317,7 @@ pub fn interact(
     attack_dir: Direction,
 ) -> bool {
     match &def.kind {
+        TileKind::Mud => mud::interact(g, lvl, xt, yt, player, item, attack_dir),
         TileKind::DugPit => depth::dug_pit_interact(g, lvl, xt, yt, player, item, attack_dir),
         TileKind::Grass => grass::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Dirt => dirt::interact(g, def, lvl, xt, yt, player, item, attack_dir),

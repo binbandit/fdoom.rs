@@ -54,7 +54,9 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
     let TileKind::TallGrass { kind } = def.kind else {
         return;
     };
-    if kind < 2 && g.random.next_int_bound(10) == 4 {
+    // JAVA: nextInt(10)==4 grew a stage every few seconds; slowed so a stage takes a
+    // few in-game days (see the odds math in the commit message).
+    if kind < 2 && g.random.next_int_bound(2000) == 4 {
         let next = match kind {
             0 => g.tiles.get_id(40),
             _ => g.tiles.get_id(41),

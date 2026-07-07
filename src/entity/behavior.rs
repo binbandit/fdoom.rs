@@ -498,9 +498,19 @@ pub fn mob_move(g: &mut Game, e: &mut Entity, xa: i32, ya: i32, change_dir: bool
         let is_player = e.is_player();
         let swimming = is_swimming(g, e);
         let wooling = is_wooling(g, e);
+        // mud is boggy for everyone (half speed, same gate as swimming)
+        let in_mud =
+            e.c.level
+                .map(|lvl| {
+                    matches!(
+                        g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4).kind,
+                        crate::level::tile::TileKind::Mud
+                    )
+                })
+                .unwrap_or(false);
         let Some(mob) = e.mob_mut() else { return false };
         // these return true b/c the mob is still technically moving (just slower)
-        if mob.tick_time % 2 == 0 && (swimming || (!is_player && wooling)) {
+        if mob.tick_time % 2 == 0 && (swimming || in_mud || (!is_player && wooling)) {
             return true;
         }
         if mob.walk_time > 1 && mob.tick_time % mob.walk_time == 0 {
