@@ -6,6 +6,7 @@
 //! (`tick`/`interact`/`hurt`/...) is in `dispatch.rs`, matching on `TileKind` and calling
 //! into the per-tile modules.
 
+pub mod berry_bush;
 pub mod cactus;
 pub mod cloud;
 pub mod cloud_cactus;
@@ -13,6 +14,7 @@ pub mod depth;
 pub mod dirt;
 pub mod dispatch;
 pub mod door;
+pub mod dry_bush;
 pub mod exploded;
 pub mod farm;
 pub mod fence;
@@ -26,9 +28,11 @@ pub mod infinite_fall;
 pub mod lava;
 pub mod lava_brick;
 pub mod mud;
+pub mod mushroom;
 pub mod ore;
 pub mod pumpkin;
 pub mod quicksand;
+pub mod reef;
 pub mod rock;
 pub mod sand;
 pub mod sapling;
@@ -38,6 +42,7 @@ pub mod stairs;
 pub mod tall_grass;
 pub mod torch;
 pub mod tree;
+pub mod tree_species;
 pub mod wall;
 pub mod water;
 pub mod wheat;
@@ -75,6 +80,23 @@ pub enum OreType {
     Gold,
     Gem,
     Lapis,
+}
+
+/// Flora-wave tree species (sandbox era, no Java counterpart). The classic broadleaf
+/// keeps its own `TileKind::Tree`; these are the biome-specific variants that share the
+/// tree behavior with different bases, health, and drops (see `tree_species.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeSpecies {
+    /// Tundra + cold forest fringe; drops extra sticks.
+    Pine,
+    /// Desert snag; low health, sticks only.
+    Dead,
+    /// Marsh, near pools.
+    Willow,
+    /// Beach; drops Coconuts.
+    Palm,
+    /// Savanna, lone trees.
+    FlatCrown,
 }
 
 /// Java `WoolTile.WoolType`-style tile data values are plain data bytes; see wool module.
@@ -174,6 +196,10 @@ pub enum TileKind {
     Water,
     Rock,
     Tree,
+    /// Biome tree variants sharing the broadleaf behavior (see `TreeSpecies`).
+    TreeSpecies {
+        species: TreeSpecies,
+    },
     Sapling {
         on_type: String,
         grows_to: String,
@@ -208,7 +234,22 @@ pub enum TileKind {
     TallGrass {
         kind: i32,
     },
-    Pumpkin,
+    Pumpkin {
+        /// Jack-O-Lantern: carved + lit (stronger light, different drop).
+        lit: bool,
+    },
+    /// Pickable berry shrub; per-tile data 0 = ripe, 1 = regrowing.
+    BerryBush,
+    /// Forest-floor / cave-floor fungus; walk-through, breakable pickup.
+    Mushroom,
+    /// Cactus carrying fruit; a hit knocks the fruit off, leaving a plain Cactus.
+    FruitingCactus,
+    /// Shallow-water flora: renders over water, drops Grass Fibers.
+    Seaweed,
+    /// Shallow-water reef: renders over water, drops Stone.
+    Coral,
+    /// Dry tumbleweed shrub (desert/savanna); breaks bare-handed into Sticks.
+    DryBush,
     GraveStone {
         broken: bool,
     },
@@ -298,6 +339,7 @@ impl Tiles {
         );
         set(41, dispatch::make_tall_grass_tile("Tall Grass", "grass", 2));
         set(42, dispatch::make_pumpkin_tile("pumpkin", false));
+        set(62, dispatch::make_pumpkin_tile("Jack-O-Lantern", true));
         set(43, dispatch::make_grave_stone_tile("Grave stone", false));
         set(
             44,
@@ -309,6 +351,36 @@ impl Tiles {
         set(48, super::tile::depth::make_chasm("Chasm"));
         set(49, super::tile::depth::make_ladder("Ladder"));
         set(50, super::tile::mud::make("Mud"));
+
+        // flora wave (ids 51+): biome tree species, food flora, ocean life, reeds
+        set(
+            51,
+            dispatch::make_tree_species_tile("Pine Tree", TreeSpecies::Pine),
+        );
+        set(
+            52,
+            dispatch::make_tree_species_tile("Dead Tree", TreeSpecies::Dead),
+        );
+        set(
+            53,
+            dispatch::make_tree_species_tile("Willow", TreeSpecies::Willow),
+        );
+        set(
+            54,
+            dispatch::make_tree_species_tile("Palm Tree", TreeSpecies::Palm),
+        );
+        set(
+            55,
+            dispatch::make_tree_species_tile("Flat-Crown Tree", TreeSpecies::FlatCrown),
+        );
+        set(56, dispatch::make_berry_bush_tile("Berry Bush"));
+        set(57, dispatch::make_mushroom_tile("Mushroom"));
+        set(58, dispatch::make_fruiting_cactus_tile("Fruiting Cactus"));
+        set(59, dispatch::make_seaweed_tile("Seaweed"));
+        set(60, dispatch::make_coral_tile("Coral"));
+        set(61, dispatch::make_tall_grass_tile("Reeds", "grass", 3));
+        // 62 = Jack-O-Lantern (registered next to pumpkin above)
+        set(63, dispatch::make_dry_bush_tile("Dry Bush"));
 
         Tiles {
             list: RefCell::new(t),

@@ -216,19 +216,75 @@ piecewise thresholds:
 
 | Biome | Rule |
 |---|---|
-| Ocean | always `water` |
+| Ocean | shallows (recomputed `land > 0.400`, same salt-1/5 fields as `biome_at`): `detail<0.10` seaweed · `<0.13` coral · else (and everywhere deeper) `water` |
 | DeepOcean | always `deep_water` |
-| Beach | always `sand` |
-| Mountains | always `rock` |
-| Tundra | `detail<0.055` snow tree · `<0.062` rock · else snow |
-| Desert | `detail<0.014` cactus · `<0.020` rock · else sand |
-| Marsh | `pool(salt7,period14)>0.66` water (blobby, so no lone 1-tile ponds) · else `detail<0.16` tuft · `<0.175` flower · else grass |
-| Forest | `clearing(salt8,period24)>0.62` lowers tree odds to 0.03 (else 0.16); below that threshold tree, next +0.05 tuft, else grass |
-| Savanna | `parched(salt10,period18)>0.74` sand · else `detail<0.008` tree · `<0.10` tuft · else grass |
-| Plains | `detail<0.015` tree · `<0.055` flower · `<0.10` tuft · else grass |
+| Beach | `detail<0.02` palm · else sand |
+| Mountains | `temperature(salt6)<0.42 && belt(salt9)>0.76` snow (snow-capped cold peaks) · else rock |
+| Tundra | `detail<0.030` pine · `<0.055` snow tree · `<0.062` rock · else snow |
+| Desert | `detail<0.004` fruiting cactus · `<0.014` cactus · `<0.018` dead tree · `<0.026` dry bush · `<0.032` rock · else sand |
+| Marsh | `pool(salt7,period14)>0.66` water (blobby, so no lone 1-tile ponds) · `>0.60` mud · `>0.54` wet fringe (`detail<0.05` willow · `<0.50` reeds) · else `detail<0.16` tuft · `<0.175` flower · else grass |
+| Forest | `clearing(salt8,period24)>0.62` lowers tree odds to 0.03 (else 0.16); below that threshold tree — pine instead when `temperature(salt6)<0.42` (cold fringe) — then +0.008 berry bush, +0.016 mushroom, +0.066 tuft, else grass |
+| Savanna | `parched(salt10,period18)>0.74` sand · else `detail<0.008` flat-crown tree · `<0.016` dry bush · `<0.10` tuft · else grass |
+| Plains | ponds (`pond(salt12,period40)`) + meadows (`meadow(salt11,period96)`) first · `detail<0.015` tree · `<0.020` berry bush · `<0.060` flower · `<0.105` tuft · else grass |
 
 "tuft" = `ids.tall_grass[hash(seed, 4, x, y) % 3]`, i.e. one of Small/Medium/Tall Grass
-chosen uniformly per tile.
+chosen uniformly per tile. The flora arms deliberately add **no new noise salts**: the
+Ocean shallows recompute the continent/rough fields (salts 1/5) and the Mountains
+snow-cap + Forest cold fringe re-sample the temperature/belt fields (salts 6/9) — the
+same logical fields `biome_at` reads, so the reuse is correct (they *must* correlate
+with the biome boundaries; only genuinely new fields need fresh salts).
+
+#### 3.3.1 Flora (tile ids 51+, `src/level/tile/`)
+
+The flora wave adds the following tiles; all are stamped by the `surface_tile` /
+`mine_tile` rules above (plus two structure stamps, see §3.3.2). Ids, like all tile ids,
+are in-memory only — saves store names.
+
+| Id | Tile | Kind | Where | Behavior / drops |
+|---|---|---|---|---|
+| 51 | Pine Tree | `TreeSpecies{Pine}` | Tundra; Forest cold fringe | tree behavior on a **snow** base, health 20; fells into 1-2 Wood + 2-4 Sticks (extra sticks in lieu of a resin item) |
+| 52 | Dead Tree | `TreeSpecies{Dead}` | Desert | brittle snag on sand, health 8; Sticks only (2-3), never Wood |
+| 53 | Willow | `TreeSpecies{Willow}` | Marsh wet fringe (near pools) | grass base, health 20; 1-2 Wood + 1-2 Sticks |
+| 54 | Palm Tree | `TreeSpecies{Palm}` | Beach | sand base, health 20; 1-2 Wood + **1-2 Coconuts** (plus a rare per-hit coconut shake) |
+| 55 | Flat-Crown Tree | `TreeSpecies{FlatCrown}` | Savanna (lone trees) | grass base, health 16; 1-2 Wood + 1-2 Sticks |
+| 56 | Berry Bush | `BerryBush` | Plains + Forest scatter | data 0 = ripe (fresh chunks ripe for free), 1 = regrowing. A hit on a ripe bush picks 1-2 **Berries** (bush survives); random ticks (`1/2000` per tick, tall-grass cadence ≈ a few in-game days) re-ripen it; hitting a bare bush tears it out (1 Stick) |
+| 57 | Mushroom | `Mushroom` | Forest floor; mine cave floors (all depths) | walk-through; one hit drops a **Mushroom**; base follows the level (grass on the surface, dirt underground) |
+| 58 | Fruiting Cactus | `FruitingCactus` | Desert (rarer than plain cactus) | a hit knocks off 1-2 **Cactus Fruit** and leaves a plain Cactus *with the same damage byte*; pricks on contact like any cactus |
+| 59 | Seaweed | `Seaweed` | Ocean shallows near beaches | renders over water, passes like water (swimmers only); breaks into 1-2 Grass Fibers |
+| 60 | Coral | `Coral` | Ocean shallows near beaches | as seaweed; breaks into 1-2 Stone (calcified skeleton) |
+| 61 | Reeds | `TallGrass{kind:3}` | Marsh wet fringe | reuses the tall-grass mechanics: never grows, never blocks, shreds into 2 Grass Fibers (no pebbles) |
+| 62 | Jack-O-Lantern | `Pumpkin{lit:true}` | cemeteries + razed villages (§3.3.2) | light radius **7** (plain pumpkin: 3); smashing drops a **Jack-O-Lantern** item (plain pumpkins now drop a **Pumpkin**) |
+| 63 | Dry Bush | `DryBush` | Desert + Savanna | walk-through tumbleweed shrub; one bare-handed hit snaps it into 1-2 Sticks; ground restores to sand next to sand, grass otherwise |
+
+Notes:
+
+- **Food-item names are a contract with the item registry**: Berry, Mushroom, Apple,
+  Cactus Fruit, Coconut, Pumpkin, Jack-O-Lantern. Drop code goes through
+  `registry::get`, which falls back to an `UnknownItem` of the requested name, so tile
+  code is safe even if an item lands later. The broadleaf Tree (and Snow Tree) also has
+  a rare per-hit **Apple** drop (1 in 100 per hit, `tree.rs::hurt_dmg`).
+- **Thicket paddocks**: fully-grown Tall Grass (kind 2) no longer blocks per-tile —
+  it only blocks when 6+ of its 8 neighbors are also fully-grown thicket
+  (`tall_grass::may_pass`), so meadow *cores* stay impenetrable while fringes and lone
+  tufts are brushed through.
+- **TODO(art): final cells** — until the art agent lands dedicated cells, every species
+  reuses existing art: tree species use the broadleaf canopy cells + species palette
+  (the true-color tree art ignores palettes, so species currently read via base ground
+  + the Dead Tree darken), the berry bush / reeds reuse the tall-grass cell, mushrooms
+  and coral reuse the ore-nub cell recolored, dry bush reuses the wheat-stalk cell, the
+  fruiting cactus and ripe berry bush overlay red `Sprite::dots` specks, and the
+  Jack-O-Lantern renders as a plain pumpkin (its light radius tells them apart).
+
+#### 3.3.2 Jack-O-Lantern structure stamps (`structures_gen.rs`)
+
+~30% of cemeteries stamp one lit Jack-O-Lantern just inside the fence corner
+(`(ox-rx+1, oy+ry-1)` — off the even-offset grave lattice by construction), and ~20% of
+razed villages keep one burning at the plaza edge (`(ox+3, oy+2)`, outside the 3×3 well
+footprint, inside the plaza circle). Both are hashed per placement origin (salts
+`0xCE4E_0004` / `0x56C4_000A`), so they are pure and chunk-border-safe like every other
+structure write. The trail pass also treats all new scatter flora as soft
+`trail_ground`, so old routes wear through pine stands and dry brush the same way they
+do broadleaf forest.
 
 ### 3.4 Mine layers (`mine_tile`, depths -1..-3)
 
@@ -243,8 +299,10 @@ chosen uniformly per tile.
    - depth -3: always Gem
 2. **Open cave floor** (`cave` inside `0.32..0.62`): `pocket = fractal(seed, salt+70, x, y,
    24, 2)`. Above a depth-dependent `lava_threshold` → lava; below `0.12` → water;
-   otherwise → dirt. `lava_threshold` = 0.86 at depth -3, 0.93 at -2, 0.985 at -1 (deeper
-   layers grow noticeably more lava pockets).
+   then `detail < 0.012` → Mushroom (the same walk-through pickup tile as the forest
+   floor, rendering a dirt base underground); otherwise → dirt. `lava_threshold` = 0.86
+   at depth -3, 0.93 at -2, 0.985 at -1 (deeper layers grow noticeably more lava
+   pockets).
 
 `mines_have_ores` locks in that each depth's characteristic ore (iron/-1, gold/-2, gem/-3)
 appears more than 40 times in a 256×256 sample at a fixed seed.
@@ -684,6 +742,7 @@ a layer means:
 | `tests/level_gen_determinism.rs` | Classic finite generator: same seed -> same map; different seeds differ; all 4 `gen_type` × 5 `theme` combinations produce a map without error. |
 | `tests/underground_gen.rs` (`underground_has_ores_and_caves`) | Classic finite mine generator: ore/rock/dirt tile-count thresholds per depth, stairs-down present (except depth -3, which has none in the classic generator either — the dungeon gate stamp at depth>2 replaces it), and zero surface tiles (`grass`/`tree`) leak underground. |
 | `tests/underground_gen.rs` (`every_layer_has_stairs_down`) | Classic finite generator places at least one `Stairs Down` at every depth 0..-3 (progression isn't softlocked). |
+| `tests/flora_gen.rs` | Flora wave (§3.3.1): chunk determinism incl. flora; every species appears in its home biome over a wide ring sweep (incl. snow-capped cold Mountains and the Forest cold-fringe pine); cave mushrooms at every mine depth; jack-o-lanterns present-but-rare in cemetery/village blueprints; berry pick → regrow → re-pick → tear-out cycle; palm fells into Coconuts, dead tree into sticks-only; pumpkin/Jack-O-Lantern drops + light radii; thicket paddock-core-only blocking. |
 
 Run everything terrain-related with `cargo test level` (matches test names/paths
 containing "level") plus the explicit test-file names above for the ones that don't match

@@ -23,6 +23,10 @@ fn tall() -> Sprite {
     Sprite::new(26, 8, 2, 2, color::get4(-1, 30, 40, -1), 0)
 }
 
+/// Kind 3 (post-port): Reeds — marsh-edge tufts that reuse the tall-grass mechanics
+/// but never grow, never block, and shred into fibers.
+pub const KIND_REEDS: i32 = 3;
+
 /// Java `TallGrassTile` constructor. `on_tile` is always "grass" in this fork.
 pub fn make(name: &str, on_tile: &str, kind: i32) -> TileDef {
     let _ = on_tile;
@@ -46,6 +50,8 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         0 => small().render(screen, x * 16, y * 16),
         1 => medium().render(screen, x * 16, y * 16),
         2 => tall().render_color(screen, x * 16, y * 16, color::get4(-1, 210, 530, 550)),
+        // TODO(art): final cells — reeds reuse the tall-grass cell with a dry palette
+        KIND_REEDS => tall().render_color(screen, x * 16, y * 16, color::get4(-1, 320, 431, 542)),
         _ => {}
     }
 }
@@ -88,7 +94,12 @@ pub fn hurt_by(
     // uncover a loose stone "pebble" — the no-pickaxe way to get Stone for knapping.
     let fibers = crate::item::registry::get(g, "grass fibers");
     let stone = crate::item::registry::get(g, "Stone");
-    if kind == 2 {
+    if kind == KIND_REEDS {
+        // reeds shred into fibers, no pebbles (they grow in soft marsh ground)
+        for _ in 0..2 {
+            crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, fibers.clone());
+        }
+    } else if kind == 2 {
         // JAVA: dropItem(x, y, count, item) — exactly 2 grass fibers.
         for _ in 0..2 {
             crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, fibers.clone());
@@ -110,9 +121,26 @@ pub fn hurt_by(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn may_pass(_g: &Game, def: &TileDef, _lvl: usize, _x: i32, _y: i32, _e: &Entity) -> bool {
+pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, _e: &Entity) -> bool {
     let TileKind::TallGrass { kind } = def.kind else {
         return true;
     };
-    kind != 2
+    if kind != 2 {
+        return true; // young growth and reeds never block
+    }
+    // Fully-grown thicket only blocks deep inside a paddock: one or two stalks are
+    // brushed through, but a tile ringed almost entirely by other thicket (6+ of its
+    // 8 neighbors) is impenetrable. Meadow cores stay dense, their fringes walkable.
+    let mut thicket_neighbors = 0;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            if (dx, dy) == (0, 0) {
+                continue;
+            }
+            if g.tile_at(lvl, x + dx, y + dy).id == def.id {
+                thicket_neighbors += 1;
+            }
+        }
+    }
+    thicket_neighbors < 6
 }

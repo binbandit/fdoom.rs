@@ -35,6 +35,27 @@ pub fn make_rock_tile(name: &str) -> TileDef {
 pub fn make_tree_tile(name: &str) -> TileDef {
     tree::make(name)
 }
+pub fn make_tree_species_tile(name: &str, species: TreeSpecies) -> TileDef {
+    tree_species::make(name, species)
+}
+pub fn make_berry_bush_tile(name: &str) -> TileDef {
+    berry_bush::make(name)
+}
+pub fn make_mushroom_tile(name: &str) -> TileDef {
+    mushroom::make(name)
+}
+pub fn make_fruiting_cactus_tile(name: &str) -> TileDef {
+    cactus::make_fruiting(name)
+}
+pub fn make_seaweed_tile(name: &str) -> TileDef {
+    reef::make_seaweed(name)
+}
+pub fn make_coral_tile(name: &str) -> TileDef {
+    reef::make_coral(name)
+}
+pub fn make_dry_bush_tile(name: &str) -> TileDef {
+    dry_bush::make(name)
+}
 pub fn make_sapling_tile(name: &str, on_type: &str, grows_to: &str) -> TileDef {
     sapling::make(name, on_type, grows_to)
 }
@@ -128,9 +149,15 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         TileKind::Water => water::render(g, screen, def, lvl, x, y),
         TileKind::Rock => rock::render(g, screen, def, lvl, x, y),
         TileKind::Tree => tree::render(g, screen, def, lvl, x, y),
+        TileKind::TreeSpecies { .. } => tree_species::render(g, screen, def, lvl, x, y),
         TileKind::Sapling { .. } => sapling::render(g, screen, def, lvl, x, y),
         TileKind::Sand => sand::render(g, screen, def, lvl, x, y),
         TileKind::Cactus => cactus::render(g, screen, def, lvl, x, y),
+        TileKind::FruitingCactus => cactus::fruiting_render(g, screen, def, lvl, x, y),
+        TileKind::BerryBush => berry_bush::render(g, screen, def, lvl, x, y),
+        TileKind::Mushroom => mushroom::render(g, screen, def, lvl, x, y),
+        TileKind::Seaweed | TileKind::Coral => reef::render(g, screen, def, lvl, x, y),
+        TileKind::DryBush => dry_bush::render(g, screen, def, lvl, x, y),
         TileKind::Lava => lava::render(g, screen, def, lvl, x, y),
         TileKind::Ore { .. } => ore::render(g, screen, def, lvl, x, y),
         TileKind::Wheat => wheat::render(g, screen, def, lvl, x, y),
@@ -141,7 +168,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         TileKind::Snow => snow::render(g, screen, def, lvl, x, y),
         TileKind::SnowTree => snow_tree::render(g, screen, def, lvl, x, y),
         TileKind::TallGrass { .. } => tall_grass::render(g, screen, def, lvl, x, y),
-        TileKind::Pumpkin => pumpkin::render(g, screen, def, lvl, x, y),
+        TileKind::Pumpkin { .. } => pumpkin::render(g, screen, def, lvl, x, y),
         TileKind::GraveStone { .. } => grave_stone::render(g, screen, def, lvl, x, y),
         TileKind::Fence => fence::render(g, screen, def, lvl, x, y),
         TileKind::Torch { .. } => torch::render(g, screen, def, lvl, x, y),
@@ -173,9 +200,11 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         TileKind::Water => water::tick(g, def, lvl, xt, yt),
         TileKind::Rock => rock::tick(g, def, lvl, xt, yt),
         TileKind::Tree => tree::tick(g, def, lvl, xt, yt),
+        TileKind::TreeSpecies { .. } => tree_species::tick(g, def, lvl, xt, yt),
         TileKind::Sapling { .. } => sapling::tick(g, def, lvl, xt, yt),
         TileKind::Sand => sand::tick(g, def, lvl, xt, yt),
-        TileKind::Cactus => cactus::tick(g, def, lvl, xt, yt),
+        TileKind::Cactus | TileKind::FruitingCactus => cactus::tick(g, def, lvl, xt, yt),
+        TileKind::BerryBush => berry_bush::tick(g, def, lvl, xt, yt),
         TileKind::Lava => lava::tick(g, def, lvl, xt, yt),
         TileKind::Farm => farm::tick(g, def, lvl, xt, yt),
         TileKind::Wheat => wheat::tick(g, def, lvl, xt, yt),
@@ -204,7 +233,10 @@ pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity)
         TileKind::Water => water::may_pass(g, def, lvl, x, y, e),
         TileKind::Rock => rock::may_pass(g, def, lvl, x, y, e),
         TileKind::Tree => tree::may_pass(g, def, lvl, x, y, e),
-        TileKind::Cactus => cactus::may_pass(g, def, lvl, x, y, e),
+        TileKind::TreeSpecies { .. } => tree_species::may_pass(g, def, lvl, x, y, e),
+        TileKind::Cactus | TileKind::FruitingCactus => cactus::may_pass(g, def, lvl, x, y, e),
+        TileKind::BerryBush => berry_bush::may_pass(g, def, lvl, x, y, e),
+        TileKind::Seaweed | TileKind::Coral => reef::may_pass(g, def, lvl, x, y, e),
         TileKind::Lava => lava::may_pass(g, def, lvl, x, y, e),
         TileKind::LavaBrick => lava_brick::may_pass(g, def, lvl, x, y, e),
         TileKind::Ore { .. } => ore::may_pass(g, def, lvl, x, y, e),
@@ -219,7 +251,7 @@ pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity)
         TileKind::Wool => wool::may_pass(g, def, lvl, x, y, e),
         TileKind::SnowTree => snow_tree::may_pass(g, def, lvl, x, y, e),
         TileKind::TallGrass { .. } => tall_grass::may_pass(g, def, lvl, x, y, e),
-        TileKind::Pumpkin => pumpkin::may_pass(g, def, lvl, x, y, e),
+        TileKind::Pumpkin { .. } => pumpkin::may_pass(g, def, lvl, x, y, e),
         TileKind::GraveStone { .. } => grave_stone::may_pass(g, def, lvl, x, y, e),
         TileKind::Fence => fence::may_pass(g, def, lvl, x, y, e),
         _ => true,
@@ -230,7 +262,7 @@ pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity)
 pub fn get_light_radius(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32) -> i32 {
     match &def.kind {
         TileKind::Lava => lava::get_light_radius(g, def, lvl, x, y),
-        TileKind::Pumpkin => pumpkin::get_light_radius(g, def, lvl, x, y),
+        TileKind::Pumpkin { .. } => pumpkin::get_light_radius(g, def, lvl, x, y),
         TileKind::GraveStone { .. } => grave_stone::get_light_radius(g, def, lvl, x, y),
         TileKind::Torch { .. } => torch::get_light_radius(g, def, lvl, x, y),
         _ => 0,
@@ -253,8 +285,21 @@ pub fn hurt_by(
         TileKind::Flower => flower::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Rock => rock::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Tree => tree::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::TreeSpecies { .. } => {
+            tree_species::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir)
+        }
         TileKind::Sapling { .. } => sapling::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Cactus => cactus::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::FruitingCactus => {
+            cactus::fruiting_hurt_by(g, def, lvl, x, y, source, dmg, attack_dir)
+        }
+        TileKind::BerryBush => berry_bush::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::Mushroom => mushroom::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::Seaweed | TileKind::Coral => {
+            reef::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir)
+        }
+        TileKind::DryBush => dry_bush::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::Pumpkin { .. } => pumpkin::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Ore { .. } => ore::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Wheat => wheat::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::HardRock => hard_rock::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
@@ -277,6 +322,7 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
     match &def.kind {
         TileKind::Rock => rock::hurt_dmg(g, def, lvl, x, y, dmg),
         TileKind::Tree => tree::hurt_dmg(g, def, lvl, x, y, dmg),
+        TileKind::TreeSpecies { .. } => tree_species::hurt_dmg(g, def, lvl, x, y, dmg),
         TileKind::Ore { .. } => ore::hurt_dmg(g, def, lvl, x, y, dmg),
         TileKind::HardRock => hard_rock::hurt_dmg(g, def, lvl, x, y, dmg),
         TileKind::CloudCactus => cloud_cactus::hurt_dmg(g, def, lvl, x, y, dmg),
@@ -293,7 +339,7 @@ pub fn bumped_into(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, e:
         return;
     }
     match &def.kind {
-        TileKind::Cactus => cactus::bumped_into(g, def, lvl, xt, yt, e),
+        TileKind::Cactus | TileKind::FruitingCactus => cactus::bumped_into(g, def, lvl, xt, yt, e),
         TileKind::LavaBrick => lava_brick::bumped_into(g, def, lvl, xt, yt, e),
         TileKind::Ore { .. } => ore::bumped_into(g, def, lvl, xt, yt, e),
         TileKind::CloudCactus => cloud_cactus::bumped_into(g, def, lvl, xt, yt, e),
@@ -333,6 +379,9 @@ pub fn interact(
         TileKind::Flower => flower::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Rock => rock::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Tree => tree::interact(g, def, lvl, xt, yt, player, item, attack_dir),
+        TileKind::TreeSpecies { .. } => {
+            tree_species::interact(g, def, lvl, xt, yt, player, item, attack_dir)
+        }
         TileKind::Sand => sand::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::LavaBrick => lava_brick::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Ore { .. } => ore::interact(g, def, lvl, xt, yt, player, item, attack_dir),

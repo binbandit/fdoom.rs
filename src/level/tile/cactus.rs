@@ -18,6 +18,54 @@ pub fn make(name: &str) -> TileDef {
     def
 }
 
+/// Fruiting cactus (sandbox era): a cactus carrying ripe fruit. A hit knocks the fruit
+/// off (drops Cactus Fruit) and leaves a plain Cactus behind; damage/pricking then
+/// behave exactly like the plain tile. Shares the cactus sprite/data conventions.
+pub fn make_fruiting(name: &str) -> TileDef {
+    let mut def = TileDef::new(name, TileKind::FruitingCactus);
+    def.sprite = Some(Sprite::new(8, 2, 2, 2, color::get4(30, 40, 50, -1), 0));
+    def.connects_to_sand = true;
+    def
+}
+
+pub fn fruiting_render(
+    g: &mut Game,
+    screen: &mut Screen,
+    def: &TileDef,
+    lvl: usize,
+    x: i32,
+    y: i32,
+) {
+    render(g, screen, def, lvl, x, y);
+    // Ripe fruit: sparse specks recolored red over the cactus body (dots convention:
+    // shade2 = specks). TODO(art): final cells — dedicated fruiting-cactus art.
+    Sprite::dots(color::get4(-1, -1, 400, -1)).render(screen, x * 16, y * 16);
+}
+
+/// A hit knocks the fruit loose; the tile becomes a plain Cactus with the same
+/// accumulated damage byte (so fruit-knocking is never a free way to reset damage).
+#[allow(clippy::too_many_arguments)]
+pub fn fruiting_hurt_by(
+    g: &mut Game,
+    _def: &TileDef,
+    lvl: usize,
+    x: i32,
+    y: i32,
+    _source: &mut Entity,
+    _dmg: i32,
+    _attack_dir: Direction,
+) -> bool {
+    let fruit = crate::item::registry::get(g, "Cactus Fruit");
+    drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[fruit]);
+    g.play_sound(Sound::MonsterHurt);
+    g.level_mut(lvl)
+        .add(new_smash_particle(x * 16, y * 16), lvl);
+    let damage = g.level(lvl).get_data(x, y);
+    let cactus = g.tiles.get("cactus");
+    g.set_tile(lvl, x, y, &cactus, damage);
+    true
+}
+
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     let sand = g.tiles.get("sand");
     dispatch::render(g, screen, &sand, lvl, x, y);

@@ -87,6 +87,19 @@ struct Ids {
     snow_tree: u8,
     deep_water: u8,
     mud: u8,
+    // flora wave
+    pine: u8,
+    dead_tree: u8,
+    willow: u8,
+    palm: u8,
+    flat_crown: u8,
+    berry_bush: u8,
+    mushroom: u8,
+    fruiting_cactus: u8,
+    seaweed: u8,
+    coral: u8,
+    reeds: u8,
+    dry_bush: u8,
     iron: u8,
     gold: u8,
     gem: u8,
@@ -116,6 +129,18 @@ impl Ids {
             snow_tree: tiles.get("snow tree").id,
             deep_water: tiles.get("Deep Water").id,
             mud: tiles.get("Mud").id,
+            pine: tiles.get("Pine Tree").id,
+            dead_tree: tiles.get("Dead Tree").id,
+            willow: tiles.get("Willow").id,
+            palm: tiles.get("Palm Tree").id,
+            flat_crown: tiles.get("Flat-Crown Tree").id,
+            berry_bush: tiles.get("Berry Bush").id,
+            mushroom: tiles.get("Mushroom").id,
+            fruiting_cactus: tiles.get("Fruiting Cactus").id,
+            seaweed: tiles.get("Seaweed").id,
+            coral: tiles.get("Coral").id,
+            reeds: tiles.get("Reeds").id,
+            dry_bush: tiles.get("Dry Bush").id,
             iron: tiles.get("iron ore").id,
             gold: tiles.get("gold ore").id,
             gem: tiles.get("gem ore").id,
@@ -190,13 +215,45 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
     };
 
     match biome_at(seed, x, y) {
-        Biome::Ocean => ids.water,
+        Biome::Ocean => {
+            // shallow-water life clings to the near-beach shelf: recompute the same
+            // continental fields biome_at used (salts 1/5 — the same logical fields,
+            // not new ones) to find the shallowest band of the ocean strip
+            let continent = fractal(seed, 1, x, y, 384, 3);
+            let rough = fractal(seed, 5, x, y, 48, 4);
+            let land = continent + (rough - 0.5) * 0.08;
+            if land > 0.400 {
+                if detail < 0.10 {
+                    return ids.seaweed;
+                }
+                if detail < 0.13 {
+                    return ids.coral;
+                }
+            }
+            ids.water
+        }
         Biome::DeepOcean => ids.deep_water,
-        Biome::Beach => ids.sand,
-        Biome::Mountains => ids.rock,
+        Biome::Beach => {
+            // lone palms above the tide line
+            if detail < 0.02 { ids.palm } else { ids.sand }
+        }
+        Biome::Mountains => {
+            // snow-capped peaks where the range runs cold: the coldest mountain
+            // cores (same temperature/belt fields as biome_at) turn white
+            let temperature = fractal(seed, 6, x, y, 512, 2);
+            if temperature < 0.42 {
+                let belt = fractal(seed, 9, x, y, 320, 2);
+                if belt > 0.76 {
+                    return ids.snow;
+                }
+            }
+            ids.rock
+        }
         Biome::Tundra => {
-            // snowfields with scattered firs and the odd bare rock
-            if detail < 0.055 {
+            // snowfields with scattered pines/firs and the odd bare rock
+            if detail < 0.030 {
+                ids.pine
+            } else if detail < 0.055 {
                 ids.snow_tree
             } else if detail < 0.062 {
                 ids.rock
@@ -205,9 +262,15 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             }
         }
         Biome::Desert => {
-            if detail < 0.014 {
+            if detail < 0.004 {
+                ids.fruiting_cactus
+            } else if detail < 0.014 {
                 ids.cactus
-            } else if detail < 0.020 {
+            } else if detail < 0.018 {
+                ids.dead_tree
+            } else if detail < 0.026 {
+                ids.dry_bush
+            } else if detail < 0.032 {
                 ids.rock
             } else {
                 ids.sand
@@ -215,13 +278,23 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
         }
         Biome::Marsh => {
             // blobby pools (mid-frequency, so no lonely single water tiles), with a
-            // boggy mud rim you wade through to reach the water
+            // boggy mud rim you wade through to reach the water, willows leaning
+            // over it, and reed banks on the wet fringe
             let pool = fractal(seed, 7, x, y, 14, 2);
             if pool > 0.66 {
                 return ids.water;
             }
             if pool > 0.60 {
                 return ids.mud;
+            }
+            if pool > 0.54 {
+                // wet fringe: the pool field doubles as "distance to water"
+                if detail < 0.05 {
+                    return ids.willow;
+                }
+                if detail < 0.50 {
+                    return ids.reeds;
+                }
             }
             if detail < 0.16 {
                 tuft(4)
@@ -232,26 +305,39 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             }
         }
         Biome::Forest => {
-            // dense canopy with clearings
+            // dense canopy with clearings; the cold fringe toward tundra turns to
+            // pines (same temperature field as biome_at, salt 6)
             let clearing = fractal(seed, 8, x, y, 24, 2);
             let trees = if clearing > 0.62 { 0.03 } else { 0.16 };
             if detail < trees {
-                ids.tree
-            } else if detail < trees + 0.05 {
+                let temperature = fractal(seed, 6, x, y, 512, 2);
+                if temperature < 0.42 {
+                    ids.pine
+                } else {
+                    ids.tree
+                }
+            } else if detail < trees + 0.008 {
+                ids.berry_bush
+            } else if detail < trees + 0.016 {
+                ids.mushroom
+            } else if detail < trees + 0.066 {
                 tuft(4)
             } else {
                 ids.grass
             }
         }
         Biome::Savanna => {
-            // dry open country: lone trees, lots of dry tufts, blobby parched patches
-            // (a mid-frequency mask — single scattered sand tiles read as noise)
+            // dry open country: lone flat-crown trees, dry bushes, lots of tufts,
+            // blobby parched patches (a mid-frequency mask — single scattered sand
+            // tiles read as noise)
             let parched = fractal(seed, 10, x, y, 18, 2);
             if parched > 0.74 {
                 return ids.sand;
             }
             if detail < 0.008 {
-                ids.tree
+                ids.flat_crown
+            } else if detail < 0.016 {
+                ids.dry_bush
             } else if detail < 0.10 {
                 tuft(4)
             } else {
@@ -278,9 +364,11 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             }
             if detail < 0.015 {
                 ids.tree
-            } else if detail < 0.055 {
+            } else if detail < 0.020 {
+                ids.berry_bush
+            } else if detail < 0.060 {
                 ids.flower
-            } else if detail < 0.10 {
+            } else if detail < 0.105 {
                 tuft(4)
             } else {
                 ids.grass
@@ -333,6 +421,11 @@ fn mine_tile(seed: i64, depth: i32, x: i32, y: i32, ids: &Ids) -> u8 {
     }
     if pocket < 0.12 {
         return ids.water;
+    }
+    // cave-floor fungus: the same walk-through Mushroom tile as the forest floor
+    // (it renders a dirt base underground)
+    if detail < 0.012 {
+        return ids.mushroom;
     }
     ids.dirt
 }

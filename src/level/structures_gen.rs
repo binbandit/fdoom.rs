@@ -159,6 +159,9 @@ struct StructIds {
     fence: u8,
     planks: u8,
     torch_dirt: u8,
+    jack_o: u8,
+    /// Flora-wave scatter tiles trails may wear through (species trees, bushes, reeds).
+    soft_flora: [u8; 9],
 }
 
 impl StructIds {
@@ -184,6 +187,18 @@ impl StructIds {
             fence: tiles.get("Fence").id,
             planks: tiles.get("Wood Planks").id,
             torch_dirt: tiles.get("torch dirt").id,
+            jack_o: tiles.get("Jack-O-Lantern").id,
+            soft_flora: [
+                tiles.get("Pine Tree").id,
+                tiles.get("Dead Tree").id,
+                tiles.get("Willow").id,
+                tiles.get("Palm Tree").id,
+                tiles.get("Flat-Crown Tree").id,
+                tiles.get("Berry Bush").id,
+                tiles.get("Mushroom").id,
+                tiles.get("Reeds").id,
+                tiles.get("Dry Bush").id,
+            ],
         }
     }
 
@@ -199,6 +214,7 @@ impl StructIds {
             || t == self.tree
             || t == self.flower
             || self.tall_grass.contains(&t)
+            || self.soft_flora.contains(&t)
     }
 }
 
@@ -328,6 +344,11 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
                     }
                 }
             }
+            // some cemeteries keep a lit Jack-O-Lantern by the gate — a warning, or a
+            // welcome (off the grave lattice: graves never reach the |dx| = rx-1 ring)
+            if unit(hash(seed, 0xCE4E_0004, ox, oy)) < 0.30 {
+                w.push((ox - rx + 1, oy + ry - 1, ids.jack_o));
+            }
         }
         StructureKind::StandingStones => {
             // a ring of stones on cleared grass with a flower at the center
@@ -425,6 +446,12 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
                         w.push((x, y, t));
                     }
                 }
+            }
+            // rarely, a Jack-O-Lantern still burns at the plaza edge of a razed
+            // village — someone (or something) keeps lighting it (outside the 3x3
+            // well footprint, inside the plaza circle, far from every building)
+            if unit(hash(seed, 0x56C4_000A, ox, oy)) < 0.20 {
+                w.push((ox + 3, oy + 2, ids.jack_o));
             }
             // the rubble well, last so it always crowns the plaza center
             for dy in -1..=1i32 {
