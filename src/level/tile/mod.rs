@@ -40,6 +40,7 @@ pub mod snow;
 pub mod snow_tree;
 pub mod stairs;
 pub mod tall_grass;
+pub mod tidal;
 pub mod torch;
 pub mod tree;
 pub mod tree_species;
@@ -250,6 +251,9 @@ pub enum TileKind {
     Coral,
     /// Dry tumbleweed shrub (desert/savanna); breaks bare-handed into Sticks.
     DryBush,
+    /// Intertidal shore band: submerged (water) at high tide, exposed wet sand at low
+    /// tide; the state is a pure function of the day clock + per-tile elevation.
+    TidalFlat,
     GraveStone {
         broken: bool,
     },
@@ -381,6 +385,9 @@ impl Tiles {
         set(61, dispatch::make_tall_grass_tile("Reeds", "grass", 3));
         // 62 = Jack-O-Lantern (registered next to pumpkin above)
         set(63, dispatch::make_dry_bush_tile("Dry Bush"));
+
+        // tides: the intertidal band between ocean and beach (see tidal.rs)
+        set(64, super::tile::tidal::make("Tidal Flat"));
 
         Tiles {
             list: RefCell::new(t),

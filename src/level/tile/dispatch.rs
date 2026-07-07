@@ -138,6 +138,7 @@ pub fn make_torch_tile(on: &TileDef) -> TileDef {
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     match &def.kind {
         TileKind::Mud => mud::render(g, screen, lvl, x, y),
+        TileKind::TidalFlat => tidal::render(g, screen, lvl, x, y),
         TileKind::DeepWater => depth::deep_water_render(g, screen, lvl, x, y),
         TileKind::DugPit => depth::dug_pit_render(g, screen, lvl, x, y),
         TileKind::Chasm => depth::chasm_render(g, screen, lvl, x, y),
@@ -214,6 +215,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         TileKind::Snow => snow::tick(g, def, lvl, xt, yt),
         TileKind::SnowTree => snow_tree::tick(g, def, lvl, xt, yt),
         TileKind::TallGrass { .. } => tall_grass::tick(g, def, lvl, xt, yt),
+        TileKind::TidalFlat => tidal::tick(g, lvl, xt, yt),
         TileKind::GraveStone { .. } => grave_stone::tick(g, def, lvl, xt, yt),
         _ => {}
     }
@@ -228,6 +230,7 @@ pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity)
     }
     match &def.kind {
         TileKind::DeepWater => depth::deep_water_may_pass(g, e),
+        TileKind::TidalFlat => tidal::may_pass(g, x, y, e),
         TileKind::DugPit | TileKind::Chasm | TileKind::Ladder => true,
         TileKind::Hole => hole::may_pass(g, def, lvl, x, y, e),
         TileKind::Water => water::may_pass(g, def, lvl, x, y, e),

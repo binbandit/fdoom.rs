@@ -1,7 +1,6 @@
 //! Port of `fdoom.screen.OptionsDisplay`.
 
 use crate::core::game::Game;
-use crate::screen::entry::ListEntry;
 use crate::screen::settings_widgets::{self, SettingEntry};
 
 use super::display::{Display, DisplayBase, display_tick_default};

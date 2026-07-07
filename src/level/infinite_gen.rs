@@ -14,7 +14,7 @@
 //! has a matching "stairs up" (with cleared surroundings) on layer N-1.
 
 use super::chunk::{CHUNK_SIZE, Chunk};
-use super::tile::Tiles;
+use super::tile::{Tiles, tidal};
 
 /* ---------------------------------- hashing/noise ---------------------------------- */
 
@@ -70,6 +70,24 @@ fn fractal(seed: i64, salt: u64, x: i32, y: i32, base_period: i32, octaves: u32)
     sum / total
 }
 
+/// The composite land/elevation field: continent (salt 1) plus coastal ruggedness
+/// (salt 5). This is the single definition of "how high above the sea is this tile" —
+/// `biome_at` thresholds it into DeepOcean/Ocean/Beach, the shore arms of
+/// `surface_tile` carve the tidal band out of it, and `tile/tidal.rs` compares it
+/// against the day-clock tide level to decide whether a Tidal Flat is submerged.
+/// Those consumers must all read the *same* field, which is why they share this one
+/// function instead of re-deriving it.
+fn land_parts(seed: i64, x: i32, y: i32) -> (f64, f64) {
+    let continent = fractal(seed, 1, x, y, 384, 3);
+    let rough = fractal(seed, 5, x, y, 48, 4);
+    (continent + (rough - 0.5) * 0.08, rough)
+}
+
+/// The land/elevation value at a tile — see `land_parts`.
+pub fn land_at(seed: i64, x: i32, y: i32) -> f64 {
+    land_parts(seed, x, y).0
+}
+
 /* ------------------------------------ tile rules ------------------------------------ */
 
 struct Ids {
@@ -98,6 +116,7 @@ struct Ids {
     fruiting_cactus: u8,
     seaweed: u8,
     coral: u8,
+    tidal_flat: u8,
     reeds: u8,
     dry_bush: u8,
     iron: u8,
@@ -139,6 +158,7 @@ impl Ids {
             fruiting_cactus: tiles.get("Fruiting Cactus").id,
             seaweed: tiles.get("Seaweed").id,
             coral: tiles.get("Coral").id,
+            tidal_flat: tiles.get("Tidal Flat").id,
             reeds: tiles.get("Reeds").id,
             dry_bush: tiles.get("Dry Bush").id,
             iron: tiles.get("iron ore").id,
@@ -169,13 +189,11 @@ pub enum Biome {
 
 pub fn biome_at(seed: i64, x: i32, y: i32) -> Biome {
     // continental fields: several-hundred-tile features so biomes feel expansive
-    let continent = fractal(seed, 1, x, y, 384, 3);
     let temperature = fractal(seed, 6, x, y, 512, 2);
     let moisture = fractal(seed, 2, x, y, 448, 2);
-    // local ruggedness: mountain ranges + irregular coastlines
-    let rough = fractal(seed, 5, x, y, 48, 4);
-
-    let land = continent + (rough - 0.5) * 0.08;
+    // land = continent + local ruggedness (irregular coastlines); rough also
+    // refines the mountain belt below
+    let (land, rough) = land_parts(seed, x, y);
     if land < 0.36 {
         return Biome::DeepOcean; // open ocean: too deep to swim, raft country
     }
@@ -226,13 +244,14 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
 
     match biome_at_blended(seed, x, y) {
         Biome::Ocean => {
-            // shallow-water life clings to the near-beach shelf: recompute the same
-            // continental fields biome_at used (salts 1/5 — the same logical fields,
-            // not new ones) to find the shallowest band of the ocean strip
-            let continent = fractal(seed, 1, x, y, 384, 3);
-            let rough = fractal(seed, 5, x, y, 48, 4);
-            let land = continent + (rough - 0.5) * 0.08;
-            if land > 0.400 {
+            // the upper ocean strip is the intertidal band (tidal.rs), and the
+            // shallow-water life clings to the permanently wet shelf just below it —
+            // both read the exact land field biome_at thresholded (land_at)
+            let land = land_at(seed, x, y);
+            if (tidal::BAND_LOW..tidal::BAND_HIGH).contains(&land) {
+                return ids.tidal_flat;
+            }
+            if land > 0.385 && land < tidal::BAND_LOW {
                 if detail < 0.10 {
                     return ids.seaweed;
                 }
@@ -244,7 +263,11 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
         }
         Biome::DeepOcean => ids.deep_water,
         Biome::Beach => {
-            // lone palms above the tide line
+            // the lower beach edge sits inside the intertidal band (tidal.rs); the
+            // upper beach — and its lone palms — stays above the highest tide
+            if (tidal::BAND_LOW..tidal::BAND_HIGH).contains(&land_at(seed, x, y)) {
+                return ids.tidal_flat;
+            }
             if detail < 0.02 { ids.palm } else { ids.sand }
         }
         Biome::Mountains => {
