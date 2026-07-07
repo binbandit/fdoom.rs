@@ -4,6 +4,8 @@
 //! `level` index, so the entity-related Level methods are free functions taking
 //! `(g, lvl)` — see PORTING.md.
 
+pub mod chunk;
+pub mod infinite_gen;
 pub mod level_gen;
 pub mod structure;
 pub mod tile;
