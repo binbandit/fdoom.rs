@@ -77,11 +77,20 @@ impl Screen {
                     continue;
                 }
                 let xs = if mirror_x { 7 - x } else { x };
-                // sheet.pixels holds 0-3; pick the corresponding byte of `colors`.
-                let shade = self.sheet.pixels[(toffs + xs + ys * self.sheet.width) as usize] as i32;
-                let col = (colors >> ((3 - shade) * 8)) & 0xFF;
-                if col < 255 {
-                    self.pixels[((x + xp) + (y + yp) * W) as usize] = color::upgrade(col);
+                let dest = ((x + xp) + (y + yp) * W) as usize;
+                match self.sheet.pixels[(toffs + xs + ys * self.sheet.width) as usize] {
+                    // grayscale shade: recolor through the caller's packed palette
+                    crate::gfx::sprite_sheet::SheetPixel::Palette(shade) => {
+                        let col = (colors >> ((3 - shade as i32) * 8)) & 0xFF;
+                        if col < 255 {
+                            self.pixels[dest] = color::upgrade(col);
+                        }
+                    }
+                    // true-color art: drawn literally
+                    crate::gfx::sprite_sheet::SheetPixel::Rgb(rgb) => {
+                        self.pixels[dest] = rgb;
+                    }
+                    crate::gfx::sprite_sheet::SheetPixel::Transparent => {}
                 }
             }
         }
