@@ -86,6 +86,7 @@ struct Ids {
     snow: u8,
     snow_tree: u8,
     deep_water: u8,
+    mud: u8,
     iron: u8,
     gold: u8,
     gem: u8,
@@ -114,6 +115,7 @@ impl Ids {
             snow: tiles.get("snow").id,
             snow_tree: tiles.get("snow tree").id,
             deep_water: tiles.get("Deep Water").id,
+            mud: tiles.get("Mud").id,
             iron: tiles.get("iron ore").id,
             gold: tiles.get("gold ore").id,
             gem: tiles.get("gem ore").id,
@@ -212,10 +214,14 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             }
         }
         Biome::Marsh => {
-            // blobby pools (mid-frequency, so no lonely single water tiles)
+            // blobby pools (mid-frequency, so no lonely single water tiles), with a
+            // boggy mud rim you wade through to reach the water
             let pool = fractal(seed, 7, x, y, 14, 2);
             if pool > 0.66 {
                 return ids.water;
+            }
+            if pool > 0.60 {
+                return ids.mud;
             }
             if detail < 0.16 {
                 tuft(4)
@@ -253,6 +259,23 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             }
         }
         Biome::Plains => {
+            // inland ponds ringed with mud
+            let pond = fractal(seed, 12, x, y, 40, 2);
+            if pond > 0.83 {
+                return ids.water;
+            }
+            if pond > 0.79 {
+                return ids.mud;
+            }
+            // sweeping tall-grass meadows: dense thicket cores (impassable, fully
+            // grown) fringed by younger growth
+            let meadow = fractal(seed, 11, x, y, 96, 2);
+            if meadow > 0.78 {
+                return ids.tall_grass[2];
+            }
+            if meadow > 0.72 {
+                return ids.tall_grass[(hash(seed, 13, x, y) % 2) as usize];
+            }
             if detail < 0.015 {
                 ids.tree
             } else if detail < 0.055 {
