@@ -141,7 +141,18 @@ pub fn make_window_tile(name: &str) -> TileDef {
 /* ---------------- dispatch (Java virtual methods) ---------------- */
 
 /// Java `Tile.render` (default: sprite and/or csprite).
+///
+/// Fire wave: a burning tile (`fire::is_burning`) renders as itself, then the flame
+/// overlay on top (recursive base-tile renders re-check the same flag; the repeated
+/// overlay draw is pixel-identical, so the final frame is correct either way).
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
+    render_inner(g, screen, def, lvl, x, y);
+    if fire::is_burning(g, lvl, x, y) {
+        fire::render_overlay(g, screen, x, y);
+    }
+}
+
+fn render_inner(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     match &def.kind {
         TileKind::Mud => mud::render(g, screen, lvl, x, y),
         TileKind::TidalFlat => tidal::render(g, screen, lvl, x, y),
@@ -203,7 +214,14 @@ pub fn default_render(
 }
 
 /// Java `Tile.tick` (default: nothing).
+///
+/// Fire wave: while a tile burns, the fire's own burn tick replaces the tile's
+/// normal random tick (no grass spread or regrowth mid-blaze).
 pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
+    if fire::is_burning(g, lvl, xt, yt) {
+        fire::random_tick(g, lvl, xt, yt);
+        return;
+    }
     match &def.kind {
         TileKind::Grass => grass::tick(g, def, lvl, xt, yt),
         TileKind::Dirt => dirt::tick(g, def, lvl, xt, yt),
@@ -273,6 +291,9 @@ pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity)
 
 /// Java `Tile.getLightRadius` (default: 0).
 pub fn get_light_radius(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32) -> i32 {
+    if fire::is_burning(g, lvl, x, y) {
+        return fire::light_radius(g, x, y);
+    }
     match &def.kind {
         TileKind::Lava => lava::get_light_radius(g, def, lvl, x, y),
         TileKind::Pumpkin { .. } => pumpkin::get_light_radius(g, def, lvl, x, y),

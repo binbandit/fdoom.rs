@@ -1029,6 +1029,17 @@ pub fn load_entity(
         new_entity = crate::entity::furniture::lantern::new(
             crate::entity::furniture::lantern::LanternType::VALUES[t],
         );
+    } else if matches!(new_entity.kind, EntityKind::Campfire(_)) && info.len() > 3 {
+        // fire wave: restore the remaining fuel (and the matching lit/ember sprite)
+        let fuel: i32 = info[2].parse().unwrap_or(0);
+        if let EntityKind::Campfire(cf) = &mut new_entity.kind {
+            cf.fuel = fuel.max(0);
+            cf.furniture.sprite = if cf.fuel > 0 {
+                crate::entity::furniture::campfire::lit_sprite()
+            } else {
+                crate::entity::furniture::campfire::ember_sprite()
+            };
+        }
     }
 
     if !is_local_save {
@@ -1151,6 +1162,7 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
             furniture::crafter::CrafterType::Oven,
         )),
         "Bed" => Some(furniture::bed::new()),
+        "Campfire" => Some(furniture::campfire::new()),
         "Tnt" => Some(furniture::tnt::new()),
         "Lantern" => Some(furniture::lantern::new(
             furniture::lantern::LanternType::Norm,

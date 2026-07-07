@@ -169,6 +169,8 @@ pub fn get_light_radius(e: &Entity) -> i32 {
     match &e.kind {
         EntityKind::Player(_) => super::mob::player_behavior::get_light_radius(e),
         EntityKind::Lantern(l) => l.lantern_type.light(),
+        // lit campfire — through the normal furniture-emitter path, so occlusion applies
+        EntityKind::Campfire(cf) if cf.fuel > 0 => super::furniture::campfire::LIGHT_RADIUS,
         EntityKind::GlowWorm(_) => 2, // JAVA: GlowWorm.getLightRadius()
         EntityKind::NightWisp(_) => 4, // a drifting lantern of the night
         EntityKind::Fireflies(_) => 2, // a faint swarm-glow, like the glow worm
@@ -380,6 +382,13 @@ pub fn entity_interact(
         }
         _ => {}
     }
+    // fire wave: refuel with Wood / cook a Mushroom / read the fuel state. Unhandled
+    // items fall through so the power glove can still pick the campfire up.
+    if matches!(this_e.kind, EntityKind::Campfire(_))
+        && super::furniture::campfire_behavior::interact(g, this_e, player, item, attack_dir)
+    {
+        return true;
+    }
     // JAVA Entity.interact: if item != null, return item.interact(player, this, attackDir)
     if let Some(it) = item {
         return crate::item::interact::item_interact_entity(g, it, player, this_e, attack_dir);
@@ -425,6 +434,7 @@ pub fn entity_tick(g: &mut Game, e: &mut Entity) {
         | EntityKind::Bed(_)
         | EntityKind::Crafter(_)
         | EntityKind::Lantern(_) => super::furniture::behavior::tick(g, e),
+        EntityKind::Campfire(_) => super::furniture::campfire_behavior::tick(g, e),
         EntityKind::DeathChest(_) => super::furniture::death_chest_behavior::tick(g, e),
         EntityKind::DungeonChest(_) => super::furniture::behavior::tick(g, e),
         EntityKind::Spawner(_) => super::furniture::spawner_behavior::tick(g, e),
@@ -460,6 +470,7 @@ pub fn entity_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
             super::furniture::dungeon_chest_behavior::render(g, screen, e)
         }
         EntityKind::Tnt(_) => super::furniture::tnt_behavior::render(g, screen, e),
+        EntityKind::Campfire(_) => super::furniture::campfire_behavior::render(g, screen, e),
         _ if e.is_furniture() => super::furniture::behavior::render(g, screen, e),
         _ => {}
     }
@@ -486,6 +497,23 @@ pub fn mob_tick_base(g: &mut Game, e: &mut Entity) -> bool {
         if standing.name == "LAVA" {
             // hurt ourselves, sourced from the lava tile
             mob_hurt_tile(g, e, &standing, e.c.x, e.c.y, 4);
+        }
+        // fire wave: standing in (or overlapping) a burning tile singes — the
+        // hurt-time window paces this to ~1 damage per invulnerability cycle
+        let hurt_ready = e.mob().map(|m| m.hurt_time == 0).unwrap_or(false);
+        if hurt_ready {
+            'corners: for (cx, cy) in [
+                (e.c.x - e.c.xr, e.c.y - e.c.yr),
+                (e.c.x + e.c.xr, e.c.y - e.c.yr),
+                (e.c.x - e.c.xr, e.c.y + e.c.yr),
+                (e.c.x + e.c.xr, e.c.y + e.c.yr),
+            ] {
+                if crate::level::tile::fire::is_burning(g, lvl, cx >> 4, cy >> 4) {
+                    let burning = g.tile_at(lvl, cx >> 4, cy >> 4);
+                    mob_hurt_tile(g, e, &burning, cx, cy, 1);
+                    break 'corners;
+                }
+            }
         }
     }
 

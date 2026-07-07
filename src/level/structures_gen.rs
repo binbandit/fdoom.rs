@@ -584,7 +584,12 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
                     w.push((ox + dx, oy + dy, ids.wool));
                 }
             }
-            w.push((ox, oy, ids.torch_dirt));
+            // lean-to camps keep a still-burning torch; cold camps get a burnt-out
+            // campfire *entity* instead (see `campfire_positions`), so the center
+            // stays plain dirt for the ember ring to sit on
+            if variant_of(seed, p) == 0 {
+                w.push((ox, oy, ids.torch_dirt));
+            }
         }
         StructureKind::Village => {
             // a razed hamlet around a rubble well: broken buildings ring a round
@@ -978,9 +983,19 @@ pub fn chest_positions(seed: i64, p: Placement) -> Vec<(i32, i32)> {
     }
 }
 
-/// Spawn structure entities (loot chests) for a chunk that was just generated fresh.
-/// Marks the chunk dirty so it persists to disk and never generates fresh again —
-/// that's what prevents duplicate chests.
+/// Where a placement spawns a burnt-out (ember) campfire entity: the fire-ring
+/// center of every *cold-camp* variant (lean-to camps keep their torch instead).
+/// Pure, like [`chest_positions`], so exactly one chunk owns the spawn.
+pub fn campfire_positions(seed: i64, p: Placement) -> Vec<(i32, i32)> {
+    match p.kind {
+        StructureKind::Camp if variant_of(seed, p) != 0 => vec![(p.x, p.y)],
+        _ => Vec::new(),
+    }
+}
+
+/// Spawn structure entities (loot chests, cold-camp ember campfires) for a chunk that
+/// was just generated fresh. Marks the chunk dirty so it persists to disk and never
+/// generates fresh again — that's what prevents duplicate spawns.
 pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
     if g.level(lvl).depth != 0 || !g.level(lvl).is_infinite() {
         return;
@@ -995,6 +1010,11 @@ pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
         base_x + CHUNK_SIZE - 1 + MAX_RADIUS,
         base_y + CHUNK_SIZE - 1 + MAX_RADIUS,
     );
+    // touch the tile's data byte (same value) purely to set the chunk's dirty flag
+    let touch = |g: &mut Game, tx: i32, ty: i32| {
+        let data = g.level(lvl).get_data(tx, ty);
+        g.level_mut(lvl).set_data(tx, ty, data);
+    };
     for p in placements {
         for (tx, ty) in chest_positions(seed, p) {
             if chunk_coord(tx) != cx || chunk_coord(ty) != cy {
@@ -1003,9 +1023,15 @@ pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
             let mut chest = crate::entity::furniture::chest::new();
             fill_structure_chest(g, &mut chest, p.kind, hash(seed, 0x100D_0006, tx, ty));
             g.level_mut(lvl).add_at(chest, tx, ty, true, lvl);
-            // touch the tile's data byte (same value) purely to set the chunk's dirty flag
-            let data = g.level(lvl).get_data(tx, ty);
-            g.level_mut(lvl).set_data(tx, ty, data);
+            touch(g, tx, ty);
+        }
+        for (tx, ty) in campfire_positions(seed, p) {
+            if chunk_coord(tx) != cx || chunk_coord(ty) != cy {
+                continue; // another chunk owns this campfire
+            }
+            let ember = crate::entity::furniture::campfire::new_ember();
+            g.level_mut(lvl).add_at(ember, tx, ty, true, lvl);
+            touch(g, tx, ty);
         }
     }
 }

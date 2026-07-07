@@ -18,6 +18,7 @@ pub mod dry_bush;
 pub mod exploded;
 pub mod farm;
 pub mod fence;
+pub mod fire;
 pub mod floor;
 pub mod flower;
 pub mod fossick;
@@ -153,6 +154,11 @@ pub struct TileDef {
     /// too but are gated on their closed state in `dispatch::blocks_light`. Trees
     /// deliberately don't (forests stay lit); windows are the whole point of not.
     pub blocks_light: bool,
+    /// Post-port (fire wave): this tile can catch fire (see `tile::fire`). Wood
+    /// walls/doors/planks, trees (all species), tall grass stages + reeds, dry bush,
+    /// and berry bush set it; stone, dirt, sand, snow, and mud stay false. The
+    /// burning state itself is the high bit of the tile's data byte, not a tile id.
+    pub flammable: bool,
     pub sprite: Option<Sprite>,
     pub csprite: Option<ConnectorSprite>,
     pub kind: TileKind,
@@ -171,6 +177,7 @@ impl TileDef {
             light: 1,
             may_spawn: false,
             blocks_light: false,
+            flammable: false,
             sprite: None,
             csprite: None,
             kind,

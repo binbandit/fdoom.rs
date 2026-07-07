@@ -15,12 +15,16 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
     }
 }
 
-/// Java `Particle.render(screen)`.
+/// Java `Particle.render(screen)` — plus the fire wave's smoke drift: a puff climbs
+/// `rise` px/tick and sways on a sine, all derived from `time` (position untouched).
 pub fn render(_g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     let EntityKind::Particle(p) = &e.kind else {
         return;
     };
-    p.sprite.render(screen, e.c.x, e.c.y);
+    let t = p.time as f32;
+    let dx = (p.sway * (t * 0.12 + p.phase).sin()) as i32;
+    let dy = -(p.rise * t) as i32;
+    p.sprite.render(screen, e.c.x + dx, e.c.y + dy);
 }
 
 /// Java `TextParticle.tick()`.

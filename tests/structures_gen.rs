@@ -309,7 +309,11 @@ fn every_variant_occurs_with_its_signature_tiles() {
                     assert_eq!(count(wool), 2, "{ctx}: bedroll strip wrong");
                     assert_eq!(count(planks), 0, "{ctx}: cold camp has a lean-to");
                     assert!(count(rock) >= 3, "{ctx}: fire ring missing");
-                    assert_eq!(rel(0, 0), Some(torch), "{ctx}: fire out");
+                    // fire wave: the cold camp's fire IS out — plain dirt at the
+                    // center for the burnt-out campfire *entity* (see
+                    // `campfire_positions` + tests/fire.rs's ember-spawn test)
+                    assert_eq!(rel(0, 0), Some(id("dirt")), "{ctx}: center not dirt");
+                    assert_ne!(rel(0, 0), Some(torch), "{ctx}: cold camp keeps a torch");
                 }
                 (StructureKind::Village, 0) => {
                     assert_eq!(rel(0, 0), Some(water), "{ctx}: no well");

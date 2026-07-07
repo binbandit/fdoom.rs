@@ -25,6 +25,7 @@ pub fn make(material: Material) -> TileDef {
         TileKind::Wall { material },
     );
     def.blocks_light = true; // all wall materials occlude emitter light
+    def.flammable = material == Material::Wood;
     def.csprite = Some(match material {
         Material::Wood => ConnectorSprite::new(
             Sprite::new(4, 22, 3, 3, color::get4(100, 430, 320, 540), 3),

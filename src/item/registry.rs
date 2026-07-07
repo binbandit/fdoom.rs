@@ -103,19 +103,23 @@ pub fn new_bucket_item(fill: Fill) -> Item {
 
 /// Java `new FurnitureItem(furniture)`.
 pub fn new_furniture_item(f: Entity) -> Item {
-    let fpos = f
-        .furniture()
-        .expect("furniture item needs furniture")
-        .sprite
-        .get_pos();
-    let fcol = f.furniture().unwrap().sprite.color;
-    let x = fpos % 32;
-    let y = fpos / 32;
-    let sprite_pos = (x / 2) + (y + 2) * 32;
-    let name = f.furniture().unwrap().name.clone();
+    let fd = f.furniture().expect("furniture item needs furniture");
+    let name = fd.name.clone();
+    // explicit icon if the furniture carries one (campfire); otherwise the Java
+    // scheme: derive the icon cell from the furniture sprite's sheet position
+    let sprite = match &fd.icon {
+        Some(icon) => icon.clone(),
+        None => {
+            let fpos = fd.sprite.get_pos();
+            let fcol = fd.sprite.color;
+            let x = fpos % 32;
+            let y = fpos / 32;
+            Sprite::from_pos((x / 2) + (y + 2) * 32, fcol)
+        }
+    };
     Item::new(
         &name,
-        Sprite::from_pos(sprite_pos, fcol),
+        sprite,
         ItemKind::Furniture {
             furniture: Box::new(f),
             placed: false,
@@ -266,6 +270,7 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         }
         items.push(new_furniture_item(furniture::tnt::new()));
         items.push(new_furniture_item(furniture::bed::new()));
+        items.push(new_furniture_item(furniture::campfire::new()));
     }
 
     // TorchItem.getAllInstances()
@@ -519,6 +524,15 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items.push(food("Cooked Pork", (20, 4), get4(-1, 220, 440, 330), 3));
     items.push(food("Steak", (20, 4), get4(-1, 100, 333, 211), 3));
     items.push(food("Gold Apple", (9, 4), get4(-1, 110, 440, 550), 10));
+    // Fishing wave (player_behavior::go_fishing): Big Fish is the Deep Water prize,
+    // Cave Eel comes out of underground pools. Raw heals sit on the raw=1..2 scale;
+    // Cooked Big Fish is the fisherman's payoff at 5.
+    // TODO(art): dedicated cells (a fatter fish, a long pale eel) — placeholders
+    // reuse the fish cell (24,4) recolored.
+    items.push(food("Big Fish", (24, 4), get4(-1, 320, 430, 540), 2));
+    items.push(food("Cooked Big Fish", (24, 4), get4(-1, 210, 330, 440), 5));
+    items.push(food("Cave Eel", (24, 4), get4(-1, 112, 334, 445), 1));
+    items.push(food("Cooked Cave Eel", (24, 4), get4(-1, 211, 333, 444), 3));
     // Forage foods (world spawning lives with the flora work; these are the item
     // prototypes it drops). Heal values sit on the existing raw=1..2 / cooked=3 scale.
     // TODO(art): final icons — placeholders reuse nearby cells recolored.

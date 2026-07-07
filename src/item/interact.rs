@@ -63,16 +63,23 @@ pub fn item_interact_on_tile(
 ) -> bool {
     let _ = attack_dir;
     match &item.kind {
-        // ToolItem.interactOn: fishing rod on water.
+        // ToolItem.interactOn: fishing rod on fishable water — open `water`,
+        // `Deep Water` (cast from a raft or the shore edge), or a Tidal Flat while
+        // the tide has it submerged. The kind of water picks the catch table
+        // (`go_fishing`).
         ItemKind::Tool { ttype, .. } => {
             let ttype = *ttype;
             let tile = g.tile_at(lvl, xt, yt);
-            if ttype == ToolType::FishingRod && tile.id == g.tiles.get("water").id {
+            let fishable = tile.id == g.tiles.get("water").id
+                || tile.id == g.tiles.get("Deep Water").id
+                || (matches!(tile.kind, crate::level::tile::TileKind::TidalFlat)
+                    && crate::level::tile::tidal::is_submerged(g, xt, yt));
+            if ttype == ToolType::FishingRod && fishable {
                 let creative = g.is_mode("creative");
                 if item.pay_durability(creative) {
                     // JAVA: player.goFishing(player.x - 5, player.y - 5)
                     let (x, y) = (player.c.x - 5, player.c.y - 5);
-                    crate::entity::mob::player_behavior::go_fishing(g, player, x, y);
+                    crate::entity::mob::player_behavior::go_fishing(g, player, x, y, xt, yt);
                     return true;
                 }
             }
@@ -297,6 +304,8 @@ fn furniture_clone(g: &mut Game, f: &Entity) -> Entity {
         EntityKind::DeathChest(_) => furniture::death_chest::new(g),
         EntityKind::DungeonChest(_) => furniture::dungeon_chest::new(g),
         EntityKind::Bed(_) => furniture::bed::new(),
+        // fire wave: a fresh clone is fully fueled and lit
+        EntityKind::Campfire(_) => furniture::campfire::new(),
         EntityKind::Crafter(c) => furniture::crafter::new(c.crafter_type), // JAVA: Crafter.clone()
         EntityKind::Lantern(l) => furniture::lantern::new(l.lantern_type),
         EntityKind::Tnt(_) => furniture::tnt::new(),

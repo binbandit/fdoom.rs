@@ -286,7 +286,7 @@ weapons `Spear`/`Crossbow`/`Slingshot` (§3.1):
 | `Pickaxe` | 3 | 28 | mine rock/ore/lava-brick tiles; break through a bottomed-out Dug Pit into a Chasm |
 | `Axe` | 4 | 24 | chop trees |
 | `Bow` | 5 | 20 | ranged attack (fires an `arrow` entity — see `player_behavior.rs`'s attack path); uses `TOOL_BOW_COLORS` instead of `TOOL_LEVEL_COLORS` for its sprite tint |
-| `FishingRod` | 6 | 16 | `interactOn` a `water` tile starts fishing (`go_fishing`, §7); does **not** get the 6-tier treatment — a single fixed-name "Fishing Rod" prototype |
+| `FishingRod` | 6 | 16 | `interactOn` fishable water (`water`, `Deep Water`, submerged Tidal Flat) starts fishing (`go_fishing`, §7.1); does **not** get the 6-tier treatment — a single fixed-name "Fishing Rod" prototype |
 | `Claymore` | 7 | 34 | no tile interaction; heaviest attack-damage bonus (§2.2), craftable only by upgrading a same-tier Sword (§6) |
 | `Spear` | 2 *(placeholder — sword cell; TODO(art) wants 8)* | 30 | tiered reach weapon: melee sweep uses `ATTACK_DIST + 8` px; damage bonus `(level+1)*2 + rand(0..2+level)` (between Axe and Sword); **SHIFT-attack throws it** as a projectile that lands as a pickup, durability preserved (§3.1) |
 | `Crossbow` | 5 *(placeholder — bow cell; TODO(art) wants 9)* | 40 | single-tier (like FishingRod); fires an arrow at flat damage 7 (vs the Bow's `tool_level` 0..=5); `attack_time = 30` doubles as a re-cock delay — a click while it's still counting down is a dry trigger pull (§3.1) |
@@ -347,8 +347,8 @@ state machine, which only documents Shovel/Pickaxe on Dug Pit/Chasm):
 Tools that don't appear in this table (`Sword`, `Bow`, `Claymore`, `Spear`, `Crossbow`,
 `Slingshot`, `FishingRod` outside its own water check) have no `interact` dispatch arm on
 any tile — they only ever act on mobs (via `attack`/`get_attack_damage_bonus`, §2.2, or
-the projectile paths in §3.1) or, for `FishingRod`, on the one `water` special case in
-`src/item/interact.rs` (§7).
+the projectile paths in §3.1) or, for `FishingRod`, on the one fishable-water special
+case in `src/item/interact.rs` (§7.1).
 
 ## 4. Inventories (`src/item/inventory.rs`)
 
@@ -590,6 +590,9 @@ the actual `Recipe::new` calls in `Recipes::new()` (`src/item/recipe.rs`):
     Bandage_1          <- Cord_2, Grass Fibers_2     (Medical: +3 health)
     Jack-O-Lantern_1   <- Pumpkin_1, Torch_1         (placeable light, LanternType::Jacko)
     Fruit Medley_1     <- Berry_2, Apple_1           (no-cook food, heal 3)
+    Campfire_1         <- Stone_5, Stick_3, Wood_2   (fire wave: places lit, the 2 Wood
+                                                      already burning as fuel — see
+                                                      ENTITIES.md's furniture table)
   workbench:
     Wood Spear_1  <- Wood_5, Stick_2, Cord_1     Rock Spear_1 <- Stone_5, Stick_2, Cord_1
     Crossbow_1    <- Wood_5, Stick_2, Cord_2, Crossbow Mechanism_1
@@ -599,6 +602,11 @@ the actual `Recipe::new` calls in `Recipes::new()` (`src/item/recipe.rs`):
   oven AND furnace:
     Cooked Mushroom_1 <- Mushroom_1, coal_1
 ```
+
+Field cooking (fire wave): interacting with a **lit Campfire** while holding a
+Mushroom roasts it directly (1 Mushroom → 1 Cooked Mushroom, no coal) — an
+entity-interact path (`campfire_behavior::interact`), not a recipe list, so it does
+not appear in any crafting menu.
 
 Registered forage foods (world spawning/drops belong to the flora work — these exact
 names are the contract): `Berry` (heal 1), `Mushroom` (1), `Apple` (1, pre-existing),
@@ -628,7 +636,7 @@ Two entry points, both dispatched by a `match &item.kind`:
 
 | `ItemKind` arm | Behavior |
 |---|---|
-| `Tool { ttype: FishingRod, .. }` on a `water` tile | pays durability, calls `player_behavior::go_fishing` |
+| `Tool { ttype: FishingRod, .. }` on fishable water (`water`, `Deep Water`, or a Tidal Flat while `tidal::is_submerged`) | pays durability, calls `player_behavior::go_fishing` (§7.1) |
 | `Tool` (any other type/tile) | falls through to `false` here — actual tool-vs-tile effects (dig/chop/mine) are dispatched separately through `level::tile::dispatch::interact`, not through this function (see §3's table) |
 | `TileItem { model, valid_tiles, .. }` | if the tile at `(xt,yt)` matches any `valid_tiles` name (`tiles::matches`), places `model` there (`set_tile_named`) and consumes one unit (`stackable_interact_on`); otherwise pushes a "Can only be placed on ..." / "Dig a hole first!" notification based on whether `model` contains `"WALL"`/`"DOOR"` vs `"BRICK"`/`"PLANK"` |
 | `Torch { valid_tiles, .. }` | if the tile name is in `valid_tiles`, swaps in the lit-torch variant via `Tiles::get_torch_tile` |
@@ -640,6 +648,40 @@ Two entry points, both dispatched by a `match &item.kind`:
 | `Book { book, has_title_page }` | opens `BookDisplay` with the asset text (`None` = blank book) |
 | `Furniture { furniture, placed }` | if `tiles::may_pass` allows it at `(xt,yt)`: places a clone of `furniture` into the level at that tile's center, and either re-clones a fresh instance (creative mode — infinite placements) or marks `placed = true` (consumes the item) |
 | everything else (`PowerGlove`, plain `Stackable`/`Unknown`) | `false` (no-op) |
+
+### 7.1 Fishing (`player_behavior::go_fishing`)
+
+The fishing wave replaced the Java flat table with **invisible fish**: no fish mobs —
+the water itself tells you where they are. The rod's `interactOn` gate above decides
+*whether* a tile is fishable and pays one durability per cast (stamina is paid by the
+normal attack flow, unchanged); `go_fishing(g, player, x, y, xt, yt)` then rolls the
+cast against the `(xt, yt)` tile the line landed on:
+
+- **Odds** — per-cast catch chance = `fishing_catch_chance(presence, raining)`, a pure
+  fn over `weather::fish_presence(world_seed, xt, yt)` (the same field that draws the
+  rising bubbles) and `weather::is_raining`:
+  - base `0.18` (the Java table's ~16/90 feel) on ordinary water;
+  - at/above `FISH_PRESENCE_THRESHOLD` — exactly the bubble edge — a flat **3x**;
+  - below it, `0.25 + 1.2 * presence` (dead water bottoms out at ~0.25x);
+  - raining: a further **1.3x** (fish bite in the rain); total capped at `0.95`.
+- **Flavor cues** (deduped against the last notification): "Something stirs here..."
+  on a bubbling cast; "The rain has the fish biting..." on a rainy, non-bubbling one.
+- **Catch tables**, picked by where the line landed:
+
+| Water | Table (d100) |
+|---|---|
+| `water` / submerged Tidal Flat (`CastWater::Regular`) | 65% `Raw Fish`, 29% `Slime`, 6% `Leather Armor` — the Java trio, fish-forward |
+| `Deep Water` (`CastWater::Deep`, cast from a raft or the shore edge) | 78% `Raw Fish`, 17% `Big Fish`, 5% treasure (2% `gem`, 3% `Iron`) |
+| any `depth < 0` pool (`CastWater::Cave`) | 85% `Cave Eel`, 15% `Slime` |
+
+- **New foods** (registry one-liners; oven recipes `X + coal` like Cooked Fish):
+  `Big Fish` (heal 2) → `Cooked Big Fish` (**5** — the fisherman's payoff), `Cave Eel`
+  (1) → `Cooked Cave Eel` (3). TODO(art): dedicated cells — placeholders recolor the
+  fish cell `(24,4)`.
+- The FISHNORRIS console easter egg survives on a missed cast, message verbatim.
+- Tests: `tests/fishing.rs` — hotspot-vs-dead-water odds, the rain bonus, both new
+  tables, the rod gate/durability on every water kind, tide-gated flats, and the
+  cook-and-heal chain.
 
 Potions (`src/item/potion_type.rs`) have **11** variants (`None` is the "does nothing"
 base potion you get from the enchanter before adding an effect ingredient):

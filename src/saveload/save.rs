@@ -153,7 +153,12 @@ impl Save {
             let (w, h) = (g.level(l).w, g.level(l).h);
             for x in 0..w {
                 for y in 0..h {
-                    self.data.push(g.level(l).get_data(x, y).to_string());
+                    // Strip the fire wave's burning bit (0x80): the loader parses this
+                    // as a Java-style i8 and would choke on 128+, and a legacy finite
+                    // level's flames simply don't survive a save. (Chunked layers
+                    // persist their data bytes raw, fire included.)
+                    let data = g.level(l).get_data(x, y) & !crate::level::tile::fire::BURN_FLAG;
+                    self.data.push(data.to_string());
                 }
             }
 
@@ -379,6 +384,7 @@ fn entity_class_name(e: &Entity) -> &'static str {
         EntityKind::Particle(_) => "Particle",
         EntityKind::TextParticle(_) => "TextParticle",
         EntityKind::Furniture(_) => "Furniture",
+        EntityKind::Campfire(_) => "Campfire",
         EntityKind::Chest(_) => "Chest",
         EntityKind::DeathChest(_) => "DeathChest",
         EntityKind::DungeonChest(_) => "DungeonChest",
@@ -462,6 +468,11 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
             .position(|t| *t == l.lantern_type)
             .unwrap_or(0);
         extradata.push_str(&format!(":{ordinal}"));
+    }
+
+    if let EntityKind::Campfire(cf) = &e.kind {
+        // fire wave: remaining fuel ticks (0 = cold ember)
+        extradata.push_str(&format!(":{}", cf.fuel));
     }
 
     if let EntityKind::Crafter(c) = &e.kind {

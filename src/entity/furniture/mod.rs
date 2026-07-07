@@ -4,6 +4,8 @@
 pub mod bed;
 pub mod bed_behavior;
 pub mod behavior;
+pub mod campfire;
+pub mod campfire_behavior;
 pub mod chest;
 pub mod chest_behavior;
 pub mod crafter;
@@ -29,6 +31,11 @@ pub struct FurnitureData {
     pub push_dir: Direction,
     pub sprite: Sprite,
     pub name: String,
+    /// Explicit held-item icon. `None` (every classic furniture) keeps the Java
+    /// scheme: `registry::new_furniture_item` derives the icon cell from the
+    /// furniture sprite's sheet position (rows 8-9 map to icon row 10). Furniture
+    /// whose sprite lives elsewhere on the sheet (the campfire) sets its own.
+    pub icon: Option<Sprite>,
 }
 
 impl FurnitureData {
@@ -41,6 +48,7 @@ impl FurnitureData {
             push_dir: Direction::None,
             sprite,
             name: name.to_string(),
+            icon: None,
         }
     }
 }

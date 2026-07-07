@@ -65,10 +65,13 @@
 //!   firefly speck (10,20) and grass-stealth eye glints (11,20), both true-color
 //!   warm pixels. The snake-family body
 //!   variants reuse the traced snake frames (18..25,18..19) via per-variant palettes.
-//! - FREE cells (from the mob-roster overhaul): (8,18), (9,18), (8,19) — the remainder
-//!   of the old Creeper block — plus (10..11,21) and (12..17,20..21) beside the
-//!   mob-life cells. The old AirWizard (8,14), Skeleton (8,16), and Slime
-//!   (0,18) blocks were reused for the Marsh Lurker, Feral Hound, and Stone Golem.
+//! - fire-wave cells (`campfire_cells`): campfire furniture lit A/B + ember
+//!   (12..17,20..21, true color); tile-fire overlay frames (10..11,21, true color);
+//!   smoke puff + wisp (8..9,18, grayscale, shades 0-1 transparent); campfire item
+//!   icon (8,19, grayscale). These filled the old FREE blocks from the mob-roster
+//!   overhaul; no free cells remain in that region. The old AirWizard (8,14),
+//!   Skeleton (8,16), and Slime (0,18) blocks were reused for the Marsh Lurker,
+//!   Feral Hound, and Stone Golem.
 //!
 //! # Art-wave additions (see the per-recipe docs for exact roles)
 //!
@@ -5052,6 +5055,177 @@ fn mob_life_cells(s: &mut Sheet) {
     }
 }
 
+/* ==============================  fire wave  ============================== */
+
+/// Campfire + fire-overlay + smoke cells:
+/// - (12,20) 2x2 campfire lit frame A / (14,20) frame B / (16,20) cold ember —
+///   true color (stone ring, crossed logs, flame in the shared FLAME_* inks).
+/// - (10,21) + (11,21): two 8x8 flame-overlay frames for burning *tiles*
+///   (`tile::fire::render_overlay` quads them over the tile, mirrored per beat) —
+///   true color, transparent background.
+/// - (8,18) fat smoke puff + (9,18) thin wisp — grayscale; the smoke palettes make
+///   shades 0-1 transparent, so art lives in shade 2 (body) + 3 (highlight).
+/// - (8,19) campfire item icon — grayscale item-icon roles (1 dark, 2 mid, 3 light).
+fn campfire_cells(s: &mut Sheet) {
+    const CHAR: Ink = rgb(44, 38, 36); // charred log core
+    const EMBER: Ink = rgb(196, 84, 40); // dying glow in the ember ring
+    let flame_map: &[(char, Ink)] = &[
+        ('y', FLAME_YL),
+        ('f', FLAME_OR),
+        ('r', FLAME_RD),
+        ('b', BARK),
+        ('d', BARK_DK),
+        ('c', CHAR),
+        ('e', EMBER),
+        ('m', STONE_MD),
+        ('l', STONE_LT),
+        ('o', OUT),
+    ];
+
+    // (12,20) lit, frame A: a tall central lick
+    tc16(
+        s,
+        12,
+        20,
+        &[
+            "................",
+            "................",
+            ".......yy.......",
+            ".......yy.......",
+            "......yyyy......",
+            "......yyyy......",
+            ".....fyyyyf.....",
+            ".....fyyyyf.....",
+            "....ffyyyyff....",
+            "....rfyyyyfr....",
+            "....rffyyffr....",
+            ".....rffffr.....",
+            "..bbddreerddbb..",
+            ".obbbdddddbbbo..",
+            ".mllm.mllm.mllm.",
+            "................",
+        ],
+        flame_map,
+    );
+
+    // (14,20) lit, frame B: the flame splits and leans
+    tc16(
+        s,
+        14,
+        20,
+        &[
+            "................",
+            "................",
+            "................",
+            ".....y....y.....",
+            ".....yy..yy.....",
+            "......yyyy......",
+            ".....fyyyyf.....",
+            "....ffyyyyff....",
+            "....fyyyyyyf....",
+            "....rfyyyyfr....",
+            "....rffyyffr....",
+            ".....rffffr.....",
+            "..bbddreerddbb..",
+            ".obbbdddddbbbo..",
+            ".mllm.mllm.mllm.",
+            "................",
+        ],
+        flame_map,
+    );
+
+    // (16,20) cold ember: charred logs, one dull glow, a last thread of haze
+    tc16(
+        s,
+        16,
+        20,
+        &[
+            "................",
+            "................",
+            "........h.......",
+            ".......h........",
+            "................",
+            ".......h........",
+            "......h.........",
+            "......h.........",
+            "................",
+            "................",
+            "................",
+            "......ee........",
+            "..ccddeeeddcc...",
+            ".occcdddddccco..",
+            ".mllm.mllm.mllm.",
+            "................",
+        ],
+        &[flame_map, &[('h', rgb(96, 92, 104))]].concat(),
+    );
+
+    // (10,21) + (11,21): tile-fire overlay frames (8x8, quaded + mirrored at draw)
+    {
+        let mut c = cell(s, 10, 21);
+        c.pat(
+            0,
+            0,
+            &[
+                "...y....", "..yy....", "..yyy...", ".fyyyf..", ".fyyyy..", "ffyyyyf.", "rffyyfr.",
+                ".rfffr..",
+            ],
+            flame_map,
+        );
+    }
+    {
+        let mut c = cell(s, 11, 21);
+        c.pat(
+            0,
+            0,
+            &[
+                "........", "....y...", "..yyy...", ".yyyyf..", ".fyyyf..", "ffyyff..", ".rfffr..",
+                "..rfr...",
+            ],
+            flame_map,
+        );
+    }
+
+    // (8,18) fat smoke puff / (9,18) thin wisp — grayscale, shade0 background
+    {
+        let mut c = cell(s, 8, 18);
+        c.rect(0, 0, 8, 8, G0);
+        c.pat(
+            0,
+            0,
+            &[
+                "..222...", ".223322.", "22333322", "23333332", ".233322.", "..2222..", "........",
+                "........",
+            ],
+            PMAP,
+        );
+    }
+    {
+        let mut c = cell(s, 9, 18);
+        c.rect(0, 0, 8, 8, G0);
+        c.pat(
+            0,
+            0,
+            &[
+                "....3...", "...33...", "...3....", "..33....", "..3.....", "..33....", "...3....",
+                "........",
+            ],
+            PMAP,
+        );
+    }
+
+    // (8,19) campfire item icon: flame over crossed logs on a stone base
+    item_icon(
+        s,
+        8,
+        19,
+        &[
+            "........", "...3....", "..332...", ".23332..", ".22322..", ".111111.", "11.11.11",
+            "........",
+        ],
+    );
+}
+
 /* ==============================  font (rows 30-31)  ============================== */
 
 /// The renderable half of `Font::CHARS` (all text is uppercased before drawing, so the
@@ -5308,6 +5482,7 @@ fn main() {
     snake(&mut s);
     glow_worm(&mut s);
     mob_life_cells(&mut s);
+    campfire_cells(&mut s);
 
     // text
     font(&mut s);

@@ -103,6 +103,7 @@ pub enum EntityKind {
     TextParticle(TextParticleData),
     // furniture
     Furniture(FurnitureData),
+    Campfire(furniture::campfire::CampfireData),
     Chest(furniture::chest::ChestData),
     DeathChest(furniture::death_chest::DeathChestData),
     DungeonChest(furniture::dungeon_chest::DungeonChestData),
@@ -288,6 +289,7 @@ impl Entity {
     pub fn furniture(&self) -> Option<&FurnitureData> {
         Some(match &self.kind {
             EntityKind::Furniture(f) => f,
+            EntityKind::Campfire(cf) => &cf.furniture,
             EntityKind::Chest(c) => &c.furniture,
             EntityKind::DeathChest(c) => &c.chest.furniture,
             EntityKind::DungeonChest(c) => &c.chest.furniture,
@@ -303,6 +305,7 @@ impl Entity {
     pub fn furniture_mut(&mut self) -> Option<&mut FurnitureData> {
         Some(match &mut self.kind {
             EntityKind::Furniture(f) => f,
+            EntityKind::Campfire(cf) => &mut cf.furniture,
             EntityKind::Chest(c) => &mut c.furniture,
             EntityKind::DeathChest(c) => &mut c.chest.furniture,
             EntityKind::DungeonChest(c) => &mut c.chest.furniture,

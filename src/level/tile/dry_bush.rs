@@ -17,6 +17,7 @@ pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::DryBush);
     def.connects_to_sand = true;
     def.connects_to_grass = true;
+    def.flammable = true; // tinder-dry by definition
     def
 }
 

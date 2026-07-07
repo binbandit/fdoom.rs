@@ -185,6 +185,8 @@ impl Recipes {
             // fossicking: pan the creeks, shore up the tunnels
             r("Prospector's Pan", "Stick*3 + Cord + Stone"),
             r("Timber Prop", "Wood*2 + Stick*2"),
+            // a stone ring around stacked wood; places lit, the 2 Wood as fuel
+            r("Campfire", "Stone*5 + Stick*3 + Wood*2"),
             r("Workbench", "Wood*10 + Stone*2"),
             // carve a pumpkin around a torch — a placeable ember-light
             r("Jack-O-Lantern", "Pumpkin + Torch"),
@@ -307,6 +309,9 @@ impl Recipes {
             r("cooked pork", "raw pork + coal"),
             r("steak", "raw beef + coal"),
             r("cooked fish", "raw fish + coal"),
+            // fishing-wave catches cook alongside the classic fish
+            r("Cooked Big Fish", "Big Fish + coal"),
+            r("Cooked Cave Eel", "Cave Eel + coal"),
             r("bread", "wheat*4"),
             r("Cooked Mushroom", "Mushroom + coal"),
         ];

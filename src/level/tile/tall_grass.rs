@@ -35,6 +35,7 @@ pub fn make(name: &str, on_tile: &str, kind: i32) -> TileDef {
     // JAVA: connect flags are copied from onType (GrassTile: connectsToGrass only).
     def.connects_to_grass = true;
     def.may_spawn = true;
+    def.flammable = true; // every stage, reeds included — dry standing fuel
     def
 }
 

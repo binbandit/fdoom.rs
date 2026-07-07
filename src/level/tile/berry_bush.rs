@@ -32,6 +32,7 @@ fn bush_picked() -> Sprite {
 pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::BerryBush);
     def.connects_to_grass = true;
+    def.flammable = true;
     def
 }
 

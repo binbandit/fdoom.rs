@@ -438,8 +438,11 @@ fn ground_blend_pass(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
     let seed = g.world_seed;
     let tx0 = x_scroll >> 4;
     let ty0 = y_scroll >> 4;
-    let nx = ((x_scroll + screen::W - 1) >> 4) as usize - tx0 as usize + 1;
-    let ny = ((y_scroll + screen::H - 1) >> 4) as usize - ty0 as usize + 1;
+    // Span math stays in i32 until the end: at negative scroll (west/north of the
+    // origin — half the infinite world) casting the floored tile coords to usize
+    // first wrapped huge and the subtraction overflowed.
+    let nx = (((x_scroll + screen::W - 1) >> 4) - tx0 + 1) as usize;
+    let ny = (((y_scroll + screen::H - 1) >> 4) - ty0 + 1) as usize;
 
     // Per-tile factors over the visible grid plus a one-tile margin (edge corners
     // average tiles just off screen).

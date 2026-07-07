@@ -695,6 +695,7 @@ end-to-end for adding a new placeable furniture type).
 | Tnt | `ftik`, `fuse_lit`, `explode_ticks_left: Option<i32>` | `interact` (attack key) lights the fuse; after `FUSE_TIME=90` ticks it detonates — damages every entity within `BLAST_RADIUS=32` (falloff formula, players also lose `2×damage` stamina), carves a "hole" tile at ground zero, and lights any other TNT it catches in the blast. Unlike Java (which removed the entity immediately and restored tiles via an out-of-band 300ms Swing timer), the port keeps the (already-exploded, invisible-on-render) entity alive for an `explode_ticks_left` countdown to restore the tile before finally removing itself — a deliberate `// JAVA:` documented restructuring, not a straight port. |
 | Crafter | `crafter_type: CrafterType` (`Workbench`, `Oven`, `Furnace`, `Anvil`, `Enchanter`, `Loom`) | The generic "crafting station" entity — `use` opens `CraftingDisplay` with the recipe list for its `crafter_type` (`g.recipes.workbench`/`.oven`/`.furnace`/`.anvil`/`.enchant`/`.loom` — see [ADDING_CONTENT.md](ADDING_CONTENT.md)/`src/item/recipe.rs` for the recipe side, which this document doesn't duplicate). Saved/loaded by the crafter's *type name* directly as the entity name (`"Workbench"`, `"Anvil"`, ... rather than `"Crafter"` — see §12). |
 | Lantern | `lantern_type: LanternType` (`Norm`/`Iron`/`Gold`) | Placeable light source only; light radius 9/12/15 by type. No `tick`/`touched_by`/`interact` override — pure `Furniture` base behavior. |
+| Campfire | `fuel: i32` (remaining burn ticks; 0 = cold ember) | **Fire wave.** Hand-crafted (`Stone*5 + Stick*3 + Wood*2`), places lit with the 2 crafting Wood as fuel (`START_FUEL` ≈ 8 in-game minutes; 1 Wood = 4). Lit: light radius 7 through the normal furniture-emitter path (occlusion applies), two-frame flame render, a smoke particle every 20 ticks (thin wisps under 1 Wood of fuel), players within 2 tiles regen stamina at **2x** (`near_lit_campfire`, read from the player's recharge step), and rare stray sparks (`1/500` per tick) that `fire::ignite` one random neighboring tile. `interact` (attack key): Wood in hand adds fuel (cap 5 Wood — refused, not wasted, when full; relights an ember), a Mushroom over a lit fire roasts into a Cooked Mushroom, empty-handed reads the fuel state; anything else falls through so the power glove still picks it up. Out of fuel → ember sprite, no light/smoke/bonus. `fuel` persists via its own `write_entity`/`load_entity` extradata block; `FurnitureData.icon` carries its explicit item icon (its sprite lives outside the rows-8-9 derivation scheme). Cold-camp structures spawn a `new_ember()` variant (see `structures_gen::campfire_positions`). |
 
 ## 10. Item entities, projectiles, and particles
 
@@ -739,9 +740,11 @@ Two kinds share this file, both free-floating (no `Mob` layer at all):
 
 ### 10.3 Particles (`src/entity/particle.rs` + `particle_behavior.rs`)
 
-Confirmed purely cosmetic — no gameplay effect of any kind. `Particle` (fire/smash/etc. are
-just different constructor args over one struct: sprite + lifetime + a 1-D "radius" `xr`)
-counts up `time` and self-removes past `lifetime`; `TextParticle` (the floating damage/heal
+Confirmed purely cosmetic — no gameplay effect of any kind. `Particle` (fire/smash/smoke
+are just different constructor args over one struct: sprite + lifetime + a 1-D "radius"
+`xr`, plus the fire wave's `rise`/`sway`/`phase` drift fields — a smoke puff
+(`new_smoke_particle`) climbs and sways as a pure function of `time` at render, its
+actual x/y never moving) counts up `time` and self-removes past `lifetime`; `TextParticle` (the floating damage/heal
 numbers) additionally has the same double-precision drift-and-bounce physics as item
 entities (`xa/ya/za`, gravity, ground-bounce) purely for visual arc. Neither kind is ever
 touched by `touched_by`, never blocks movement (`is_solid` explicitly excludes both), and

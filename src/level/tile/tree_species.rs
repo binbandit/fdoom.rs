@@ -99,6 +99,7 @@ pub fn make(name: &str, species: TreeSpecies) -> TileDef {
         "sand" => def.connects_to_sand = true,
         _ => def.connects_to_grass = true,
     }
+    def.flammable = true;
     def
 }
 

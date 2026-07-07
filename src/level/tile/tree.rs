@@ -22,6 +22,7 @@ const COL2: i32 = color::get4(10, 30, 320, -1);
 pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::Tree);
     def.connects_to_grass = true;
+    def.flammable = true;
     def
 }
 

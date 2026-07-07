@@ -18,6 +18,7 @@ pub fn make(material: Material) -> TileDef {
     };
     let mut def = TileDef::new(&name, TileKind::Floor { material });
     def.may_spawn = true;
+    def.flammable = material == Material::Wood;
     let col = match material {
         Material::Wood => color::get4(210, 210, 430, 320),
         Material::Stone => color::get4(333, 333, 444, 444),

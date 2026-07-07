@@ -10,6 +10,12 @@ pub struct ParticleData {
     pub time: i32,
     pub lifetime: i32,
     pub sprite: Sprite,
+    /// Fire wave: purely-visual drift, a function of `time` (the entity's own
+    /// x/y never move). `rise` = pixels climbed per tick; `sway` = horizontal
+    /// sine amplitude in pixels; `phase` offsets the sine so puffs desynchronize.
+    pub rise: f32,
+    pub sway: f32,
+    pub phase: f32,
 }
 
 /// Java `new Particle(x, y, xr, lifetime, sprite)`.
@@ -23,8 +29,34 @@ pub fn new_particle(x: i32, y: i32, xr: i32, lifetime: i32, sprite: Sprite) -> E
             time: 0,
             lifetime,
             sprite,
+            rise: 0.0,
+            sway: 0.0,
+            phase: 0.0,
         }),
     )
+}
+
+/// Fire wave: a gray smoke puff that rises with a lazy side-to-side sway. `thin`
+/// picks the wispy cell (low campfire fuel) over the fat puff.
+pub fn new_smoke_particle(x: i32, y: i32, thin: bool, random: &mut Rng) -> Entity {
+    let (cell_x, palette) = if thin {
+        (9, color::get4(-1, -1, -1, 333))
+    } else {
+        (8, color::get4(-1, -1, 222, 333))
+    };
+    let mut e = new_particle(
+        x,
+        y,
+        1,
+        50 + random.next_int_bound(30),
+        Sprite::new1x1(cell_x, 18, palette),
+    );
+    if let EntityKind::Particle(p) = &mut e.kind {
+        p.rise = 0.4;
+        p.sway = if thin { 1.5 } else { 2.5 };
+        p.phase = random.next_float() * std::f32::consts::TAU;
+    }
+    e
 }
 
 /// Java `new FireParticle(x, y)` — used by Spawners when they spawn an entity.
@@ -77,6 +109,9 @@ pub fn new_text_particle(msg: &str, x: i32, y: i32, col: i32, random: &mut Rng) 
             time: 0,
             lifetime: 60,
             sprite: Sprite::missing_texture(1, 1),
+            rise: 0.0,
+            sway: 0.0,
+            phase: 0.0,
         },
         msg: msg.to_string(),
         xx: x as f64,
