@@ -135,8 +135,6 @@ Then the hardcoded cheats in the debug block of `Game::tick`
 | Key | Effect |
 |---|---|
 | `1` / `2` / `3` / `4` | time of day: morning / day / evening / night |
-| `SHIFT-T` | score mode |
-| `CTRL-T` | (score mode) set the score timer to 5 seconds |
 | `SHIFT-0` / `SHIFT-=` / `SHIFT--` | game speed: reset / faster / slower |
 | `SHIFT-G` | give one of every item |
 | `CTRL-H` / `CTRL-B` | take 1 damage / lose 1 hunger |

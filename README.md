@@ -1,7 +1,8 @@
 # Fossickers Doom (fdoom.rs)
 
 A Minicraft-Plus-style 2D top-down survival game, written in pure Rust: software
-renderer, procedurally generated six-layer worlds (sky down to dungeon), crafting,
+renderer, infinite procedurally generated worlds (surface, three mine layers, and a
+dungeon set-piece), gather-chain crafting,
 potions, and an Air Wizard to kill. No engine, no GPU — just `winit` + `softbuffer` +
 `rodio` and a 288x192 pixel framebuffer.
 
@@ -55,20 +56,21 @@ unmapped cheat keys (time of day, game speed, give items, ...) listed in
 
 ## Features
 
-- **Infinite worlds** (default): Minecraft-style chunked terrain streamed around the
-  player, with deterministic per-seed generation, paired stairwells between layers,
-  and rare sky-towers / dungeon gates leading to the finite boss levels. Pick
-  "World: Classic" in world-gen for the original finite maps.
+- **Infinite worlds**: Minecraft-style chunked terrain streamed around the player,
+  deterministic per seed, with large natural biomes, world structures (ruins, decaying
+  cemeteries, destroyed villages, old trails), and dig-based descent between layers
+  (no pre-placed stairs — you dig down and climb back on the ladder you leave).
 
 - Procedural island/box/mountain/irregular worlds, 128–512 tiles square, seedable
-- 6 vertical levels: sky, surface, three mine levels, dungeon
+- 5 vertical levels: surface, three mine layers, and a dungeon reached through deep-mine gates
 - Day/night cycle with mob spawning, beds, farming, 46 tile types, ~150 items
 - **Progression**: a 7-Days-style survival start — punch tall grass for fibers and
   loose stones, punch trees for sticks; twist fibers into cord, knap stone sharp, and
   lash together your first crude axe and pickaxe with bare hands. Real wood/stone
   tools then need a workbench (and cord), and the metal tiers an anvil beyond that.
 - Crafting stations: workbench, oven, furnace, anvil, enchanter, loom
-- Survival / Creative / Hardcore / Score modes, three difficulties
+- Open-sandbox survival (Creative remains as a --debug tool), three difficulties,
+  selectable day-cycle pacing up to realtime, rare deterministic world events
 - Save/load in the original Java-compatible text format, autosave
 - Localization (English, Italiano, Norsk)
 - Fully headless-capable core: tests tick the world and render PNGs without a window
