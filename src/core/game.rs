@@ -360,6 +360,7 @@ impl Game {
 
                 if self.levels[self.current_level].is_some() {
                     let lvl = self.current_level;
+                    crate::level::ensure_chunks(self, lvl);
                     crate::level::tick_level(self, lvl, true);
                     self.tile_tick_count += 1;
                 }

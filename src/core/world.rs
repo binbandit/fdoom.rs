@@ -71,9 +71,39 @@ pub fn change_level(g: &mut Game, dir: i32) {
         (p.c.x, p.c.y)
     };
 
-    let p = g.entities.take(g.player_id).expect("player must exist");
+    let mut p = g.entities.take(g.player_id).expect("player must exist");
     let lvl = g.current_level;
+
+    // Landing on a finite set-piece level (sky/dungeon) from an infinite layer: the
+    // matching stairs may be at completely different coordinates, so relocate onto the
+    // nearest counterpart stairs (descending arrives on Stairs Up, ascending on Stairs
+    // Down). Classic finite<->finite transitions already line up and are left alone.
+    let (mut px, mut py) = (px, py);
+    if !g.level(lvl).is_infinite() {
+        let expected = if dir > 0 { "Stairs Down" } else { "Stairs Up" };
+        let expected_id = g.tiles.get(expected).id;
+        let (xt, yt) = (px >> 4, py >> 4);
+        let in_bounds = xt >= 0 && yt >= 0 && xt < g.level(lvl).w && yt < g.level(lvl).h;
+        if !in_bounds || g.tile_at(lvl, xt, yt).id != expected_id {
+            let matches = level::get_matching_tiles(g, lvl, |_, t, _, _| t.id == expected_id);
+            let target = matches
+                .iter()
+                .min_by_key(|pt| {
+                    let dx = pt.x - xt;
+                    let dy = pt.y - yt;
+                    dx * dx + dy * dy
+                })
+                .map(|pt| (pt.x, pt.y))
+                .unwrap_or((g.level(lvl).w / 2, g.level(lvl).h / 2));
+            px = target.0 * 16 + 8;
+            py = target.1 * 16 + 8;
+            p.c.x = px;
+            p.c.y = py;
+        }
+    }
+
     g.level_mut(lvl).add_at(p, px, py, false, lvl);
+    crate::level::ensure_chunks(g, lvl);
 }
 
 /// Java `Level` constructor tail: link stairs with the parent level, then dungeon/surface
@@ -460,6 +490,7 @@ pub fn init_world(g: &mut Game) {
     } else {
         g.world_size = g.settings.get("size").as_int();
         let world_size = g.world_size;
+        let infinite = g.settings.get("worldtype").as_str() == "Infinite";
 
         let loading_inc =
             100.0 / (crate::level::MAX_LEVEL_DEPTH - crate::level::MIN_LEVEL_DEPTH + 1) as f32;
@@ -484,6 +515,16 @@ pub fn init_world(g: &mut Game) {
                 Some(parent_idx)
             };
 
+            if infinite && (-3..=0).contains(&i) {
+                // infinite layer: chunks stream in around the player, no upfront gen
+                let mut level = crate::level::Level::empty(world_size, world_size, i, diff_idx);
+                level.chunks = Some(crate::level::chunk::ChunkMap::default());
+                g.levels[idx] = Some(level);
+                g.loading_percentage += loading_inc;
+                i -= 1;
+                continue;
+            }
+
             let mut level = crate::level::Level::empty(world_size, world_size, i, diff_idx);
             let mut history_random = g.random.clone();
             let maps = crate::level::level_gen::create_and_validate_map(
@@ -507,7 +548,20 @@ pub fn init_world(g: &mut Game) {
                 }
             }
             g.levels[idx] = Some(level);
-            populate_from_parent(g, idx, parent);
+            // parent-stairs linkage only applies between finite neighbors
+            let parent_is_finite = parent
+                .map(|pidx| g.levels[pidx].as_ref().is_some_and(|l| !l.is_infinite()))
+                .unwrap_or(false);
+            if parent_is_finite {
+                populate_from_parent(g, idx, parent);
+            } else if i == crate::level::MIN_LEVEL_DEPTH && infinite {
+                // the dungeon under an infinite world gets a landing gate in the middle,
+                // where players arriving through deep-mine gates are relocated
+                let (cx, cy) = (world_size / 2, world_size / 2);
+                let stairs_up = g.tiles.get("Stairs Up");
+                g.set_tile_default(idx, cx, cy, &stairs_up);
+                level::structure::draw_dungeon_gate(g, idx, cx, cy);
+            }
 
             g.loading_percentage += loading_inc;
             i -= 1;
@@ -520,8 +574,15 @@ pub fn init_world(g: &mut Game) {
         g.past_day1 = false;
         let lvl = g.current_level; // sets level to the current level (3; surface)
         let mut p = g.entities.take(g.player_id).expect("player must exist");
-        crate::entity::mob::player_behavior::find_start_pos(g, &mut p, lvl, Some(g.world_seed));
+        if infinite {
+            let (sx, sy) = crate::level::infinite_gen::find_surface_spawn(world_seed, &g.tiles);
+            p.c.x = sx * 16 + 8;
+            p.c.y = sy * 16 + 8;
+        } else {
+            crate::entity::mob::player_behavior::find_start_pos(g, &mut p, lvl, Some(g.world_seed));
+        }
         g.level_mut(lvl).add(p, lvl);
+        crate::level::ensure_chunks(g, lvl);
     }
 
     g.ready_to_render_gameplay = true;

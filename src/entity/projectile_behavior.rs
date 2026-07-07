@@ -14,8 +14,10 @@ pub fn arrow_tick(g: &mut Game, e: &mut Entity) {
         (level.w, level.h)
     };
 
-    // JAVA: note `>` not `>=` on the tile bounds
-    if e.c.x < 0 || e.c.x >> 4 > level_w || e.c.y < 0 || e.c.y >> 4 > level_h {
+    // JAVA: note `>` not `>=` on the tile bounds (finite levels; infinite have no edge)
+    if !g.level(lvl).is_infinite()
+        && (e.c.x < 0 || e.c.x >> 4 > level_w || e.c.y < 0 || e.c.y >> 4 > level_h)
+    {
         behavior::remove_entity(g, e);
         return;
     }

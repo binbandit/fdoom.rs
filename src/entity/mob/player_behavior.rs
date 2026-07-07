@@ -992,6 +992,12 @@ pub fn pickup_item(g: &mut Game, player: &mut Entity, item_entity: &mut Entity) 
 /// JAVA: the seeded variant did `random.setSeed(spawnSeed)` on the entity's own Random;
 /// here a local `Rng` stands in for the freshly-reseeded instance.
 pub fn find_start_pos(g: &mut Game, player: &mut Entity, lvl: usize, spawn_seed: Option<i64>) {
+    if g.level(lvl).is_infinite() {
+        let (sx, sy) = crate::level::infinite_gen::find_surface_spawn(g.world_seed, &g.tiles);
+        player.c.x = sx * 16 + 8;
+        player.c.y = sy * 16 + 8;
+        return;
+    }
     let mut seeded = spawn_seed.map(Rng::new);
 
     let grass_id = g.tiles.get("grass").id;

@@ -149,6 +149,9 @@ impl Save {
     fn write_world(&mut self, g: &mut Game, filename: &str) {
         g.loading_message = "Levels".to_string(); // Java LoadingDisplay.setMessage
         for l in 0..g.levels.len() {
+            if g.level(l).is_infinite() {
+                continue; // chunked layers persist via the chunks/ directory
+            }
             // JAVA: writes the "size" *setting* for w and h, not the level's actual size.
             let world_size = g.settings.get("size").to_display();
             self.data.push(world_size.clone());
@@ -167,6 +170,9 @@ impl Save {
         }
 
         for l in 0..g.levels.len() {
+            if g.level(l).is_infinite() {
+                continue;
+            }
             let (w, h) = (g.level(l).w, g.level(l).h);
             for x in 0..w {
                 for y in 0..h {
@@ -224,6 +230,16 @@ impl Save {
 
 /// Java `new Save(worldname)` — saves the whole world.
 pub fn save_world_named(g: &mut Game, world_name: &str) {
+    save_all_chunks(g);
+    // infinite worlds carry a meta file: the generator seed (chunks regenerate from it)
+    if g.levels.iter().flatten().any(|l| l.is_infinite()) {
+        let dir = g.game_dir.join("saves").join(world_name.to_lowercase());
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(
+            dir.join(format!("WorldMeta{EXTENSION}")),
+            format!("Infinite,{}", g.world_seed),
+        );
+    }
     let folder = PathBuf::from(format!("{}/saves/{}", g.game_dir.display(), world_name));
     let mut save = Save::new_at(folder, g.debug);
 
@@ -502,4 +518,96 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
     extradata.push_str(&format!(":{}", crate::level::lvl_idx(depth)));
 
     format!("{}[{}:{}{}]", name, e.c.x, e.c.y, extradata)
+}
+
+/* ------------------------------- chunk persistence -------------------------------- */
+
+fn chunk_dir(g: &Game, depth: i32) -> std::path::PathBuf {
+    g.game_dir
+        .join("saves")
+        .join(g.world_name.to_lowercase())
+        .join("chunks")
+        .join(depth.to_string())
+}
+
+/// Persist one chunk of an infinite layer (tiles + data + visibility fog).
+pub fn save_chunk(g: &Game, depth: i32, cx: i32, cy: i32, chunk: &crate::level::chunk::Chunk) {
+    let dir = chunk_dir(g, depth);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let mut bytes = Vec::with_capacity(chunk.tiles.len() * 2 + chunk.visible.len() / 8 + 1);
+    bytes.extend_from_slice(&chunk.tiles);
+    bytes.extend_from_slice(&chunk.data);
+    let mut bit = 0u8;
+    let mut acc = 0u8;
+    for &v in &chunk.visible {
+        if v {
+            acc |= 1 << bit;
+        }
+        bit += 1;
+        if bit == 8 {
+            bytes.push(acc);
+            acc = 0;
+            bit = 0;
+        }
+    }
+    if bit > 0 {
+        bytes.push(acc);
+    }
+    let _ = std::fs::write(dir.join(format!("{cx}_{cy}.bin")), bytes);
+}
+
+/// Load a previously saved chunk, if present.
+pub fn load_chunk(g: &Game, depth: i32, cx: i32, cy: i32) -> Option<crate::level::chunk::Chunk> {
+    let path = chunk_dir(g, depth).join(format!("{cx}_{cy}.bin"));
+    let bytes = std::fs::read(path).ok()?;
+    let area = (crate::level::chunk::CHUNK_SIZE * crate::level::chunk::CHUNK_SIZE) as usize;
+    if bytes.len() < area * 2 {
+        return None;
+    }
+    let mut chunk = crate::level::chunk::Chunk::new();
+    chunk.tiles.copy_from_slice(&bytes[..area]);
+    chunk.data.copy_from_slice(&bytes[area..area * 2]);
+    for (i, v) in chunk.visible.iter_mut().enumerate() {
+        let byte = area * 2 + i / 8;
+        if byte < bytes.len() {
+            *v = bytes[byte] & (1 << (i % 8)) != 0;
+        }
+    }
+    // saved chunks are already "dirty" relative to pure regeneration: keep them saved
+    chunk.dirty = false;
+    Some(chunk)
+}
+
+/// Flush every dirty loaded chunk of every infinite layer (called by the world save).
+pub fn save_all_chunks(g: &mut Game) {
+    for lvl in 0..g.levels.len() {
+        let Some(level) = g.levels[lvl].as_ref() else {
+            continue;
+        };
+        let Some(chunks) = level.chunks.as_ref() else {
+            continue;
+        };
+        let depth = level.depth;
+        let coords = chunks.loaded_coords();
+        for (cx, cy) in coords {
+            let dirty = g.levels[lvl]
+                .as_ref()
+                .and_then(|l| l.chunks.as_ref())
+                .and_then(|c| c.get(cx, cy))
+                .map(|c| c.dirty)
+                .unwrap_or(false);
+            if dirty {
+                if let Some(chunk) = g.levels[lvl]
+                    .as_ref()
+                    .and_then(|l| l.chunks.as_ref())
+                    .and_then(|c| c.get(cx, cy))
+                {
+                    let chunk = chunk.clone();
+                    save_chunk(g, depth, cx, cy, &chunk);
+                }
+            }
+        }
+    }
 }

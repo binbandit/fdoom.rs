@@ -174,17 +174,20 @@ impl Ids {
 
 /// The surface tile at a global position (before stairs/gates are stamped).
 fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
-    let elevation = fractal(seed, 1, x, y, 64, 4);
+    // smoother field for water/beach so lakes have clean shores (a high-frequency
+    // octave here would speckle single water tiles all over the grass)
+    let elevation = fractal(seed, 1, x, y, 64, 2);
     let moisture = fractal(seed, 2, x, y, 96, 3);
     let detail = unit(hash(seed, 3, x, y));
 
     if elevation < 0.34 {
         return ids.water;
     }
-    if elevation < 0.38 {
+    if elevation < 0.37 {
         return ids.sand;
     }
-    if elevation > 0.78 {
+    let ruggedness = fractal(seed, 5, x, y, 48, 4);
+    if ruggedness > 0.78 {
         return ids.rock;
     }
 
@@ -324,7 +327,89 @@ pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) ->
         }
     }
 
+    // set-piece gates: surface sky-towers (stairs up, hard-rock ring) and deep dungeon
+    // gates (stairs down, obsidian ring) leading to the finite classic levels
+    if depth == 0 || depth == -3 {
+        let ring_id = if depth == 0 {
+            tiles.get("hard rock").id
+        } else {
+            tiles.get("obsidian wall").id
+        };
+        let pad_id = if depth == 0 {
+            ids.rock
+        } else {
+            tiles.get("obsidian").id
+        };
+        let stairs = if depth == 0 {
+            ids.stairs_up
+        } else {
+            ids.stairs_down
+        };
+        for (gx, gy) in gates_in_rect(seed, depth, x0 - 2, y0 - 2, x1 + 2, y1 + 2) {
+            for dy in -2..=2i32 {
+                for dx in -2..=2i32 {
+                    let (tx, ty) = (gx + dx, gy + dy);
+                    if tx < base_x
+                        || tx >= base_x + CHUNK_SIZE
+                        || ty < base_y
+                        || ty >= base_y + CHUNK_SIZE
+                    {
+                        continue;
+                    }
+                    let i = ((tx - base_x) + (ty - base_y) * CHUNK_SIZE) as usize;
+                    let ring = dx.abs() == 2 || dy.abs() == 2;
+                    // ring with a doorway on the south side
+                    chunk.tiles[i] = if dx == 0 && dy == 0 {
+                        stairs
+                    } else if ring && !(dx == 0 && dy == 2) {
+                        ring_id
+                    } else {
+                        pad_id
+                    };
+                }
+            }
+        }
+    }
+
     chunk
+}
+
+/// Rare surface towers with stairs UP to the (finite) sky level, and rare dungeon gates
+/// on the deepest mine with stairs DOWN to the (finite) dungeon. Coarser grid, lower odds
+/// than regular stairwells.
+const GATE_GRID: i32 = 160;
+
+pub fn gate_in_cell(seed: i64, depth: i32, cell_x: i32, cell_y: i32) -> Option<(i32, i32)> {
+    if depth != 0 && depth != -3 {
+        return None;
+    }
+    const GATE_SALT: u64 = 0x6A7E6A7E6A7E6A7E;
+    let h = hash(
+        seed,
+        GATE_SALT ^ depth.unsigned_abs() as u64,
+        cell_x,
+        cell_y,
+    );
+    if unit(h) > 0.5 {
+        return None;
+    }
+    let jx = 8 + (h >> 8) as i32 % (GATE_GRID - 16);
+    let jy = 8 + (h >> 24) as i32 % (GATE_GRID - 16);
+    Some((cell_x * GATE_GRID + jx, cell_y * GATE_GRID + jy))
+}
+
+pub fn gates_in_rect(seed: i64, depth: i32, x0: i32, y0: i32, x1: i32, y1: i32) -> Vec<(i32, i32)> {
+    let mut out = Vec::new();
+    for cy in (y0 - GATE_GRID).div_euclid(GATE_GRID)..=(y1 + GATE_GRID).div_euclid(GATE_GRID) {
+        for cx in (x0 - GATE_GRID).div_euclid(GATE_GRID)..=(x1 + GATE_GRID).div_euclid(GATE_GRID) {
+            if let Some((gx, gy)) = gate_in_cell(seed, depth, cx, cy) {
+                if gx >= x0 && gx <= x1 && gy >= y0 && gy <= y1 {
+                    out.push((gx, gy));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A good spawn position near the origin on the surface: the first grass tile on an

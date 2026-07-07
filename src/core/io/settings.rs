@@ -13,7 +13,7 @@ pub const LOCKED_SCORETIMES: [i32; 2] = [10, 120];
 
 /// Every setting: (key, display label). Options and defaults live in `options_of` /
 /// `default_of` below — one place to touch when adding a setting.
-pub const KEYS: [(&str, &str); 12] = [
+pub const KEYS: [(&str, &str); 13] = [
     ("fps", "Max FPS"),
     ("diff", "Difficulty"),
     ("mode", "Game Mode"),
@@ -23,6 +23,7 @@ pub const KEYS: [(&str, &str); 12] = [
     ("size", "World Size"),
     ("theme", "World Theme"),
     ("type", "Terrain Type"),
+    ("worldtype", "World"),
     ("unlockedskin", "Wear Suit"),
     ("skinon", "Wear Suit"),
     ("language", "Language"),
@@ -74,6 +75,7 @@ impl Settings {
                 sv("Hell"),
             ],
             "type" => vec![sv("Island"), sv("Box"), sv("Mountain"), sv("Irregular")],
+            "worldtype" => vec![sv("Infinite"), sv("Classic")],
             "language" => self.languages.iter().map(|l| sv(l)).collect(),
             _ => Vec::new(),
         }
@@ -90,6 +92,7 @@ impl Settings {
             "size" => Value::Int(128),
             "theme" => sv("Normal"),
             "type" => sv("Island"),
+            "worldtype" => sv("Infinite"),
             "language" => sv("english"),
             _ => Value::Int(0),
         }

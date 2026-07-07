@@ -25,10 +25,31 @@ impl MapMenu {
         }
     }
 
+    /// Map image dimensions and tile origin: whole level for finite maps, a fixed
+    /// window centered on the player for infinite layers.
+    pub fn map_window(g: &Game, maplevel: usize) -> (i32, i32, i32, i32) {
+        let level = g.level(maplevel);
+        if level.is_infinite() {
+            let (px, py) = g
+                .try_player()
+                .map(|p| {
+                    (
+                        p.c.x / sprite_sheet::TILE_SIZE,
+                        p.c.y / sprite_sheet::TILE_SIZE,
+                    )
+                })
+                .unwrap_or((0, 0));
+            (128, 128, px - 64, py - 64)
+        } else {
+            (level.w, level.h, 0, 0)
+        }
+    }
+
     /// Java `MapMenu.getMapImage(maplevel)`.
     pub fn get_map_image(g: &Game, maplevel: usize) -> Vec<i32> {
         let level = g.level(maplevel);
-        let mut pixels = vec![0i32; (level.w * level.h) as usize];
+        let (mw, mh, ox, oy) = Self::map_window(g, maplevel);
+        let mut pixels = vec![0i32; (mw * mh) as usize];
 
         // JAVA: every Tiles.get(name) below was called once per pixel; the ids are
         // constant, so they're hoisted (identical pixels; avoids re-logging the invalid
@@ -69,12 +90,19 @@ impl MapMenu {
         let creative = g.is_mode("Creative");
 
         let mut y = 0;
-        while y < level.h {
+        while y < mh {
             let mut x = 0;
-            while x < level.w {
-                let i = (x + y * level.w) as usize;
-                if level.visible[i] || creative {
-                    let check_value = level.tiles[i];
+            while x < mw {
+                let i = (x + y * mw) as usize;
+                let (tx, ty) = (x + ox, y + oy);
+                let (seen, tile_here) = match &level.chunks {
+                    Some(chunks) => (chunks.is_visible(tx, ty), chunks.tile(tx, ty)),
+                    None => (
+                        level.visible[(tx + ty * level.w) as usize],
+                        Some(level.tiles[(tx + ty * level.w) as usize]),
+                    ),
+                };
+                if let Some(check_value) = tile_here.filter(|_| seen || creative) {
                     // JAVA: a run of independent ifs — later matches overwrite earlier
                     // ones (Color.get(d) values are raw rgbBytes; preserved quirk).
                     if check_value == water {
@@ -180,14 +208,14 @@ impl MapMenu {
 
         // the player marker (a red + shape)
         if let Some(player) = g.try_player() {
-            let px = player.c.x / sprite_sheet::TILE_SIZE;
-            let py = player.c.y / sprite_sheet::TILE_SIZE;
+            let px = player.c.x / sprite_sheet::TILE_SIZE - ox;
+            let py = player.c.y / sprite_sheet::TILE_SIZE - oy;
             let mut y2 = py - 1;
             while y2 <= py + 1 {
                 let mut x = px - 1;
                 while x <= px + 1 {
-                    if (y2 == py || x == px) && x >= 0 && y2 >= 0 && x < level.w && y2 < level.h {
-                        pixels[(x + y2 * level.w) as usize] = 0xff0000;
+                    if (y2 == py || x == px) && x >= 0 && y2 >= 0 && x < mw && y2 < mh {
+                        pixels[(x + y2 * mw) as usize] = 0xff0000;
                     }
                     x += 1;
                 }
@@ -201,8 +229,8 @@ impl MapMenu {
     /// Java `renderMap(screen, x, y)`.
     pub fn render_map(&self, s: &mut Screen, g: &Game, x: i32, y: i32) {
         if let Some(pixels) = &self.img_pixels[self.current_level] {
-            let level = g.level(self.current_level);
-            s.render_pixel_array(x, y, level.w, level.h, pixels);
+            let (mw, mh, _, _) = Self::map_window(g, self.current_level);
+            s.render_pixel_array(x, y, mw, mh, pixels);
         }
     }
 }
@@ -235,10 +263,7 @@ impl Display for MapMenu {
 
     fn render(&mut self, s: &mut Screen, g: &mut Game) {
         if self.img_pixels[self.current_level].is_some() {
-            let (w, h) = {
-                let level = g.level(self.current_level);
-                (level.w, level.h)
-            };
+            let (w, h, _, _) = Self::map_window(g, self.current_level);
             let mut x = (screen::W - w) / 2;
             let mut y = (screen::H - h) / 2;
             // JAVA: SpriteSheet.spriteSize (== boxWidth == 8).

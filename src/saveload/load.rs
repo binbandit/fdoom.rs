@@ -509,9 +509,33 @@ impl Load {
 
     /// Java `loadWorld(filename)`.
     fn load_world(&mut self, g: &mut Game, filename: &str) {
+        // infinite worlds: seed comes from WorldMeta; chunked layers rebuild lazily
+        let meta_file = format!("{}WorldMeta{}", self.location, EXTENSION);
+        let infinite = match std::fs::read_to_string(&meta_file) {
+            Ok(txt) => {
+                let mut parts = txt.trim().split(',');
+                if parts.next() == Some("Infinite") {
+                    if let Some(seed) = parts.next().and_then(|s| s.parse::<i64>().ok()) {
+                        g.world_seed = seed;
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(_) => false,
+        };
+
         for l in (crate::level::MIN_LEVEL_DEPTH..=crate::level::MAX_LEVEL_DEPTH).rev() {
             g.loading_message = crate::level::get_depth_string(l); // LoadingDisplay.setMessage
             let lvlidx = crate::level::lvl_idx(l);
+            if infinite && (-3..=0).contains(&l) {
+                let mut level =
+                    Level::empty(g.world_size, g.world_size, l, g.settings.get_idx("diff"));
+                level.chunks = Some(crate::level::chunk::ChunkMap::default());
+                g.levels[lvlidx] = Some(level);
+                continue;
+            }
             let file = format!("{}{}{}{}", self.location, filename, lvlidx, EXTENSION);
             self.load_from_file(g, &file);
 

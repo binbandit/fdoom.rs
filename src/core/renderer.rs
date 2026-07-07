@@ -79,18 +79,20 @@ impl Renderer {
         let mut x_scroll = player_x - screen::W / 2; // scrolls the screen in the x axis
         let mut y_scroll = player_y - (screen::H - 8) / 2; // scrolls the screen in the y axis
 
-        // stop scrolling at the borders
-        if x_scroll < 0 {
-            x_scroll = 0;
-        }
-        if y_scroll < 0 {
-            y_scroll = 0;
-        }
-        if x_scroll > lw * 16 - screen::W {
-            x_scroll = lw * 16 - screen::W;
-        }
-        if y_scroll > lh * 16 - screen::H {
-            y_scroll = lh * 16 - screen::H;
+        // stop scrolling at the borders (finite levels only; infinite layers have none)
+        if !g.level(lvl).is_infinite() {
+            if x_scroll < 0 {
+                x_scroll = 0;
+            }
+            if y_scroll < 0 {
+                y_scroll = 0;
+            }
+            if x_scroll > lw * 16 - screen::W {
+                x_scroll = lw * 16 - screen::W;
+            }
+            if y_scroll > lh * 16 - screen::H {
+                y_scroll = lh * 16 - screen::H;
+            }
         }
         if lvl > 3 {
             // sky (and dungeon) background

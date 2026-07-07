@@ -153,10 +153,11 @@ impl WorldGenDisplay {
             }
         };
 
-        let settings: Vec<SettingEntry> = ["mode", "scoretime", "size", "theme", "type"]
-            .iter()
-            .map(|key| settings_widgets::make_entry(g, key))
-            .collect();
+        let settings: Vec<SettingEntry> =
+            ["mode", "scoretime", "worldtype", "size", "theme", "type"]
+                .iter()
+                .map(|key| settings_widgets::make_entry(g, key))
+                .collect();
 
         // locked score times stay hidden until unlocked in score mode
         for minutes in crate::core::io::settings::LOCKED_SCORETIMES {
@@ -173,10 +174,11 @@ impl WorldGenDisplay {
             handle(name_help),
             settings[0].1.clone(),
             settings[1].1.clone(),
-            handle(create_world),
             settings[2].1.clone(),
+            handle(create_world),
             settings[3].1.clone(),
             settings[4].1.clone(),
+            settings[5].1.clone(),
             handle(world_seed),
         ];
 

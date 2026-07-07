@@ -61,6 +61,8 @@ pub fn lvl_idx(depth: i32) -> usize {
 }
 
 pub struct Level {
+    /// Finite dimensions (classic worlds, sky, dungeon). Infinite layers ignore these
+    /// for bounds and use `chunks`.
     pub w: i32,
     pub h: i32,
     pub depth: i32,
@@ -68,6 +70,9 @@ pub struct Level {
     pub tiles: Vec<u8>,
     pub data: Vec<u8>,
     pub visible: Vec<bool>,
+
+    /// Chunked storage for infinite layers (None = classic finite level).
+    pub chunks: Option<chunk::ChunkMap>,
 
     pub grass_color: i32,
     pub dirt_color: i32,
@@ -99,6 +104,7 @@ impl Level {
             tiles: vec![0; (w * h) as usize],
             data: vec![0; (w * h) as usize],
             visible: vec![false; (w * h) as usize],
+            chunks: None,
             grass_color: 141,
             dirt_color: 322,
             sand_color: 550,
@@ -128,9 +134,17 @@ impl Level {
         }
     }
 
-    /// Raw tile id at (x, y); out of bounds yields None (Java returned "rock" — handled
-    /// by `Game::tile_at`).
+    /// True for chunked infinite layers.
+    pub fn is_infinite(&self) -> bool {
+        self.chunks.is_some()
+    }
+
+    /// Raw tile id at (x, y); None = out of bounds (finite) or unloaded chunk (infinite);
+    /// callers treat that as rock (`Game::tile_at`).
     pub fn tile_id(&self, x: i32, y: i32) -> Option<u8> {
+        if let Some(chunks) = &self.chunks {
+            return chunks.tile(x, y);
+        }
         if x < 0 || y < 0 || x >= self.w || y >= self.h {
             return None;
         }
@@ -139,6 +153,9 @@ impl Level {
 
     /// Java `getData(x, y)`.
     pub fn get_data(&self, x: i32, y: i32) -> i32 {
+        if let Some(chunks) = &self.chunks {
+            return chunks.data(x, y).unwrap_or(0) as i32;
+        }
         if x < 0 || y < 0 || x >= self.w || y >= self.h {
             return 0;
         }
@@ -149,6 +166,10 @@ impl Level {
 
     /// Java `setData(x, y, val)`.
     pub fn set_data(&mut self, x: i32, y: i32, val: i32) {
+        if let Some(chunks) = &mut self.chunks {
+            chunks.set_data(x, y, val as u8);
+            return;
+        }
         if x < 0 || y < 0 || x >= self.w || y >= self.h {
             return;
         }
@@ -157,6 +178,10 @@ impl Level {
 
     /// Java `setTile(x, y, t, dataVal)` (the singleplayer path).
     pub fn set_tile_id(&mut self, x: i32, y: i32, id: u8, data_val: i32) {
+        if let Some(chunks) = &mut self.chunks {
+            chunks.set_tile(x, y, id, data_val as u8);
+            return;
+        }
         if x < 0 || y < 0 || x >= self.w || y >= self.h {
             return;
         }
@@ -462,6 +487,20 @@ pub fn update_visible(g: &mut Game, lvl: usize) {
     let px = player.c.x / crate::gfx::sprite_sheet::TILE_SIZE;
     let py = player.c.y / crate::gfx::sprite_sheet::TILE_SIZE;
     let view_size = 4;
+    if g.level(lvl).is_infinite() {
+        let level = g.level_mut(lvl);
+        let chunks = level.chunks.as_mut().expect("infinite");
+        for yy in py - view_size..py + view_size {
+            let yd = (yy - py) * (yy - py);
+            for xx in px - view_size..px + view_size {
+                let xd = xx - px;
+                if xd * xd + yd <= view_size * view_size {
+                    chunks.mark_visible(xx, yy);
+                }
+            }
+        }
+        return;
+    }
     let level = g.level_mut(lvl);
     let x0 = (px - view_size).max(0);
     let y0 = (py - view_size).max(0);
@@ -640,11 +679,27 @@ pub fn try_spawn(g: &mut Game, lvl: usize) {
         }
 
         let (mlvl, rnd, nx, ny) = {
+            // infinite layers spawn within the loaded area around the player
+            let (px, py) = match g.try_player() {
+                Some(p) if g.level(lvl).is_infinite() => (p.c.x >> 4, p.c.y >> 4),
+                _ => (0, 0),
+            };
+            let infinite = g.level(lvl).is_infinite();
             let level = g.level_mut(lvl);
             let mlvl = level.random.next_int_bound(max_level - min_level + 1) + min_level;
             let rnd = level.random.next_int_bound(100);
-            let nx = level.random.next_int_bound(w) * 16 + 8;
-            let ny = level.random.next_int_bound(h) * 16 + 8;
+            let span = chunk::CHUNK_SIZE * chunk::LOAD_RADIUS * 2;
+            let (nx, ny) = if infinite {
+                (
+                    (px - span / 2 + level.random.next_int_bound(span)) * 16 + 8,
+                    (py - span / 2 + level.random.next_int_bound(span)) * 16 + 8,
+                )
+            } else {
+                (
+                    level.random.next_int_bound(w) * 16 + 8,
+                    level.random.next_int_bound(h) * 16 + 8,
+                )
+            };
             (mlvl, rnd, nx, ny)
         };
 
@@ -792,4 +847,76 @@ pub fn render_light(
         }
     }
     screen.set_offset(0, 0);
+}
+
+/* ------------------------------- infinite-world support ------------------------------- */
+
+/// Keep the chunks around the player generated, and drop clean far-away chunks.
+/// (Dirty chunks stay resident until the world saves them.)
+pub fn ensure_chunks(g: &mut Game, lvl: usize) {
+    if !g.levels[lvl]
+        .as_ref()
+        .map(|l| l.is_infinite())
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let Some(player) = g.try_player() else { return };
+    if player.c.level != Some(lvl) {
+        return;
+    }
+    let pcx = chunk::chunk_coord(player.c.x >> 4);
+    let pcy = chunk::chunk_coord(player.c.y >> 4);
+    let seed = g.world_seed;
+    let depth = g.level(lvl).depth;
+
+    // generate (or load from disk) the ring around the player
+    let mut to_generate = Vec::new();
+    {
+        let level = g.level(lvl);
+        let chunks = level.chunks.as_ref().expect("checked infinite");
+        for cy in pcy - chunk::LOAD_RADIUS..=pcy + chunk::LOAD_RADIUS {
+            for cx in pcx - chunk::LOAD_RADIUS..=pcx + chunk::LOAD_RADIUS {
+                if !chunks.is_loaded(cx, cy) {
+                    to_generate.push((cx, cy));
+                }
+            }
+        }
+    }
+    for (cx, cy) in to_generate {
+        let chunk = match crate::saveload::save::load_chunk(g, depth, cx, cy) {
+            Some(c) => c,
+            None => infinite_gen::generate_chunk(seed, depth, cx, cy, &g.tiles),
+        };
+        g.level_mut(lvl)
+            .chunks
+            .as_mut()
+            .expect("checked infinite")
+            .insert(cx, cy, chunk);
+    }
+
+    // unload far chunks (persist dirty ones to disk first)
+    let far: Vec<(i32, i32)> = {
+        let chunks = g.level(lvl).chunks.as_ref().expect("checked infinite");
+        chunks
+            .loaded_coords()
+            .into_iter()
+            .filter(|(cx, cy)| {
+                (cx - pcx).abs() > chunk::UNLOAD_RADIUS || (cy - pcy).abs() > chunk::UNLOAD_RADIUS
+            })
+            .collect()
+    };
+    for (cx, cy) in far {
+        let removed = g
+            .level_mut(lvl)
+            .chunks
+            .as_mut()
+            .expect("checked infinite")
+            .remove(cx, cy);
+        if let Some(chunk) = removed {
+            if chunk.dirty {
+                crate::saveload::save::save_chunk(g, depth, cx, cy, &chunk);
+            }
+        }
+    }
 }
