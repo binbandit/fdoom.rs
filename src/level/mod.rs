@@ -679,12 +679,17 @@ fn hound_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
     }
 }
 
-/// Java `Level.trySpawn()`.
+/// Java `Level.trySpawn()`, behind the world-events gate (`core::events::spawn_passes`):
+/// Aurora pauses spawning for the night (0 passes); Whisper Fog doubles marsh spawn
+/// pressure with a second full pass while the player stands in the fog.
 pub fn try_spawn(g: &mut Game, lvl: usize) {
-    // AURORA (core::events): the lights calm the world — no spawns for the night.
-    if crate::core::events::aurora_active(g) {
-        return;
+    for _ in 0..crate::core::events::spawn_passes(g, lvl) {
+        try_spawn_pass(g, lvl);
     }
+}
+
+/// One spawn pass of Java `Level.trySpawn()`.
+fn try_spawn_pass(g: &mut Game, lvl: usize) {
     let (mob_count, max_mob_count, depth, w, h) = {
         let level = g.level(lvl);
         (
