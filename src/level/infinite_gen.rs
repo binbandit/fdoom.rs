@@ -19,7 +19,7 @@ use super::tile::Tiles;
 /* ---------------------------------- hashing/noise ---------------------------------- */
 
 /// SplitMix64-style avalanche over the packed inputs.
-fn hash(seed: i64, salt: u64, x: i32, y: i32) -> u64 {
+pub(crate) fn hash(seed: i64, salt: u64, x: i32, y: i32) -> u64 {
     let mut z = (seed as u64)
         ^ salt.wrapping_mul(0x9E3779B97F4A7C15)
         ^ (x as u32 as u64).wrapping_mul(0xC2B2AE3D27D4EB4F)
@@ -30,7 +30,7 @@ fn hash(seed: i64, salt: u64, x: i32, y: i32) -> u64 {
 }
 
 /// Uniform [0, 1) from a hash.
-fn unit(h: u64) -> f64 {
+pub(crate) fn unit(h: u64) -> f64 {
     (h >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
 }
 
@@ -336,6 +336,10 @@ pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) ->
             chunk.tiles[(lx + ly * CHUNK_SIZE) as usize] = t;
         }
     }
+
+    // surface structures (ruins, cemeteries, ...) — stamped before the gate set-pieces
+    // below so a rare overlap always leaves the gate intact
+    super::structures_gen::stamp_chunk(seed, depth, cx, cy, &mut chunk, tiles);
 
     // stamp stairwells: down-stairs on this layer, up-stairs from the layer above,
     // each with a small cleared apron so they're always enterable

@@ -8,6 +8,7 @@ pub mod chunk;
 pub mod infinite_gen;
 pub mod level_gen;
 pub mod structure;
+pub mod structures_gen;
 pub mod tile;
 
 use std::rc::Rc;
@@ -543,14 +544,36 @@ pub fn tick_level(g: &mut Game, lvl: usize, full_tick: bool) {
                 let level = g.level(lvl);
                 (level.w, level.h)
             };
-            for _ in 0..w * h / 50 {
+            // infinite layers have no meaningful [0, w) bounds: sample the loaded span
+            // around the player instead (same per-tile cadence, 1-in-50 per tick), so
+            // grass spread / saplings / grave crumbling keep working anywhere on the map
+            let infinite_center = if g.level(lvl).is_infinite() {
+                g.try_player()
+                    .filter(|p| p.c.level == Some(lvl))
+                    .map(|p| (p.c.x >> 4, p.c.y >> 4))
+            } else {
+                None
+            };
+            let span = chunk::CHUNK_SIZE * (chunk::LOAD_RADIUS * 2 + 1);
+            let ticks = if infinite_center.is_some() {
+                span * span / 50
+            } else {
+                w * h / 50
+            };
+            for _ in 0..ticks {
                 let (xt, yt) = {
                     let level = g.level_mut(lvl);
-                    // JAVA: yt also uses nextInt(w) — preserved quirk
-                    (
-                        level.random.next_int_bound(w),
-                        level.random.next_int_bound(w),
-                    )
+                    match infinite_center {
+                        Some((px, py)) => (
+                            px - span / 2 + level.random.next_int_bound(span),
+                            py - span / 2 + level.random.next_int_bound(span),
+                        ),
+                        // JAVA: yt also uses nextInt(w) — preserved quirk
+                        None => (
+                            level.random.next_int_bound(w),
+                            level.random.next_int_bound(w),
+                        ),
+                    }
                 };
                 let tile = g.tile_at(lvl, xt, yt);
                 tile::dispatch::tick(g, &tile, lvl, xt, yt);
@@ -857,11 +880,19 @@ pub fn ensure_chunks(g: &mut Game, lvl: usize) {
         return;
     }
     let (px, py) = (player.c.x, player.c.y);
-    ensure_chunks_at(g, lvl, px >> 4, py >> 4);
+    ensure_chunks_at(g, lvl, px >> 4, py >> 4, true);
 }
 
-/// Same as [`ensure_chunks`] but around an arbitrary tile position (title flyover camera).
-pub fn ensure_chunks_at(g: &mut Game, lvl: usize, tile_x: i32, tile_y: i32) {
+/// Same as [`ensure_chunks`] but around an arbitrary tile position. `spawn_structures`
+/// must be false for throwaway worlds (title flyover): spawning structure entities marks
+/// chunks dirty, and dirty chunks get persisted into the current save directory.
+pub fn ensure_chunks_at(
+    g: &mut Game,
+    lvl: usize,
+    tile_x: i32,
+    tile_y: i32,
+    spawn_structures: bool,
+) {
     if !g.levels[lvl]
         .as_ref()
         .map(|l| l.is_infinite())
@@ -888,15 +919,23 @@ pub fn ensure_chunks_at(g: &mut Game, lvl: usize, tile_x: i32, tile_y: i32) {
         }
     }
     for (cx, cy) in to_generate {
-        let chunk = match crate::saveload::save::load_chunk(g, depth, cx, cy) {
-            Some(c) => c,
-            None => infinite_gen::generate_chunk(seed, depth, cx, cy, &g.tiles),
+        let (chunk, fresh) = match crate::saveload::save::load_chunk(g, depth, cx, cy) {
+            Some(c) => (c, false),
+            None => (
+                infinite_gen::generate_chunk(seed, depth, cx, cy, &g.tiles),
+                true,
+            ),
         };
         g.level_mut(lvl)
             .chunks
             .as_mut()
             .expect("checked infinite")
             .insert(cx, cy, chunk);
+        if fresh && spawn_structures {
+            // first time this chunk exists: spawn structure entities (loot chests);
+            // marks the chunk dirty so this never runs twice for the same chunk
+            structures_gen::spawn_chunk_entities(g, lvl, cx, cy);
+        }
     }
 
     // unload far chunks (persist dirty ones to disk first)

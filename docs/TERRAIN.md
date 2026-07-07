@@ -694,3 +694,15 @@ underground_gen`, and `cargo test --test biome_frames` separately since it's a s
 dump best run on demand). See [DEV_GUIDE.md](DEV_GUIDE.md) for the `FDOOM_DEMO` scripted-run
 driver if you want to *see* the game boot an infinite world interactively rather than read
 a PNG dump — e.g. `just demo-world` generates a fresh world and screenshots gameplay.
+
+## World structures (see src/level/structures_gen.rs)
+
+Surface chunks get deterministic structures via the same hash-grid pattern as gates:
+ruins (broken stone rooms, 60% with a loot chest), cemeteries (fenced grave plots that
+decay over one to two in-game weeks and leak night zombies via the gravestone tile's
+per-tile state), standing stones, and abandoned camps (lean-to, torch, loot chest).
+Placement is pure `f(seed, cell)` per type with biome gating; blueprints emit global
+tile writes clipped per chunk, so structures straddling chunk borders are bit-identical
+from every side. Chest entities spawn only when a chunk generates fresh (never when
+loaded from disk); the owning chunk is marked dirty so it persists and never re-rolls.
+The module doc in `structures_gen.rs` is the authoritative reference.

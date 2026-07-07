@@ -102,8 +102,10 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
             }
         }
         Time::Night if flag == 0 => {
-            // One crumble roll per grave per night.
-            if g.random.next_boolean() {
+            // One crumble roll per grave per night. JAVA: a 50% coin flip; lowered to
+            // ~17% so a cemetery decays (and leaks zombies) over one or two in-game
+            // weeks instead of collapsing almost entirely on the first couple of nights.
+            if g.random.next_int_bound(6) == 0 {
                 let broken = g.tiles.get_id(44);
                 // set_tile_default resets the data byte, so the fresh broken grave
                 // starts with its "spawned zombie" flag clear.

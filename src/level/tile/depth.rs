@@ -156,7 +156,7 @@ fn open_chasm(g: &mut Game, lvl: usize, xt: i32, yt: i32) {
         return;
     }
     // make sure the destination chunk exists before carving into it
-    crate::level::ensure_chunks_at(g, below, xt, yt);
+    crate::level::ensure_chunks_at(g, below, xt, yt, true);
 
     let dirt = g.tiles.get("dirt");
     for dy in -1..=1 {

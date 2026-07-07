@@ -115,7 +115,9 @@ impl Renderer {
         let (cx, cy) = (fly.cam_x as i32, fly.cam_y as i32);
         let _ = fly.seed;
 
-        crate::level::ensure_chunks_at(g, LVL, cx >> 4, cy >> 4);
+        // spawn_structures = false: the flyover world is a throwaway — structure chests
+        // would dirty its chunks, and dirty chunks persist to the current save dir
+        crate::level::ensure_chunks_at(g, LVL, cx >> 4, cy >> 4, false);
 
         let x_scroll = cx - screen::W / 2;
         let y_scroll = cy - (screen::H - 8) / 2;
