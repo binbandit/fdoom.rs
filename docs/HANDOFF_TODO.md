@@ -98,7 +98,10 @@ Done-when: per-effect verdicts reported, hero shots exist (sunset lakeshore, nig
   torch scene), suite green. Commit per bundle:
   `feat(gfx): boundary color-carry blending` then `feat(gfx): atmosphere effects`.
 
-### 1d. Pixel studio v2
+### 1d. Pixel studio v2 — LANDED (committed); REMAINING DEBT: extended tests only
+Remaining: canvas-mode multi-file save roundtrip test + nudge/copy-paste correctness
+tests + odd-origin selection regression test (features shipped; tests were being
+written when the agent was stopped). Original spec below for reference.
 Scope files: src/bin/pixel_studio.rs, tests/pixel_studio.rs, DEV_GUIDE section.
 Features (ALL user-requested; in priority order):
   1. Palette-applied preview: cycle P through None / player (get4(-1,100,<shirt>,532))
