@@ -227,8 +227,7 @@ The default world type generates the surface and the three mine layers as unboun
 chunk planes (`src/level/chunk.rs`, 64x64 tiles per chunk) streamed around the player
 each tick (`level::ensure_chunks`). Generation is a pure function of
 `(seed, depth, x, y)` in `src/level/infinite_gen.rs` — fractal value-noise biomes on the
-surface, carved caves with depth-appropriate ore veins below, plus hash-grid stairwells
-that pair exactly across layers and rare gates to the finite sky/dungeon set-pieces.
+surface, carved caves with depth-appropriate ore veins below, plus dig-based descent between layers (see docs/TERRAIN.md) and rare gates to the finite sky/dungeon set-pieces.
 `Level.chunks: Option<ChunkMap>` switches a level between chunked and classic finite
 storage; the four tile accessors on `Level` route automatically, so tile/entity code
 never cares which mode it's in. Dirty chunks persist to

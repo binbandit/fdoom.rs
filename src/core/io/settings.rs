@@ -53,7 +53,8 @@ impl Settings {
         match option.to_lowercase().as_str() {
             "fps" => (10..=300).map(Value::Int).collect(),
             "diff" => vec![sv("Easy"), sv("Normal"), sv("Hard")],
-            "mode" => vec![sv("Survival"), sv("Creative"), sv("Hardcore")],
+            // Survival is the only real mode; Creative remains for the --debug cheat toggle
+            "mode" => vec![sv("Survival"), sv("Creative")],
             "sound" | "autosave" | "unlockedskin" | "skinon" => {
                 vec![Value::Bool(true), Value::Bool(false)]
             }

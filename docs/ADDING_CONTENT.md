@@ -103,7 +103,7 @@ the count the planned refactor should collapse.) Example: a "Mud" tile.
      `bumped_into`, `connects_to`, `get_light_radius`, ...). Unlisted functions fall
      through to the `Tile.java` default — that is fine and intended.
 4. `src/level/tile/mod.rs`, in `Tiles::new()` — register it with a free id:
-   `set(46, dispatch::make_mud_tile("Mud"));`
+   `set(50, dispatch::make_mud_tile("Mud")); // ids 46-49 are the depth tiles`
    Ids 46–127 are free; **don't use 128+** (reserved for auto-registered torch
    variants at `on_tile.id + 128`) and never renumber existing ids (levels in memory
    index by id). Saves store tile *names*, so new ids need no migration.
@@ -199,7 +199,7 @@ Biomes live entirely in `src/level/infinite_gen.rs`:
    (fields are continental-scale: period 384-512 tiles, so regions come out large).
 3. Add its ground-cover arm in `surface_tile` — pick tiles per-position using `detail`
    scatter and mid-frequency `fractal` masks (see Marsh pools / Forest clearings).
-4. If stairwell aprons should use a different ground tile, extend `biome_ground`.
+4. If stairwell aprons should use a different ground tile, extend the gate-apron/pad tile selection in `generate_chunk`.
 5. Run `cargo test level` (`biomes_are_large_and_all_present` will fail until the new
    biome actually appears) and eyeball it: `cargo test --test biome_frames` dumps
    rendered frames per biome into `target/verify/`.

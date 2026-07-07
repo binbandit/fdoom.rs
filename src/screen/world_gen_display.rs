@@ -153,7 +153,8 @@ impl WorldGenDisplay {
             }
         };
 
-        let settings: Vec<SettingEntry> = ["mode", "worldtype", "size", "theme", "type"]
+        // survival is the only game mode (user direction); no mode picker
+        let settings: Vec<SettingEntry> = ["worldtype", "size", "theme", "type"]
             .iter()
             .map(|key| settings_widgets::make_entry(g, key))
             .collect();
@@ -162,11 +163,10 @@ impl WorldGenDisplay {
             name_field,
             handle(name_help),
             settings[0].1.clone(),
-            settings[1].1.clone(),
             handle(create_world),
+            settings[1].1.clone(),
             settings[2].1.clone(),
             settings[3].1.clone(),
-            settings[4].1.clone(),
             handle(world_seed),
         ];
 
