@@ -285,13 +285,16 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             }
         }
         Biome::Savanna => {
-            // dry open country: lone trees, lots of dry tufts
+            // dry open country: lone trees, lots of dry tufts, blobby parched patches
+            // (a mid-frequency mask — single scattered sand tiles read as noise)
+            let parched = fractal(seed, 10, x, y, 18, 2);
+            if parched > 0.74 {
+                return ids.sand;
+            }
             if detail < 0.008 {
                 ids.tree
             } else if detail < 0.10 {
                 tuft(4)
-            } else if detail < 0.115 {
-                ids.sand
             } else {
                 ids.grass
             }
