@@ -3225,7 +3225,8 @@ fn flora_cells(s: &mut Sheet) {
         ],
     );
 
-    // (15,28) MUSHROOM TILE: classic fat cap + pale stem, spot highlights
+    // (15,28) MUSHROOM TILE: a forage cluster — one tall tan cap with gills plus two
+    // small buttons at its foot (earthy, reads "food find" rather than storybook toadstool)
     tc16(
         s,
         15,
@@ -3233,28 +3234,29 @@ fn flora_cells(s: &mut Sheet) {
         &[
             "................",
             "................",
-            "....oooooo......",
-            "...ouuvvuuo.....",
-            "..ouvvuuuvuo....",
-            ".ouuvuuuuuvuo...",
-            ".ouvuuvvuuuuo...",
-            ".oooooooooooo...",
-            "...occccdco.....",
-            "...occccdco.....",
-            "...ocidcdco.....",
-            "...occccdco.....",
-            "..occccccdco....",
-            "...oooooooo.....",
-            "................",
-            "................",
+            "....ooooo.......",
+            "...otttttto.....",
+            "..otlttttdto....",
+            "..otttttttdo....",
+            "..ogggggggdo....",
+            "...oo.cc.oo.....",
+            "...oc.cc.co.....",
+            "...oc.cc.co.....",
+            ".oo.occcco.oo...",
+            "obbo.occo.obbo..",
+            "oblbo.cc.oblbo..",
+            "obbbo.cc.obbbo..",
+            ".ooo.occco.ooo..",
+            "......oo........",
         ],
         &[
             ('o', OUT),
-            ('u', RED_CL),
-            ('v', CREAM),
+            ('t', rgb(196, 148, 92)),
+            ('l', rgb(228, 188, 132)),
+            ('d', rgb(150, 108, 62)),
+            ('g', rgb(232, 220, 196)),
             ('c', CREAM),
-            ('d', rgb(210, 196, 160)),
-            ('i', rgb(210, 196, 160)),
+            ('b', rgb(214, 172, 116)),
         ],
     );
 
