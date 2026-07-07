@@ -49,7 +49,7 @@ fn write_blank_png(path: &Path, w: u32, h: u32) {
 /// leaves every other pixel untouched, and drops a byte-identical `.bak.png`.
 #[test]
 fn batch_set_roundtrips_on_sheet() {
-    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/sprites.png");
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/golden_atlas.png");
     let dir = temp_dir("sheet");
     let sheet = dir.join("sheet.png");
     fs::copy(&src, &sheet).unwrap();
