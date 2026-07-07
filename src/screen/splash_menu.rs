@@ -64,7 +64,13 @@ impl Display for SplashMenu {
         let logo_shade = color::get4(-1, 0, shade, 500);
         let (w, h) = (14, 2);
         let xo = (crate::gfx::screen::W - w * 8) / 2;
-        let yo = 60;
+        let yo = 56;
+        font::draw_centered(
+            "* F O S S I C K E R S *",
+            screen,
+            yo - 8,
+            color::get(-1, 500),
+        );
         for y in 0..h {
             for x in 0..w {
                 screen.render(xo + x * 8, yo + y * 8, x + (y + 6) * 32, logo_shade, 0);

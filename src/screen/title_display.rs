@@ -146,8 +146,14 @@ impl Display for TitleDisplay {
         let w = 14; // Width of squares (on the spritesheet)
         let title_color = color::get4(-1, 0, color::hex("#2c2c2c"), color::hex("#ff0000"));
         let xo = (crate::gfx::screen::W - w * 8) / 2; // X location of the title
-        let yo = 28; // Y location of the title
+        let yo = 22; // Y location of the title
 
+        font::draw_centered(
+            "* F O S S I C K E R S *",
+            screen,
+            yo - 8,
+            color::get(-1, 511),
+        );
         for y in 0..h {
             for x in 0..w {
                 screen.render(xo + x * 8, yo + y * 8, x + (y + 6) * 32, title_color, 0);

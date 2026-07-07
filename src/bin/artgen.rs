@@ -3356,67 +3356,73 @@ fn font(s: &mut Sheet) {
     }
 }
 
-/* ==============================  title logo (0..13, 6..7)  ============================== */
+/* ==========================  title logo (0..13, 6..8)  ========================== */
 
-/// "FDOOM" — the font glyphs stretched to 3x2 with a warm red gradient, a drop shadow
-/// and a full-width underline (the game blits all 14x2 logo cells).
-/// True color: the title screen's palette is ignored.
+/// The "DOOM" wordmark: big warm-red gradient letters with drop shadow and a
+/// full-width underline ("FOSSICKERS" is drawn above it as font text by the title).
+/// The game blits all 14x2 logo cells (rows 6..=7). True color: palettes are ignored.
 fn logo(s: &mut Sheet) {
-    let word = "FDOOM";
     let hi = rgb(240, 110, 70);
     let md = RED_CL;
     let dk = rgb(128, 28, 32);
-    let (sx, sy) = (3, 2);
-
-    let widths: Vec<i32> = word
-        .chars()
-        .map(|ch| {
-            glyph(ch)
-                .expect("logo letters exist")
-                .iter()
-                .map(|r| r.len() as i32)
-                .max()
-                .unwrap()
-        })
-        .collect();
-    let total: i32 = widths.iter().map(|w| w * sx).sum::<i32>() + (word.len() as i32 - 1) * 3;
-    let x0 = (112 - total) / 2;
 
     let mut c = cell(s, 0, 6);
-    // drop shadow first, then the gradient fill
-    for pass in 0..2 {
-        let mut lx = x0;
-        for (li, ch) in word.chars().enumerate() {
-            let rows = glyph(ch).expect("logo letters exist");
-            for (ry, row) in rows.iter().enumerate() {
-                for (rx, g) in row.chars().enumerate() {
-                    if g != '#' {
-                        continue;
-                    }
-                    for dy in 0..sy {
-                        for dx in 0..sx {
-                            let x = lx + rx as i32 * sx + dx;
-                            let y = ry as i32 * sy + dy;
-                            if pass == 0 {
-                                c.set(x + 1, y + 1, OUT);
-                            } else {
-                                let ink = if y < 5 {
-                                    hi
-                                } else if y < 10 {
-                                    md
+
+    // draw `word` with glyphs stretched (sx, sy), top edge at y_top, gradient banded
+    // over the word's own height; pass 0 = drop shadow, pass 1 = fill
+    let draw_word = |c: &mut C, word: &str, sx: i32, sy: i32, y_top: i32, gap: i32| {
+        let widths: Vec<i32> = word
+            .chars()
+            .map(|ch| {
+                glyph(ch)
+                    .expect("logo letters exist")
+                    .iter()
+                    .map(|r| r.len() as i32)
+                    .max()
+                    .unwrap()
+            })
+            .collect();
+        let total: i32 = widths.iter().map(|w| w * sx).sum::<i32>() + (word.len() as i32 - 1) * gap;
+        let x0 = (112 - total) / 2;
+        let height = 7 * sy; // font glyphs are 7 rows tall
+        for pass in 0..2 {
+            let mut lx = x0;
+            for (li, ch) in word.chars().enumerate() {
+                let rows = glyph(ch).expect("logo letters exist");
+                for (ry, row) in rows.iter().enumerate() {
+                    for (rx, g) in row.chars().enumerate() {
+                        if g != '#' {
+                            continue;
+                        }
+                        for dy in 0..sy {
+                            for dx in 0..sx {
+                                let x = lx + rx as i32 * sx + dx;
+                                let y = y_top + ry as i32 * sy + dy;
+                                if pass == 0 {
+                                    c.set(x + 1, y + 1, OUT);
                                 } else {
-                                    dk
-                                };
-                                c.set(x, y, ink);
+                                    let band = (y - y_top) * 3 / height.max(1);
+                                    let ink = match band {
+                                        0 => hi,
+                                        1 => md,
+                                        _ => dk,
+                                    };
+                                    c.set(x, y, ink);
+                                }
                             }
                         }
                     }
                 }
+                lx += widths[li] * sx + gap;
             }
-            lx += widths[li] * sx + 3;
         }
-    }
-    // full-width underline
+    };
+
+    // the "FOSSICKERS" kicker is drawn by the title screen in font text; the sheet
+    // region holds only the big DOOM wordmark
+    draw_word(&mut c, "DOOM", 4, 2, 0, 4);
+
+    // full-width underline under everything
     c.hline(1, 15, 110, dk);
     c.set(0, 15, md);
     c.set(111, 15, md);
