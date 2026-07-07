@@ -56,8 +56,9 @@ pub fn interact(
             && pay_stamina(player, 4 - tool_level)
             && item.pay_durability(g.is_mode("creative"))
         {
-            let hole = g.tiles.get("hole");
-            g.set_tile_default(lvl, xt, yt, &hole);
+            // multi-level terrain: shoveling starts a pit you can keep digging deeper
+            let pit = g.tiles.get("Dug Pit");
+            g.set_tile_default(lvl, xt, yt, &pit);
             let dirt = crate::item::registry::get(g, "dirt");
             drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
             g.play_sound(Sound::MonsterHurt);

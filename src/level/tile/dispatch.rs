@@ -116,6 +116,10 @@ pub fn make_torch_tile(on: &TileDef) -> TileDef {
 /// Java `Tile.render` (default: sprite and/or csprite).
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     match &def.kind {
+        TileKind::DeepWater => depth::deep_water_render(g, screen, lvl, x, y),
+        TileKind::DugPit => depth::dug_pit_render(g, screen, lvl, x, y),
+        TileKind::Chasm => depth::chasm_render(g, screen, lvl, x, y),
+        TileKind::Ladder => depth::ladder_render(g, screen, lvl, x, y),
         TileKind::Dirt => dirt::render(g, screen, def, lvl, x, y),
         TileKind::Flower => flower::render(g, screen, def, lvl, x, y),
         TileKind::Hole => hole::render(g, screen, def, lvl, x, y),
@@ -188,6 +192,8 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
 /// Java `Tile.mayPass` (default: true).
 pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity) -> bool {
     match &def.kind {
+        TileKind::DeepWater => depth::deep_water_may_pass(g, e),
+        TileKind::DugPit | TileKind::Chasm | TileKind::Ladder => true,
         TileKind::Hole => hole::may_pass(g, def, lvl, x, y, e),
         TileKind::Water => water::may_pass(g, def, lvl, x, y, e),
         TileKind::Rock => rock::may_pass(g, def, lvl, x, y, e),
@@ -310,6 +316,7 @@ pub fn interact(
     attack_dir: Direction,
 ) -> bool {
     match &def.kind {
+        TileKind::DugPit => depth::dug_pit_interact(g, lvl, xt, yt, player, item, attack_dir),
         TileKind::Grass => grass::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Dirt => dirt::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Flower => flower::interact(g, def, lvl, xt, yt, player, item, attack_dir),

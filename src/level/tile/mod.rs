@@ -9,6 +9,7 @@
 pub mod cactus;
 pub mod cloud;
 pub mod cloud_cactus;
+pub mod depth;
 pub mod dirt;
 pub mod dispatch;
 pub mod door;
@@ -161,6 +162,10 @@ pub enum TileKind {
     Dirt,
     Flower,
     Hole,
+    DeepWater,
+    DugPit,
+    Chasm,
+    Ladder,
     Stairs {
         leads_up: bool,
     },
@@ -297,6 +302,10 @@ impl Tiles {
             dispatch::make_grave_stone_tile("Broken Grave Stone", true),
         );
         set(45, dispatch::make_fence_tile("Fence"));
+        set(46, super::tile::depth::make_deep_water("Deep Water"));
+        set(47, super::tile::depth::make_dug_pit("Dug Pit"));
+        set(48, super::tile::depth::make_chasm("Chasm"));
+        set(49, super::tile::depth::make_ladder("Ladder"));
 
         Tiles {
             list: RefCell::new(t),

@@ -199,6 +199,8 @@ impl Recipes {
             &["Wood_5", "Stick_2", "Cord_1"],
         ));
         workbench.push(Recipe::new("Wood Axe_1", &["Wood_5", "Stick_2", "Cord_1"]));
+        // crossing deep water (multi-level terrain)
+        workbench.push(Recipe::new("Raft_1", &["Wood_10", "Cord_2"]));
         workbench.push(Recipe::new("Wood Hoe_1", &["Wood_5", "Stick_2", "Cord_1"]));
         workbench.push(Recipe::new(
             "Wood Pickaxe_1",

@@ -90,11 +90,23 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
     let stairs_down_id = g.tiles.get("Stairs Down").id;
     let stairs_up_id = g.tiles.get("Stairs Up").id;
     let quicksand_id = g.tiles.get("Quick Sand").id;
-    if on_tile.id == stairs_down_id || on_tile.id == stairs_up_id || on_tile.id == quicksand_id {
+    // dug chasms drop you a layer; their ladders climb back up (multi-level terrain)
+    let chasm_id = g.tiles.get("Chasm").id;
+    let ladder_id = g.tiles.get("Ladder").id;
+    if on_tile.id == stairs_down_id
+        || on_tile.id == stairs_up_id
+        || on_tile.id == quicksand_id
+        || on_tile.id == chasm_id
+        || on_tile.id == ladder_id
+    {
         if e.player().on_stair_delay <= 0 {
             // when the delay time has passed...
             // JAVA: World.scheduleLevelChange (its isValidServer guard is always false).
-            g.pending_level_change = if on_tile.id == stairs_up_id { 1 } else { -1 };
+            g.pending_level_change = if on_tile.id == stairs_up_id || on_tile.id == ladder_id {
+                1
+            } else {
+                -1
+            };
             e.player_mut().on_stair_delay = 10; // resets delay, since the level has now been changed.
             return; // SKIPS the rest of the tick() method.
         }
@@ -858,6 +870,17 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     /* offset locations to start drawing the sprite relative to our position */
     let xo = e.c.x - 8; // horizontal
     let mut yo = e.c.y - 11; // vertical
+
+    // standing on deep water = riding the raft: draw it under the player
+    if let Some(lvl) = e.c.level {
+        let deep_water_id = g.tiles.get("Deep Water").id;
+        if g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4).id == deep_water_id {
+            let raft_col = color::get4(-1, 210, 431, 321);
+            for i in 0..2 {
+                screen.render(xo + i * 8, e.c.y - 4, 28 + 4 * 32, raft_col, 0);
+            }
+        }
+    }
 
     let swimming = is_swimming(g, e);
     if swimming {

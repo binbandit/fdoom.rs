@@ -70,60 +70,6 @@ fn fractal(seed: i64, salt: u64, x: i32, y: i32, base_period: i32, octaves: u32)
     sum / total
 }
 
-/* ------------------------------------- stairs -------------------------------------- */
-
-/// Stairs live on a coarse grid: each `STAIR_GRID`² cell holds at most one stairwell,
-/// jittered by hash. The same function answers for every layer, so layers always agree.
-const STAIR_GRID: i32 = 48;
-
-/// The stairwell position for a grid cell, if that cell has one connecting `depth` down
-/// to `depth - 1` (surface 0 → -1, ... -2 → -3). Returns global tile coords.
-pub fn stairwell_in_cell(seed: i64, depth: i32, cell_x: i32, cell_y: i32) -> Option<(i32, i32)> {
-    if !(-2..=0).contains(&depth) {
-        return None; // classic stairs to sky/dungeon are handled by set-piece gates
-    }
-    const STAIR_SALT: u64 = 0x57A1257A1257A125;
-    let h = hash(
-        seed,
-        STAIR_SALT ^ depth.unsigned_abs() as u64,
-        cell_x,
-        cell_y,
-    );
-    // ~70% of cells have a stairwell to keep descent findable without a map
-    if unit(h) > 0.7 {
-        return None;
-    }
-    // jitter inside the cell, away from the border so the gate structure fits
-    let jx = 4 + (h >> 8) as i32 % (STAIR_GRID - 8);
-    let jy = 4 + (h >> 24) as i32 % (STAIR_GRID - 8);
-    Some((cell_x * STAIR_GRID + jx, cell_y * STAIR_GRID + jy))
-}
-
-/// All stairwells (between `depth` and `depth - 1`) whose position lands within the given
-/// tile rect. Query with a margin: gates carve a few tiles around the stairs.
-pub fn stairwells_in_rect(
-    seed: i64,
-    depth: i32,
-    x0: i32,
-    y0: i32,
-    x1: i32,
-    y1: i32,
-) -> Vec<(i32, i32)> {
-    let mut out = Vec::new();
-    for cy in (y0 - STAIR_GRID).div_euclid(STAIR_GRID)..=(y1 + STAIR_GRID).div_euclid(STAIR_GRID) {
-        for cx in
-            (x0 - STAIR_GRID).div_euclid(STAIR_GRID)..=(x1 + STAIR_GRID).div_euclid(STAIR_GRID)
-        {
-            if let Some((sx, sy)) = stairwell_in_cell(seed, depth, cx, cy) {
-                if sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1 {
-                    out.push((sx, sy));
-                }
-            }
-        }
-    }
-    out
-}
-
 /* ------------------------------------ tile rules ------------------------------------ */
 
 struct Ids {
@@ -139,6 +85,7 @@ struct Ids {
     tall_grass: [u8; 3],
     snow: u8,
     snow_tree: u8,
+    deep_water: u8,
     iron: u8,
     gold: u8,
     gem: u8,
@@ -166,6 +113,7 @@ impl Ids {
             ],
             snow: tiles.get("snow").id,
             snow_tree: tiles.get("snow tree").id,
+            deep_water: tiles.get("Deep Water").id,
             iron: tiles.get("iron ore").id,
             gold: tiles.get("gold ore").id,
             gem: tiles.get("gem ore").id,
@@ -181,6 +129,7 @@ impl Ids {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Biome {
     Ocean,
+    DeepOcean,
     Beach,
     Mountains,
     Tundra,
@@ -200,6 +149,9 @@ pub fn biome_at(seed: i64, x: i32, y: i32) -> Biome {
     let rough = fractal(seed, 5, x, y, 48, 4);
 
     let land = continent + (rough - 0.5) * 0.08;
+    if land < 0.36 {
+        return Biome::DeepOcean; // open ocean: too deep to swim, raft country
+    }
     if land < 0.42 {
         return Biome::Ocean;
     }
@@ -237,6 +189,7 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
 
     match biome_at(seed, x, y) {
         Biome::Ocean => ids.water,
+        Biome::DeepOcean => ids.deep_water,
         Biome::Beach => ids.sand,
         Biome::Mountains => ids.rock,
         Biome::Tundra => {
@@ -393,47 +346,6 @@ pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) ->
         base_y + CHUNK_SIZE - 1 + margin,
     );
 
-    let biome_ground = |sx: i32, sy: i32| -> u8 {
-        if depth != 0 {
-            return ids.dirt;
-        }
-        match biome_at(seed, sx, sy) {
-            Biome::Tundra => ids.snow,
-            Biome::Desert | Biome::Beach => ids.sand,
-            _ => ids.grass,
-        }
-    };
-    let mut stamp = |sx: i32, sy: i32, stairs: u8| {
-        for dy in -1..=1 {
-            for dx in -1..=1 {
-                let (tx, ty) = (sx + dx, sy + dy);
-                if tx >= base_x
-                    && tx < base_x + CHUNK_SIZE
-                    && ty >= base_y
-                    && ty < base_y + CHUNK_SIZE
-                {
-                    let i = ((tx - base_x) + (ty - base_y) * CHUNK_SIZE) as usize;
-                    chunk.tiles[i] = if dx == 0 && dy == 0 {
-                        stairs
-                    } else {
-                        biome_ground(tx, ty)
-                    };
-                }
-            }
-        }
-    };
-
-    // stairs down from this layer (surface..-2 lead downward)
-    for (sx, sy) in stairwells_in_rect(seed, depth, x0, y0, x1, y1) {
-        stamp(sx, sy, ids.stairs_down);
-    }
-    // stairs up to the layer above (mines -1..-3 receive the matching stairwell)
-    if (-3..=-1).contains(&depth) {
-        for (sx, sy) in stairwells_in_rect(seed, depth + 1, x0, y0, x1, y1) {
-            stamp(sx, sy, ids.stairs_up);
-        }
-    }
-
     // set-piece gates: surface sky-towers (stairs up, hard-rock ring) and deep dungeon
     // gates (stairs down, obsidian ring) leading to the finite classic levels
     if depth == 0 || depth == -3 {
@@ -558,28 +470,20 @@ mod tests {
     }
 
     #[test]
-    fn stairs_pair_across_layers() {
+    fn no_preplaced_stairs_on_infinite_layers() {
+        // descent is dig-based now: generated chunks must not contain stairs tiles
         let tiles = Tiles::new();
-        let seed = 777;
-        let down_id = tiles.get("stairs down").id;
-        let up_id = tiles.get("stairs up").id;
-
-        // find a stairwell from the surface, then check the mine chunk below has the
-        // matching up-stairs at the same global position
-        let stairs = stairwells_in_rect(seed, 0, -500, -500, 500, 500);
-        assert!(!stairs.is_empty(), "no stairwells within 1000x1000 tiles");
-        let (sx, sy) = stairs[0];
-
-        let cx = sx >> super::super::chunk::CHUNK_SHIFT;
-        let cy = sy >> super::super::chunk::CHUNK_SHIFT;
-        let surface = generate_chunk(seed, 0, cx, cy, &tiles);
-        let mine = generate_chunk(seed, -1, cx, cy, &tiles);
-
-        let lx = sx & (CHUNK_SIZE - 1);
-        let ly = sy & (CHUNK_SIZE - 1);
-        let i = (lx + ly * CHUNK_SIZE) as usize;
-        assert_eq!(surface.tiles[i], down_id, "surface should have stairs down");
-        assert_eq!(mine.tiles[i], up_id, "mine should have matching stairs up");
+        let down = tiles.get("stairs down").id;
+        let up = tiles.get("stairs up").id;
+        for depth in [0, -1, -2] {
+            for (cx, cy) in [(0, 0), (3, -2), (-5, 7)] {
+                let c = generate_chunk(777, depth, cx, cy, &tiles);
+                assert!(
+                    !c.tiles.iter().any(|&t| t == down || t == up),
+                    "depth {depth} chunk ({cx},{cy}) has pre-placed stairs"
+                );
+            }
+        }
     }
 
     #[test]

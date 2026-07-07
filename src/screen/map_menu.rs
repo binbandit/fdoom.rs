@@ -56,6 +56,10 @@ impl MapMenu {
         // names — "Stone Bricks", "treeSapling", "cactusSapling", "reed", "tussock" and
         // "campfire" don't exist and fall back to tile 0, exactly as in Java).
         let water = g.tiles.get("water").id;
+        let deep_water = g.tiles.get("Deep Water").id;
+        let dug_pit = g.tiles.get("Dug Pit").id;
+        let chasm = g.tiles.get("Chasm").id;
+        let ladder = g.tiles.get("Ladder").id;
         let iron_ore = g.tiles.get("iron Ore").id;
         let gold_ore = g.tiles.get("gold Ore").id;
         let gem_ore = g.tiles.get("gem Ore").id;
@@ -107,6 +111,18 @@ impl MapMenu {
                     // ones (Color.get(d) values are raw rgbBytes; preserved quirk).
                     if check_value == water {
                         pixels[i] = 0x000080;
+                    }
+                    if check_value == deep_water {
+                        pixels[i] = 0x000040;
+                    }
+                    if check_value == dug_pit {
+                        pixels[i] = 0x3d2b1f;
+                    }
+                    if check_value == chasm {
+                        pixels[i] = 0x101010;
+                    }
+                    if check_value == ladder {
+                        pixels[i] = 0xc0c060;
                     }
                     if check_value == iron_ore {
                         pixels[i] = 0x000080;

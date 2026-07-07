@@ -518,6 +518,12 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         "Sharp Stone",
         Sprite::new1x1(23, 4, color::get4(-1, 111, 333, 444)),
     ));
+    // Lets the player cross Deep Water while it's in the inventory (multi-level terrain).
+    // TODO(art): final icon — placeholder reuses the plank cell (28,4) recolored.
+    items.push(stackable(
+        "Raft",
+        Sprite::new1x1(28, 4, color::get4(-1, 210, 431, 321)),
+    ));
     items.push(stackable(
         "Wood",
         Sprite::new1x1(28, 4, color::get4(-1, 310, 532, 532)),

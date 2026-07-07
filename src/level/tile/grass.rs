@@ -86,9 +86,10 @@ pub fn interact(
                 for _ in 0..2 {
                     drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, seeds.clone());
                 }
-                return true;
             }
-            // JAVA: falls through (returning false) when no seeds drop.
+            // JAVA: returned false when no seeds dropped despite digging the turf —
+            // fixed to report success like every other successful tool use.
+            return true;
         }
         if ttype == ToolType::Hoe
             && pay_stamina(player, 4 - tool_level)
