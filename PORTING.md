@@ -12,7 +12,8 @@ than the port rationale), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 sprite sheet), identical game logic (same tick rates, same formulas, same RNG behavior for
 world generation), identical save format, and identical controls. Where the Java code has
 quirks (commented-out light overlay, odd loop bounds like `for (s = x2; s < w - s; s++)`),
-we preserve the quirk and mark it with a `// JAVA:` comment rather than "fixing" it.
+we preserved quirks during the port (once marked with `// JAVA:` comments — since retired
+in favor of plain maintainer-facing comments).
 
 ## Stack
 

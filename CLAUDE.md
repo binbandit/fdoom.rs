@@ -17,9 +17,9 @@ a scratch clone outside this repo; when in doubt about behavior, defer to the Ja
 ## Porting conventions (mandatory)
 
 1. **Post-port era** (after tag `v0.1.0`): the codebase no longer preserves Java quirks
-   for their own sake — prefer clear, idiomatic Rust and fix inherited bugs. `// JAVA:`
-   comments remain as provenance notes. When porting any *remaining* Java behavior,
-   match it first, then improve deliberately.
+   for their own sake — prefer clear, idiomatic Rust and fix inherited bugs. Do NOT
+   write `// JAVA:` provenance comments (the remaining ones are being removed); comment
+   only what a maintainer needs — non-obvious behavior, constraints, formula rationale.
 2. **`g: &mut Game`** replaces all Java statics (`Game.*`, `Updater.*`, `World.*`,
    `Settings`, `Sound`). Renderer/Screens live outside `Game`; render fns take
    `(&mut Screen, &Game)`, tick fns take `&mut Game`.
