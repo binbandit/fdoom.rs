@@ -27,30 +27,28 @@ fn display_factory(entry_text: &str, entries: Vec<EntryHandle>) -> EntryHandle {
 
 impl TitleDisplay {
     pub fn new(g: &Game) -> TitleDisplay {
-        // (Post-port cleanup: the dead "Checking for updates..." line and the stubbed
-        // "Join Online World" entry are gone — multiplayer was never wired up.)
-        let entries: Vec<EntryHandle> = vec![
-            handle(SelectEntry::new("Play", |g: &mut Game| {
-                if !crate::screen::world_select::get_world_names(g).is_empty() {
-                    let menu = MenuBuilder::new(
-                        false,
-                        2,
-                        RelPos::Center,
-                        vec![
-                            handle(SelectEntry::new("Load World", |g: &mut Game| {
-                                g.set_menu(WorldSelectDisplay::new());
-                            })),
-                            handle(SelectEntry::new("New World", |g: &mut Game| {
-                                g.set_menu(WorldGenDisplay::new(g));
-                            })),
-                        ],
-                    )
-                    .create_menu(g);
-                    g.set_menu(super::plain_display(true, true, vec![menu]));
-                } else {
-                    g.set_menu(WorldGenDisplay::new(g));
-                }
-            })),
+        // Modern flat flow: Continue (most recent world) / New World / Load World —
+        // no intermediate Play submenu (user request).
+        let has_worlds = !crate::screen::world_select::get_world_names(g).is_empty();
+        let mut entries: Vec<EntryHandle> = Vec::new();
+        if let Some(recent) = crate::screen::world_select::most_recent_world(g) {
+            let label = format!("Continue ({recent})");
+            entries.push(handle(SelectEntry::new(&label, move |g: &mut Game| {
+                let name = crate::screen::world_select::most_recent_world(g)
+                    .expect("recent world existed when the title was built");
+                crate::screen::world_select::set_world_name(g, &name, true);
+                g.set_menu(crate::screen::loading_display::LoadingDisplay::new());
+            })));
+        }
+        entries.push(handle(SelectEntry::new("New World", |g: &mut Game| {
+            g.set_menu(WorldGenDisplay::new(g));
+        })));
+        if has_worlds {
+            entries.push(handle(SelectEntry::new("Load World", |g: &mut Game| {
+                g.set_menu(WorldSelectDisplay::new());
+            })));
+        }
+        entries.extend([
             handle(SelectEntry::new("Options", |g: &mut Game| {
                 g.set_menu(OptionsDisplay::new(g));
             })),
@@ -61,7 +59,7 @@ impl TitleDisplay {
                 }))],
             ),
             handle(SelectEntry::new("Quit", |g: &mut Game| g.quit())),
-        ];
+        ]);
 
         let menu = MenuBuilder::new(false, 2, RelPos::Center, entries)
             .set_positioning(
@@ -106,21 +104,35 @@ impl Display for TitleDisplay {
     fn render(&mut self, screen: &mut Screen, g: &mut Game) {
         display_render_default(&mut self.base, screen, g);
 
-        let h = 2; // Height of squares (on the spritesheet)
-        let w = 14; // Width of squares (on the spritesheet)
+        // Full sheet-art title lockup (artgen `logo`): the "FOSSICKERS" kicker strip
+        // at cells (15..31,6..7) over the "DOOM" strip at cells (0..14,6..7). Both are
+        // true-color art, so the palette word is ignored.
         let title_color = color::get4(-1, 0, color::hex("#2c2c2c"), color::hex("#ff0000"));
-        let xo = (crate::gfx::screen::W - w * 8) / 2; // X location of the title
-        let yo = 22; // Y location of the title
+        let kicker_w = 17; // strip width in sheet cells
+        let doom_w = 15;
+        let kicker_x = (crate::gfx::screen::W - kicker_w * 8) / 2;
+        let kicker_y = 14;
+        let doom_x = (crate::gfx::screen::W - doom_w * 8) / 2;
+        let doom_y = kicker_y + 18; // kicker art is 15px tall + 3px gap
 
-        font::draw_centered(
-            "* F O S S I C K E R S *",
-            screen,
-            yo - 8,
-            color::get(-1, 511),
-        );
-        for y in 0..h {
-            for x in 0..w {
-                screen.render(xo + x * 8, yo + y * 8, x + (y + 6) * 32, title_color, 0);
+        for y in 0..2 {
+            for x in 0..kicker_w {
+                screen.render(
+                    kicker_x + x * 8,
+                    kicker_y + y * 8,
+                    15 + x + (y + 6) * 32,
+                    title_color,
+                    0,
+                );
+            }
+            for x in 0..doom_w {
+                screen.render(
+                    doom_x + x * 8,
+                    doom_y + y * 8,
+                    x + (y + 6) * 32,
+                    title_color,
+                    0,
+                );
             }
         }
 

@@ -8,6 +8,9 @@ use super::entry::{self, EntryHandle};
 use super::rel_pos::RelPos;
 
 pub struct Menu {
+    /// True when a display explicitly chose frame colors (book pages etc.) — those
+    /// render the classic opaque fill instead of the smoked-glass panel.
+    custom_frame_fill: bool,
     entries: Vec<EntryHandle>,
 
     spacing: i32,
@@ -52,6 +55,7 @@ impl Menu {
             has_frame: false,
             frame_fill_color: 0,
             frame_edge_color: 0,
+            custom_frame_fill: false,
             selectable: false,
             should_render: true,
             display_length: 0,
@@ -364,6 +368,7 @@ impl Menu {
     }
 
     pub fn set_frame_colors(&mut self, fill_col: i32, edge_stroke_col: i32, edge_fill_col: i32) {
+        self.custom_frame_fill = true;
         self.frame_fill_color = color::get(fill_col, fill_col);
         self.frame_edge_color = color::get4(-1, edge_stroke_col, fill_col, edge_fill_col);
         let title_cols = color::separate_encoded_sprite_readable(self.title_color);
@@ -378,6 +383,7 @@ impl Menu {
     }
 
     pub fn set_frame_colors_from(&mut self, model: &Menu) {
+        self.custom_frame_fill = model.custom_frame_fill;
         self.frame_fill_color = model.frame_fill_color;
         self.frame_edge_color = model.frame_edge_color;
         self.title_color = model.title_color;
@@ -391,14 +397,18 @@ impl Menu {
         let bottom = self.bounds.bottom() - sprite_sheet::BOX_WIDTH;
         let right = self.bounds.right() - sprite_sheet::BOX_WIDTH;
 
-        // smoked-glass panel: darken what's behind instead of a flat opaque fill
-        screen.darken_rect_screen(
-            self.bounds.left(),
-            self.bounds.top(),
-            self.bounds.width(),
-            self.bounds.height(),
-            185,
-        );
+        // smoked-glass panel: darken what's behind instead of a flat opaque fill.
+        // Displays that explicitly picked a fill (book pages = light paper with black
+        // text) keep the classic opaque look — glass would make them unreadable.
+        if !self.custom_frame_fill {
+            screen.darken_rect_screen(
+                self.bounds.left(),
+                self.bounds.top(),
+                self.bounds.width(),
+                self.bounds.height(),
+                185,
+            );
+        }
 
         let mut y = self.bounds.top();
         while y <= bottom {
@@ -416,6 +426,8 @@ impl Menu {
                 let mirrors = (if x == right { 1 } else { 0 }) + (if y == bottom { 2 } else { 0 });
                 if xend || yend {
                     screen.render(x, y, spriteoffset + 13 * 32, self.frame_edge_color, mirrors);
+                } else if self.custom_frame_fill {
+                    screen.render(x, y, 2 + 13 * 32, self.frame_fill_color, 1);
                 }
 
                 if x < right && x + sprite_sheet::BOX_WIDTH > right {

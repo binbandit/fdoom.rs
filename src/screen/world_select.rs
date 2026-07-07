@@ -41,6 +41,25 @@ pub fn loaded_world(g: &Game) -> bool {
     g.loaded_world
 }
 
+/// The most recently saved world, for the title's Continue entry (newest Game file).
+pub fn most_recent_world(g: &Game) -> Option<String> {
+    let saves = g.game_dir.join("saves");
+    let mut best: Option<(String, std::time::SystemTime)> = None;
+    for name in get_world_names(g) {
+        let game_file = saves
+            .join(name.to_lowercase())
+            .join(format!("Game{}", crate::saveload::save::EXTENSION));
+        if let Ok(meta) = std::fs::metadata(&game_file) {
+            if let Ok(modified) = meta.modified() {
+                if best.as_ref().map(|(_, t)| modified > *t).unwrap_or(true) {
+                    best = Some((name, modified));
+                }
+            }
+        }
+    }
+    best.map(|(name, _)| name)
+}
+
 /// Java `WorldSelectDisplay.getWorldNames()`.
 pub fn get_world_names(g: &Game) -> Vec<String> {
     scan_worlds(g).into_iter().map(|(name, _)| name).collect()
