@@ -241,9 +241,9 @@ pub fn generate_spawner_structures(g: &mut Game, lvl: usize) {
         // for generating spawner dungeons
         let r = g.level_mut(lvl).random.next_int_bound(5);
         let m = if r == 1 {
-            crate::entity::mob::skeleton::new(g, -depth)
+            crate::entity::mob::stone_golem::new(g, -depth)
         } else if r == 2 || r == 0 {
-            crate::entity::mob::slime::new(g, -depth)
+            crate::entity::mob::snake::new(g, -depth)
         } else {
             crate::entity::mob::zombie::new(g, -depth)
         };
@@ -544,6 +544,12 @@ pub fn init_world(g: &mut Game) {
         }
 
         g.past_day1 = false;
+        // spawn at a seed-random point in the day cycle, not always morning (user
+        // request); deterministic per world so respawns of the same seed match
+        let spawn_time = crate::rng::Rng::new(world_seed ^ 0x7135_A17E)
+            .next_int_bound(crate::core::updater::DAY_LENGTH);
+        g.set_time(spawn_time);
+
         let lvl = g.current_level; // sets level to the current level (3; surface)
         let mut p = g.entities.take(g.player_id).expect("player must exist");
         if infinite {
