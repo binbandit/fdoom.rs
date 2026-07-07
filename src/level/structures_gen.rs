@@ -90,7 +90,10 @@ fn spec(kind: StructureKind) -> (i32, u64, f64) {
 fn biome_ok(kind: StructureKind, b: Biome) -> bool {
     match kind {
         StructureKind::Ruins => matches!(b, Biome::Plains | Biome::Forest | Biome::Savanna),
-        StructureKind::Cemetery => matches!(b, Biome::Plains | Biome::Forest | Biome::Marsh),
+        // deserts bury their dead too (user request) — sun-bleached plots among the dunes
+        StructureKind::Cemetery => {
+            matches!(b, Biome::Plains | Biome::Forest | Biome::Marsh | Biome::Desert)
+        }
         StructureKind::StandingStones => matches!(b, Biome::Plains | Biome::Savanna),
         StructureKind::Camp => matches!(b, Biome::Forest | Biome::Tundra | Biome::Desert),
         StructureKind::Village => matches!(b, Biome::Plains | Biome::Forest | Biome::Savanna),
