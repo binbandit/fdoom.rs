@@ -375,7 +375,9 @@ impl InputHandler {
 
     /// Platform event entry point (Java `keyTyped`).
     pub fn key_typed(&mut self, ch: char) {
-        self.key_typed_buffer = ch.to_string();
+        // append: several chars can arrive within one game tick (fast typing, scripted
+        // demo runs) — overwriting dropped all but the last
+        self.key_typed_buffer.push(ch);
     }
 
     fn get_cur_modifiers(&mut self) -> String {

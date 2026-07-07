@@ -480,6 +480,14 @@ impl Load {
             let map = java_split(keymap, ';');
             g.input.set_key(&map[0], &map[1], g.debug);
         }
+
+        // day-cycle pacing (appended field; absent in older prefs files)
+        if !self.data.is_empty() {
+            let dc = self.data.remove(0);
+            if !dc.is_empty() {
+                g.settings.set("daycycle", dc);
+            }
+        }
     }
 
     /// Java `loadWorld(filename)`.

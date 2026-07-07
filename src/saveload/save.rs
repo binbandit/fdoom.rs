@@ -110,6 +110,8 @@ impl Save {
 
         let key_pairs = g.input.get_key_prefs(g.debug);
         self.data.push(key_pairs.join(":"));
+        // appended fields parse leniently on load, so older prefs files stay readable
+        self.data.push(g.settings.get("daycycle").to_display());
 
         let file = format!("{}Preferences{}", self.location, EXTENSION);
         self.write_to_file(g, &file);

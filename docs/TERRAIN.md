@@ -846,7 +846,7 @@ weighted, chunk-border safe like the blueprint itself):
 | Camp            |  256 | 0.80 | plank lean-to / cold camp (fire ring + bedroll)   |
 | Village         |  512 | 0.40 | round plaza / crossroads (roads meet at the well) |
 
-The odds column reflects the density wave (~+55% structures per unit area vs. the
+The odds column reflects the density wave (+46% (measured) structures per unit area vs. the
 original 0.45/0.40/0.35/0.50/0.40, biased toward camps/stones/ruins; villages
 unchanged — they stay set pieces). Chest entities spawn only when a chunk generates
 fresh (never when loaded from disk); the owning chunk is marked dirty so it persists

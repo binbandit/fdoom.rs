@@ -1140,7 +1140,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         let lvl = e.c.level.expect("swimming player must be on a level");
         let tick_time = e.player().mob.tick_time;
         let mut liquid_color = 0; // color of water / lava circle
-        let standing = g.tile_at(lvl, e.c.x / 16, e.c.y / 16);
+        let standing = g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4);
         if standing.id == g.tiles.get("water").id {
             liquid_color = color::get4(-1, -1, 115, 335);
             if tick_time / 8 % 2 == 0 {
