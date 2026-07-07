@@ -1,0 +1,3344 @@
+//! artgen — the deterministic art generator for `assets/sprites.png`.
+//!
+//! **This file is the source of truth for the sprite sheet.** Run
+//! `cargo run --bin artgen` to (re)generate `assets/sprites.png`; never edit the PNG by
+//! hand. Everything below is plain `std` + the `png` crate, no randomness (a tiny hash
+//! provides stable "noise"), so the output is bit-for-bit reproducible.
+//!
+//! # Sheet contract (see `src/gfx/sprite_sheet.rs`)
+//!
+//! The sheet is 256x256: a 32x32 grid of 8x8 cells, addressed as `pos = cx + cy * 32`.
+//! Each pixel is one of three kinds:
+//!
+//! - **Palette pixel** — grayscale (`r == g == b`, alpha 255). The renderer quantizes the
+//!   gray `/64` into a shade index 0..3 and recolors it through the *draw call's* packed
+//!   palette (`color::get4(a, b, c, d)`: shade 0 -> `a` ... shade 3 -> `d`; a byte of
+//!   `-1` makes that shade transparent). We use exactly four gray levels:
+//!   `G0=0, G1=85, G2=170, G3=255`.
+//! - **True-color pixel** — any non-gray RGB (alpha 255). Drawn literally; the call-site
+//!   palette is ignored. NEVER use an `r==g==b` color in true-color art — it would be
+//!   mistaken for a palette pixel (the `rgb()` helper asserts this).
+//! - **Transparent** — alpha 0 (only meaningful for true-color art; palette cells encode
+//!   transparency through the palette instead and stay alpha 255).
+//!
+//! # Which cells are palette-mode vs true-color (derived from every call site)
+//!
+//! *Palette (grayscale)* — anything drawn with more than one meaningful palette:
+//! terrain connector pieces + "dots" texture cells (shared by dirt/grass/sand/water/
+//! lava/snow/hole/rock/cloud/exploded/sky), wool, ore nubs, stairs, floors, wheat,
+//! farmland, walls, doors, every item icon (rows 4-5, tool tiers!), every mob body
+//! (mob level tints, player shirt), chest/lantern/spawner furniture, the furniture item
+//! icons (row 10), the UI frame + HUD icons (rows 12-13), the splash cells and the font.
+//!
+//! *True-color* — cells whose call sites all pass one fixed palette (which true-color
+//! pixels ignore anyway): trees, cactus, sapling, torch, pumpkin, tall grass,
+//! grave stones, quicksand, most furniture (workbench/oven/furnace/anvil/enchanter/
+//! loom/tnt/bed) and the title logo.
+//!
+//! # Shade-role conventions used by the game's palettes (do not break these)
+//!
+//! - dots cells (0..3,0): shade1 = base field, shade2 = sparse specks. Full coverage.
+//! - blob sparse 3x3s: shade1 = interior, shade2 = edge band, shade3 = "outside"
+//!   (recolored to the surrounding terrain / transparent for cloud).
+//! - rock blob (4,0): shade0 = dark outline ring, 1 = face, 2 = highlight, 3 = outside.
+//! - item icons: shade0 = background (transparent via `get4(-1, ..)`), 1 = dark/outline,
+//!   2 = mid, 3 = light. (Key (26,4): shades 0 AND 1 are transparent — art in 2-3 only.)
+//! - tools: 1 = outline, 2 = wooden handle, 3 = head (gets the tier color).
+//! - mobs: shade0 = background (transparent), 1 = outline/dark, 2 = mid (dynamic color:
+//!   player shirt, mob level tint), 3 = light (skin/highlight).
+//!   Glow worm (26,19): shades 0 and 1 are both transparent — art in 2-3 only.
+//! - font: background shade0, stroke shade3 (drawn with `get4(-1,555,555,555)`; some
+//!   callers color shade0 as a backing box, e.g. the focus nagger).
+//! - stairs: 0 = surrounding ground, 1 = dark void, 2 = step face, 3 = step highlight.
+//! - farmland (2,1): 0 = trench soil, 1 = ridge, 2 = ridge crest, 3 = glints.
+//! - ore nub (17,1 2x2): 0 = ground (recolored to dirt), 1..3 = crystal cluster.
+//! - wool (17,0): 0 = curl shadow lines, 3 = fleece body, 2 = mid dither.
+//! - wheat (4..7,3): 0 = soil, 1 = ridge, 2 = stalks, 3 = shoots/heads.
+//! - frame (0..2,13): 1 = dark line, 2 = panel face, 3 = light rim, 0 = outside.
+//! - doors: 0 = frame, 1 = door face, 2 = dark detail; open door's walk-through gap = 3.
+//! - walls: 0 = seams/outline, 1 = face, 2 = face shading, 3 = outside/highlight.
+//! - creeper cell (9,19) doubles as the spawner fire particle (flame palette): its
+//!   layered blob reads as a foot in green and as a flame in orange.
+//!
+//! The full referenced-cell inventory lives in `tests/artgen_sheet.rs`.
+
+use std::fs::File;
+use std::io::BufWriter;
+use std::path::Path;
+
+/* ==============================  drawing kit  ============================== */
+
+/// One RGBA pixel.
+pub type Ink = [u8; 4];
+
+/// Fully transparent (true-color cells only).
+pub const TR: Ink = [0, 0, 0, 0];
+/// The four palette grays (quantized /64 to shades 0..3 by the loader).
+pub const G0: Ink = [0, 0, 0, 255];
+pub const G1: Ink = [85, 85, 85, 255];
+pub const G2: Ink = [170, 170, 170, 255];
+pub const G3: Ink = [255, 255, 255, 255];
+
+/// A true color. Asserts it can never be mistaken for a palette gray.
+pub const fn rgb(r: u8, g: u8, b: u8) -> Ink {
+    assert!(!(r == g && g == b), "true-color ink must not be gray");
+    [r, g, b, 255]
+}
+
+pub const SHEET_W: usize = 256;
+pub const SHEET_H: usize = 256;
+
+pub struct Sheet {
+    pub px: Vec<Ink>,
+}
+
+impl Default for Sheet {
+    fn default() -> Sheet {
+        Sheet::new()
+    }
+}
+
+impl Sheet {
+    pub fn new() -> Sheet {
+        Sheet {
+            px: vec![TR; SHEET_W * SHEET_H],
+        }
+    }
+
+    pub fn set(&mut self, x: i32, y: i32, ink: Ink) {
+        if (0..SHEET_W as i32).contains(&x) && (0..SHEET_H as i32).contains(&y) {
+            self.px[y as usize * SHEET_W + x as usize] = ink;
+        }
+    }
+
+    pub fn get(&self, x: i32, y: i32) -> Ink {
+        self.px[y as usize * SHEET_W + x as usize]
+    }
+
+    pub fn save(&self, path: &Path) {
+        let mut bytes = Vec::with_capacity(SHEET_W * SHEET_H * 4);
+        for p in &self.px {
+            bytes.extend_from_slice(p);
+        }
+        let file = File::create(path).expect("create sprites.png");
+        let mut enc = png::Encoder::new(BufWriter::new(file), SHEET_W as u32, SHEET_H as u32);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header()
+            .expect("png header")
+            .write_image_data(&bytes)
+            .expect("png data");
+    }
+}
+
+/// A drawing canvas anchored at cell (cx, cy) — can span multiple cells.
+pub struct C<'a> {
+    s: &'a mut Sheet,
+    ox: i32,
+    oy: i32,
+}
+
+/// Canvas anchored at cell (cx, cy).
+pub fn cell(s: &mut Sheet, cx: i32, cy: i32) -> C<'_> {
+    C {
+        s,
+        ox: cx * 8,
+        oy: cy * 8,
+    }
+}
+
+impl C<'_> {
+    pub fn set(&mut self, x: i32, y: i32, ink: Ink) {
+        self.s.set(self.ox + x, self.oy + y, ink);
+    }
+
+    /// Filled rectangle.
+    pub fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, ink: Ink) {
+        for yy in y..y + h {
+            for xx in x..x + w {
+                self.set(xx, yy, ink);
+            }
+        }
+    }
+
+    pub fn hline(&mut self, x: i32, y: i32, w: i32, ink: Ink) {
+        self.rect(x, y, w, 1, ink);
+    }
+
+    pub fn vline(&mut self, x: i32, y: i32, h: i32, ink: Ink) {
+        self.rect(x, y, 1, h, ink);
+    }
+
+    /// Filled disc centered at (cx, cy) (pixel centers), radius r.
+    pub fn disc(&mut self, cx: i32, cy: i32, r: i32, ink: Ink) {
+        for y in cy - r..=cy + r {
+            for x in cx - r..=cx + r {
+                let (dx, dy) = (x - cx, y - cy);
+                if dx * dx + dy * dy <= r * r + r / 2 {
+                    self.set(x, y, ink);
+                }
+            }
+        }
+    }
+
+    /// Checkerboard dither over a rect (phase 0 or 1 picks which diagonal).
+    pub fn dither(&mut self, x: i32, y: i32, w: i32, h: i32, phase: i32, ink: Ink) {
+        for yy in y..y + h {
+            for xx in x..x + w {
+                if (xx + yy) & 1 == phase & 1 {
+                    self.set(xx, yy, ink);
+                }
+            }
+        }
+    }
+
+    /// ASCII-art painter: one string per row; `map` translates chars to inks;
+    /// unmapped chars (usually '.') leave the pixel untouched.
+    pub fn pat(&mut self, x: i32, y: i32, rows: &[&str], map: &[(char, Ink)]) {
+        for (ry, row) in rows.iter().enumerate() {
+            for (rx, ch) in row.chars().enumerate() {
+                if let Some((_, ink)) = map.iter().find(|(c, _)| *c == ch) {
+                    self.set(x + rx as i32, y + ry as i32, *ink);
+                }
+            }
+        }
+    }
+
+    /// Surrounds already-drawn opaque pixels in the given region with `ink`
+    /// (4-neighborhood) — quick 1px outline for true-color sprites.
+    pub fn outline(&mut self, x: i32, y: i32, w: i32, h: i32, ink: Ink) {
+        let mut adds = Vec::new();
+        for yy in y..y + h {
+            for xx in x..x + w {
+                if self.s.get(self.ox + xx, self.oy + yy)[3] != 0 {
+                    continue;
+                }
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let (nx, ny) = (xx + dx, yy + dy);
+                    if nx < x || ny < y || nx >= x + w || ny >= y + h {
+                        continue;
+                    }
+                    let p = self.s.get(self.ox + nx, self.oy + ny);
+                    if p[3] != 0 && p != ink {
+                        adds.push((xx, yy));
+                        break;
+                    }
+                }
+            }
+        }
+        for (xx, yy) in adds {
+            self.set(xx, yy, ink);
+        }
+    }
+}
+
+/// Tiny deterministic hash — stable speckle noise without an RNG.
+pub fn speck(x: i32, y: i32, seed: u32, one_in: u32) -> bool {
+    let mut h = (x as u32)
+        .wrapping_mul(374_761_393)
+        .wrapping_add((y as u32).wrapping_mul(668_265_263))
+        .wrapping_add(seed.wrapping_mul(2_246_822_519));
+    h ^= h >> 13;
+    h = h.wrapping_mul(1_274_126_177);
+    h ^= h >> 16;
+    h % one_in == 0
+}
+
+/// Is (x, y) inside a w x h rounded rectangle inset by `inset`, corner radius `r`?
+pub fn rounded_inside(x: i32, y: i32, w: i32, h: i32, inset: i32, r: i32) -> bool {
+    let (x0, y0, x1, y1) = (inset, inset, w - 1 - inset, h - 1 - inset);
+    if x < x0 || y < y0 || x > x1 || y > y1 {
+        return false;
+    }
+    let r = (r - inset).max(0);
+    let (cx, cy) = (
+        if x < x0 + r {
+            x0 + r
+        } else if x > x1 - r {
+            x1 - r
+        } else {
+            x
+        },
+        if y < y0 + r {
+            y0 + r
+        } else if y > y1 - r {
+            y1 - r
+        } else {
+            y
+        },
+    );
+    let (dx, dy) = (x - cx, y - cy);
+    dx * dx + dy * dy <= r * r + r / 2
+}
+
+/* ==========================  shared true-color palette  ========================== */
+/* ~24 colors used everywhere so the sheet reads as one coherent set. */
+
+pub const OUT: Ink = rgb(31, 27, 24); // near-black warm outline
+pub const LEAF_DK: Ink = rgb(45, 84, 51); // moss shadow
+pub const LEAF_MD: Ink = rgb(82, 124, 62); // sage canopy
+pub const LEAF_LT: Ink = rgb(126, 160, 84); // canopy light
+pub const LEAF_HI: Ink = rgb(176, 199, 111); // canopy rim highlight
+pub const BARK: Ink = rgb(122, 85, 54); // trunk
+pub const BARK_DK: Ink = rgb(84, 57, 39); // trunk shadow
+pub const WOOD_LT: Ink = rgb(196, 149, 96); // furniture wood light
+pub const WOOD_MD: Ink = rgb(156, 111, 68); // furniture wood mid
+pub const WOOD_DK: Ink = rgb(108, 73, 46); // furniture wood dark
+pub const SAND_LT: Ink = rgb(226, 202, 144); // warm sand
+pub const SAND_DK: Ink = rgb(192, 162, 106); // sand shadow
+pub const STONE_LT: Ink = rgb(172, 176, 186); // slate light
+pub const STONE_MD: Ink = rgb(124, 128, 140); // slate mid
+pub const STONE_DK: Ink = rgb(78, 82, 94); // slate dark
+pub const IRON_LT: Ink = rgb(206, 210, 220); // metal light
+pub const IRON_DK: Ink = rgb(120, 124, 138); // metal dark
+pub const FLAME_YL: Ink = rgb(255, 216, 96); // fire core
+pub const FLAME_OR: Ink = rgb(235, 138, 52); // fire mid
+pub const FLAME_RD: Ink = rgb(197, 72, 40); // fire edge / tnt red
+pub const CREAM: Ink = rgb(240, 229, 198); // bed sheets / paper
+pub const RED_CL: Ink = rgb(198, 62, 56); // blanket / logo mid red
+pub const MAGIC: Ink = rgb(152, 88, 198); // enchanter purple
+pub const MAGIC_LT: Ink = rgb(209, 156, 240); // enchanter glow
+pub const PUMPK: Ink = rgb(224, 122, 48); // pumpkin body
+pub const PUMPK_DK: Ink = rgb(172, 84, 36); // pumpkin shade
+pub const GOLDEN: Ink = rgb(229, 181, 76); // seed heads / accents
+pub const MOSS: Ink = rgb(104, 141, 92); // gravestone moss
+
+/* ==============================  terrain  ============================== */
+
+/// Cells (0..3,0): the four "dots" texture cells (`Sprite::dots` / `random_dots`).
+/// Interior texture for dirt/grass/sand/water/lava/snow/hole/sky/etc — shade1 base with
+/// a few shade2 specks, full coverage. Each cell places its specks differently so the
+/// randomized picker gives a lively field.
+fn dots_cells(s: &mut Sheet) {
+    let speck_sets: [&[(i32, i32)]; 4] = [
+        &[(2, 2), (5, 5), (6, 1)],
+        &[(1, 5), (4, 2), (6, 6)],
+        &[(3, 6), (6, 3), (1, 1)],
+        &[(2, 4), (5, 1), (7, 6), (4, 6)],
+    ];
+    for (i, specks) in speck_sets.iter().enumerate() {
+        let mut c = cell(s, i as i32, 0);
+        c.rect(0, 0, 8, 8, G1);
+        for &(x, y) in *specks {
+            c.set(x, y, G2);
+        }
+    }
+}
+
+/// The 24x24 "blob" used by connector sparse sprites: a rounded island of the tile's
+/// material. `bands`: ink per inset depth from the blob edge inward (last = interior).
+/// `outside` fills everything beyond the blob (recolored to surrounding terrain).
+fn blob24(c: &mut C, r: i32, outside: Ink, bands: &[Ink], seed: u32) {
+    let interior = *bands.last().unwrap();
+    for y in 0..24 {
+        for x in 0..24 {
+            // organic edge: wobble the blob boundary by 1px here and there
+            let wob = i32::from(speck(x / 2, y / 2, seed, 5));
+            let mut ink = outside;
+            if rounded_inside(x, y, 24, 24, 0, r + wob) {
+                ink = interior;
+                for (depth, band) in bands.iter().enumerate() {
+                    if !rounded_inside(x, y, 24, 24, depth as i32 + 1, r) {
+                        ink = *band;
+                        break;
+                    }
+                }
+            }
+            c.set(x, y, ink);
+        }
+    }
+    // interior speckle, matching the dots cells
+    for y in 0..24 {
+        for x in 0..24 {
+            if rounded_inside(x, y, 24, 24, bands.len() as i32 + 1, r)
+                && speck(x, y, seed.wrapping_add(7), 11)
+            {
+                c.set(x, y, G2);
+            }
+        }
+    }
+}
+
+/// A 16x16 "sides" block (rock/cloud/walls): face fill with an inner-corner notch at
+/// the block center. Each 8x8 quarter is drawn mirrored in-game so the notch lands on
+/// the tile corner that has a missing diagonal neighbor.
+fn sides16(c: &mut C, face: Ink, ring: Ink, outside: Ink) {
+    c.rect(0, 0, 16, 16, face);
+    for y in 0..16 {
+        for x in 0..16 {
+            if speck(x, y, 3, 13) {
+                c.set(x, y, G2);
+            }
+        }
+    }
+    c.disc(8, 8, 4, ring);
+    c.disc(8, 8, 2, outside);
+}
+
+/// Cells (4..6,0..2) rock/hard-rock/cloud sparse blob + (7..8,0..1) their sides block.
+/// Roles: 0 = dark outline ring, 1 = face, 2 = highlight, 3 = outside.
+fn rock_connector(s: &mut Sheet) {
+    let mut c = cell(s, 4, 0);
+    blob24(&mut c, 7, G3, &[G0, G0, G1], 21);
+    // highlight sweep along the top-left of the dome
+    for y in 3..9 {
+        for x in 3..14 {
+            if rounded_inside(x, y, 24, 24, 3, 7) && (x + y * 2) % 3 == 0 {
+                c.set(x, y, G2);
+            }
+        }
+    }
+    let mut sd = cell(s, 7, 0);
+    sides16(&mut sd, G1, G0, G3);
+}
+
+/// Cells (11..13,0..2): grass/sand/snow sparse blob.
+/// Roles: 1 = interior, 2 = light fringe band, 3 = outside (dirt).
+fn grass_connector(s: &mut Sheet) {
+    let mut c = cell(s, 11, 0);
+    blob24(&mut c, 5, G3, &[G2, G1], 33);
+}
+
+/// Cells (14..16,0..2): water/lava/hole sparse blob.
+/// Roles: 1 = liquid interior, 2 = wet shore band (2px), 3 = outside.
+fn water_connector(s: &mut Sheet) {
+    let mut c = cell(s, 14, 0);
+    blob24(&mut c, 6, G3, &[G2, G2, G1], 47);
+}
+
+/// Cell (17,0): wool — curly fleece. 0 = curl shadows, 3 = fleece, 2 = softening.
+fn wool_cell(s: &mut Sheet) {
+    let mut c = cell(s, 17, 0);
+    c.pat(
+        0,
+        0,
+        &[
+            "33333333", //
+            "30032330", //
+            "32303032", //
+            "33232333", //
+            "30333023", //
+            "32030330", //
+            "33323033", //
+            "30333330", //
+        ],
+        &[('3', G3), ('2', G2), ('0', G0)],
+    );
+}
+
+/// Cells (18..20,0): cloud interior variants — shade2 puffs on a shade1 base.
+fn cloud_full_cells(s: &mut Sheet) {
+    let puffs: [&[(i32, i32, i32)]; 3] = [
+        &[(2, 3, 2), (6, 6, 1)],
+        &[(5, 2, 2), (1, 6, 1)],
+        &[(4, 5, 2), (7, 1, 1)],
+    ];
+    for (i, set) in puffs.iter().enumerate() {
+        let mut c = cell(s, 18 + i as i32, 0);
+        c.rect(0, 0, 8, 8, G1);
+        for &(x, y, r) in *set {
+            c.disc(x, y, r, G2);
+        }
+    }
+}
+
+/// Cell (2,1): farmland furrows. 0 = trench, 1 = ridge, 2 = crest, 3 = glints.
+fn farm_cell(s: &mut Sheet) {
+    let mut c = cell(s, 2, 1);
+    c.pat(
+        0,
+        0,
+        &[
+            "00000000", //
+            "11211211", //
+            "22122122", //
+            "11111111", //
+            "00000000", //
+            "12112112", //
+            "22322232", //
+            "11111111", //
+        ],
+        &[('0', G0), ('1', G1), ('2', G2), ('3', G3)],
+    );
+}
+
+/// Cell (3,1): the footprint stamp for stepped-on sand/snow (base matches the dots).
+fn footprint_cell(s: &mut Sheet) {
+    let mut c = cell(s, 3, 1);
+    c.rect(0, 0, 8, 8, G1);
+    c.set(6, 1, G2);
+    c.set(1, 6, G2);
+    c.pat(
+        1,
+        1,
+        &[
+            ".22...", //
+            "2332..", //
+            "2332..", //
+            ".22.2.", //
+            "...232", //
+            "....2.", //
+        ],
+        &[('2', G2), ('3', G3)],
+    );
+}
+
+/// Cells (17..18,1..2): the ore nub — a crystal cluster on a shade0 ground (the ground
+/// shade is recolored to the level's dirt color; the cluster gets the ore's palette).
+/// Shared by iron/gold/gem/lapis and the cloud cactus.
+fn ore_cells(s: &mut Sheet) {
+    let mut c = cell(s, 17, 1);
+    c.rect(0, 0, 16, 16, G0);
+    for y in 0..16 {
+        for x in 0..16 {
+            if speck(x, y, 9, 17) {
+                c.set(x, y, G1);
+            }
+        }
+    }
+    c.pat(
+        2,
+        2,
+        &[
+            "....23......", //
+            "...1332.....", //
+            "..133321..2.", //
+            "..12332..232", //
+            ".2112321.121", //
+            "232..131.1..", //
+            "121...1.....", //
+            ".1..12321...", //
+            "...1233321..", //
+            "...112211...", //
+            "............", //
+        ],
+        &[('1', G1), ('2', G2), ('3', G3)],
+    );
+}
+
+/// Cells (22..23,1..2): quicksand (true color) — a slow swirl in the sand.
+fn quicksand_cells(s: &mut Sheet) {
+    let mut c = cell(s, 22, 1);
+    c.rect(0, 0, 16, 16, SAND_DK);
+    for y in 0..16 {
+        for x in 0..16 {
+            // concentric swirl rings around the center
+            let (dx, dy) = (x - 8, y - 8);
+            let d2 = dx * dx + dy * dy;
+            if (20..34).contains(&d2) || (54..70).contains(&d2) {
+                c.set(x, y, SAND_LT);
+            }
+            if d2 < 6 {
+                c.set(x, y, BARK_DK);
+            }
+        }
+    }
+    c.set(8, 8, OUT);
+    c.set(7, 8, OUT);
+    // drift flecks
+    c.set(3, 12, SAND_LT);
+    c.set(12, 3, SAND_LT);
+}
+
+/// Cells (0..1,2..3) stairs down, (2..3,2..3) stairs up.
+/// Roles: 0 = surrounding ground, 1 = dark void, 2 = step face, 3 = step highlight.
+fn stairs_cells(s: &mut Sheet) {
+    // down: a rounded pit with steps sinking toward the dark bottom-right
+    let mut c = cell(s, 0, 2);
+    c.rect(0, 0, 16, 16, G0);
+    for y in 0..16 {
+        for x in 0..16 {
+            if rounded_inside(x, y, 16, 16, 1, 4) {
+                c.set(x, y, G1);
+            }
+        }
+    }
+    c.pat(
+        2,
+        2,
+        &[
+            "333333......", //
+            "222222......", //
+            "..33333.....", //
+            "..22222.....", //
+            "....3333....", //
+            "....2222....", //
+            "......333...", //
+            "......222...", //
+            "........33..", //
+        ],
+        &[('2', G2), ('3', G3)],
+    );
+
+    // up: full-tile steps climbing toward the top-right light
+    let mut c = cell(s, 2, 2);
+    c.rect(0, 0, 16, 16, G0);
+    for i in 0..5 {
+        let y = 2 + i * 3;
+        let x = 2 + (4 - i) * 2;
+        c.rect(x, y, 16 - x - 1, 1, G3); // tread edge
+        c.rect(x, y + 1, 16 - x - 1, 2, G2); // tread face
+        c.vline(x, y, 3, G1); // riser shadow
+    }
+}
+
+/// Cell (7,2): `Sprite::blank` — a flat filled cell (stone/obsidian wall interiors).
+fn blank_cell(s: &mut Sheet) {
+    let mut c = cell(s, 7, 2);
+    c.rect(0, 0, 8, 8, G1);
+}
+
+/// Cells (8..9,2..3): cactus (true color, transparent bg — sand is drawn underneath).
+fn cactus_cells(s: &mut Sheet) {
+    let mut c = cell(s, 8, 2);
+    c.pat(
+        0,
+        0,
+        &[
+            "......gg........", //
+            ".....mllm.......", //
+            ".....mlds.......", //
+            ".mm..mlds..s....", //
+            "mlds.mlds.msm...", //
+            "mlds.mldssmlm...", //
+            "mldssmlds.......", //
+            ".mmsmmlds.......", //
+            ".....mlds.......", //
+            ".....mlds.......", //
+            ".....mlds.......", //
+            ".....mlds.......", //
+            ".....mlds.......", //
+            "....dmlds.......", //
+            "................", //
+            "................", //
+        ],
+        &[
+            ('m', LEAF_MD),
+            ('l', LEAF_LT),
+            ('d', LEAF_DK),
+            ('s', LEAF_DK),
+            ('g', GOLDEN),
+        ],
+    );
+    c.outline(0, 0, 16, 16, OUT);
+}
+
+/// Cells (4..7,3): the four wheat growth stages (each drawn 4x per tile).
+fn wheat_cells(s: &mut Sheet) {
+    for stage in 0..4 {
+        let mut c = cell(s, 4 + stage, 3);
+        // soil bed
+        c.pat(
+            0,
+            0,
+            &[
+                "00000000", "01101101", "00000000", "10110110", "00000000", "01101101", "00000000",
+                "10110110",
+            ],
+            &[('0', G0), ('1', G1)],
+        );
+        match stage {
+            0 => {
+                // freshly seeded: sparse shoots poking out
+                for &(x, y) in &[(1, 5), (4, 3), (6, 6)] {
+                    c.set(x, y, G3);
+                }
+            }
+            1 => {
+                for &x in &[1, 3, 5, 7] {
+                    c.vline(x, 4, 3, G2);
+                    c.set(x, 4, G3);
+                }
+            }
+            2 => {
+                for &x in &[0, 2, 4, 6] {
+                    c.vline(x, 2, 5, G2);
+                    c.set(x, 2, G3);
+                    c.set(x, 3, G3);
+                }
+            }
+            _ => {
+                // mature: dense stalks with heavy heads
+                for x in 0..8 {
+                    c.vline(x, 3, 5, G2);
+                    if x % 2 == 0 {
+                        c.set(x, 1, G3);
+                        c.set(x, 2, G3);
+                    } else {
+                        c.set(x, 2, G3);
+                        c.set(x, 3, G3);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Cell (11,3): tree/cactus sapling (true color, drawn over its ground tile).
+fn sapling_cell(s: &mut Sheet) {
+    let mut c = cell(s, 11, 3);
+    c.pat(
+        0,
+        0,
+        &[
+            "..ll....", //
+            ".lmml...", //
+            "lm.mml..", //
+            ".l.bm.l.", //
+            "...b.ml.", //
+            "...b....", //
+            "..kbk...", //
+            "........", //
+        ],
+        &[('l', LEAF_LT), ('m', LEAF_MD), ('b', BARK), ('k', BARK_DK)],
+    );
+}
+
+/// Cell (12,3): placed torch (true color; rendered at +4,+4 within the tile).
+fn torch_cell(s: &mut Sheet) {
+    let mut c = cell(s, 12, 3);
+    c.pat(
+        0,
+        0,
+        &[
+            "...y....", //
+            "..yyo...", //
+            "..oyyo..", //
+            "..royr..", //
+            "...wk...", //
+            "...wk...", //
+            "...wk...", //
+            "........", //
+        ],
+        &[
+            ('y', FLAME_YL),
+            ('o', FLAME_OR),
+            ('r', FLAME_RD),
+            ('w', WOOD_MD),
+            ('k', WOOD_DK),
+        ],
+    );
+}
+
+/// Cells (19..20,2..3): brick/plank floor tiles. (19,2) alone is the whole floor tile
+/// (repeated 4x); the 2x2 block is the lava-brick tile. Beveled: seams 0/1, face 2,
+/// grain 3.
+fn floor_cells(s: &mut Sheet) {
+    for (i, (cx, cy)) in [(19, 2), (20, 2), (19, 3), (20, 3)].iter().enumerate() {
+        let mut c = cell(s, *cx, *cy);
+        c.rect(0, 0, 8, 8, G2);
+        c.hline(0, 0, 8, G1); // top seam
+        c.vline(0, 0, 8, G1); // left seam
+        c.set(7, 7, G1);
+        // grain / wear marks vary per cell
+        let marks: [&[(i32, i32)]; 4] = [
+            &[(3, 3), (5, 5), (2, 6)],
+            &[(4, 2), (6, 5)],
+            &[(2, 3), (5, 6), (6, 2)],
+            &[(3, 5), (5, 3)],
+        ];
+        for &(x, y) in marks[i] {
+            c.set(x, y, G3);
+        }
+        c.set(6, 6, G1);
+    }
+}
+
+/// Tree cells (true color; transparent shows the grass/snow drawn underneath):
+/// (9,0) top-left, (10,0) top-right, (9,1) bottom-left, (10,3) bottom-right of a
+/// free-standing tree; (10,1) full-canopy fill, (10,2) canopy fill with a bark gap.
+fn tree_cells(s: &mut Sheet) {
+    let map: &[(char, Ink)] = &[
+        ('o', OUT),
+        ('d', LEAF_DK),
+        ('m', LEAF_MD),
+        ('l', LEAF_LT),
+        ('h', LEAF_HI),
+        ('b', BARK),
+        ('k', BARK_DK),
+    ];
+    // free-standing tree, 16x16; the four 8x8 quarters land on their cells below
+    let tree: [&str; 16] = [
+        ".....ooooo......",
+        "...oomlllmoo....",
+        "..omlhhhlllmo...",
+        ".omlhlllllllmo..",
+        ".omllllllmmlmo..",
+        "omllllmmmmmllmo.",
+        "omlllmmmmmmdlmo.",
+        "omdmmmmmddddmmo.",
+        ".omdmmdddddmmo..",
+        "..oomdddddmoo...",
+        "....oodbkoo.....",
+        "......bbk.......",
+        "......bbk.......",
+        "......bbk.......",
+        ".....obbko......",
+        "................",
+    ];
+    let quarters = [(9, 0, 0, 0), (10, 0, 8, 0), (9, 1, 0, 8), (10, 3, 8, 8)];
+    for (cx, cy, px, py) in quarters {
+        let mut c = cell(s, cx, cy);
+        let rows: Vec<&str> = tree[py..py + 8].iter().map(|r| &r[px..px + 8]).collect();
+        c.pat(0, 0, &rows, map);
+    }
+    // (10,1): solid canopy fill for forest interiors
+    let mut c = cell(s, 10, 1);
+    c.rect(0, 0, 8, 8, LEAF_MD);
+    for y in 0..8 {
+        for x in 0..8 {
+            if speck(x, y, 61, 4) {
+                c.set(x, y, LEAF_DK);
+            }
+            if speck(x, y, 62, 9) {
+                c.set(x, y, LEAF_LT);
+            }
+        }
+    }
+    // (10,2): canopy fill with a bark gap (trunks peeking through the forest roof)
+    let mut c = cell(s, 10, 2);
+    c.rect(0, 0, 8, 8, LEAF_MD);
+    for y in 0..8 {
+        for x in 0..8 {
+            if speck(x, y, 63, 4) {
+                c.set(x, y, LEAF_DK);
+            }
+        }
+    }
+    c.pat(
+        2,
+        2,
+        &[
+            "dddd", //
+            "dbkd", //
+            "dbkd", //
+            "dddd", //
+        ],
+        &[('d', LEAF_DK), ('b', BARK), ('k', BARK_DK)],
+    );
+}
+
+/* ==============================  items (rows 4-5)  ============================== */
+
+/// Grayscale palette map used by every icon/mob pattern:
+/// '.' = leave (pre-filled shade0 background), 0..3 = the four shades.
+const PMAP: &[(char, Ink)] = &[('0', G0), ('1', G1), ('2', G2), ('3', G3)];
+
+/// One 8x8 item/UI icon: shade0 background + pattern (7-8 rows of 8 chars).
+fn icon8(s: &mut Sheet, cx: i32, cy: i32, rows: &[&str]) {
+    for r in rows {
+        assert_eq!(r.len(), 8, "icon8 row width at ({cx},{cy})");
+    }
+    let mut c = cell(s, cx, cy);
+    c.rect(0, 0, 8, 8, G0);
+    c.pat(0, 0, rows, PMAP);
+}
+
+/// Row 4: the stackable/food/tile item icons. shade0 = transparent background,
+/// 1 = dark/outline, 2 = mid, 3 = light (see header for per-item palette roles).
+#[rustfmt::skip]
+fn items_row4(s: &mut Sheet) {
+    // (0,4) flower/rose: stem 1, petals 2, heart 3
+    icon8(s, 0, 4, &[
+        "........",
+        "..2.2...",
+        ".23332..",
+        "..2.2...",
+        "...1....",
+        ".1.1....",
+        "..11....",
+        "...1....",
+    ]);
+    // (1,4) plank / brick / cloth: a rounded slab with grain
+    icon8(s, 1, 4, &[
+        "........",
+        ".111111.",
+        "12223221",
+        "12232221",
+        "12322321",
+        ".111111.",
+        "........",
+        "........",
+    ]);
+    // (2,4) generic lump (dirt/sand/wool/stone/gunpowder/cloud/wool colors)
+    icon8(s, 2, 4, &[
+        "........",
+        "..1111..",
+        ".132221.",
+        ".1322221",
+        ".1222221",
+        "..12221.",
+        "...111..",
+        "........",
+    ]);
+    // (3,4) acorn: cap 3, body 2
+    icon8(s, 3, 4, &[
+        "...11...",
+        "..1331..",
+        ".133331.",
+        ".111111.",
+        ".122221.",
+        "..1221..",
+        "...11...",
+        "........",
+    ]);
+    // (4,4) cactus (item): body 2, rib 1, bloom 3
+    icon8(s, 4, 4, &[
+        "...32...",
+        "...32...",
+        "2..32..2",
+        "2..12..2",
+        "22212222",
+        "...12...",
+        "...12...",
+        "........",
+    ]);
+    // (5,4) seeds: a scattered handful
+    icon8(s, 5, 4, &[
+        "........",
+        "..2..3..",
+        ".....2..",
+        ".3......",
+        "..2...2.",
+        "....3...",
+        ".2......",
+        "........",
+    ]);
+    // (6,4) wheat sheaf (NOTE: the fence tile reuses this cell with an inverted
+    // palette; keep the art in shades 1-3 so the fence stays mostly readable)
+    icon8(s, 6, 4, &[
+        "....3...",
+        "...32.3.",
+        "..32232.",
+        "..2322..",
+        ".232.2..",
+        ".22.2...",
+        ".12.2...",
+        ".1.1....",
+    ]);
+    // (7,4) power glove
+    icon8(s, 7, 4, &[
+        "........",
+        "..1111..",
+        ".122221.",
+        ".122221.",
+        "1222221.",
+        ".11111..",
+        "..333...",
+        "........",
+    ]);
+    // (8,4) bread loaf with score marks
+    icon8(s, 8, 4, &[
+        "........",
+        "..1111..",
+        ".123221.",
+        "12232321",
+        "12223221",
+        ".111111.",
+        "........",
+        "........",
+    ]);
+    // (9,4) apple: body 3, shaded side 2, stem 1
+    icon8(s, 9, 4, &[
+        "...1....",
+        "..31....",
+        ".33332..",
+        "3333332.",
+        "3333322.",
+        ".33322..",
+        "..222...",
+        "........",
+    ]);
+    // (10,4) ore chunk (coal/iron/lapis/gold/slime ball)
+    icon8(s, 10, 4, &[
+        "........",
+        "..111...",
+        ".13231..",
+        "1232321.",
+        "1223221.",
+        ".12221..",
+        "..111...",
+        "........",
+    ]);
+    // (11,4) ingot bar
+    icon8(s, 11, 4, &[
+        "........",
+        "........",
+        ".111111.",
+        "13333321",
+        "12222221",
+        ".111111.",
+        "........",
+        "........",
+    ]);
+    // (12,4) glass pane with a diagonal shine
+    icon8(s, 12, 4, &[
+        ".111111.",
+        "12222321",
+        "12223221",
+        "12232221",
+        "12322221",
+        "13222221",
+        ".111111.",
+        "........",
+    ]);
+    // (13,4) gem: cut diamond
+    icon8(s, 13, 4, &[
+        "........",
+        "..111...",
+        ".13231..",
+        "1233321.",
+        ".12321..",
+        "..131...",
+        "...1....",
+        "........",
+    ]);
+    // (14,4) book: cover 2, page edge 3
+    icon8(s, 14, 4, &[
+        "........",
+        ".11111..",
+        "1222231.",
+        "1222231.",
+        "1232231.",
+        "1222231.",
+        ".11111..",
+        "........",
+    ]);
+    // (15,4) bone
+    icon8(s, 15, 4, &[
+        "........",
+        ".23...3.",
+        "33323333",
+        ".322223.",
+        "33323333",
+        ".23...3.",
+        "........",
+        "........",
+    ]);
+    // (16,4) wall (item): bricks 2/3, mortar 1
+    icon8(s, 16, 4, &[
+        "........",
+        "11111111",
+        "12231221",
+        "11111111",
+        "13212231",
+        "11111111",
+        "........",
+        "........",
+    ]);
+    // (17,4) door (item): face 2, knob 3
+    icon8(s, 17, 4, &[
+        ".11111..",
+        ".12221..",
+        ".12221..",
+        ".12231..",
+        ".12221..",
+        ".12221..",
+        ".11111..",
+        "........",
+    ]);
+    // (18,4) torch item: INVERTED palette roles — flame 1(red)/2(orange), stick 3
+    icon8(s, 18, 4, &[
+        "...1....",
+        "..121...",
+        "..122...",
+        "...3....",
+        "...3....",
+        "...3....",
+        "...3....",
+        "........",
+    ]);
+    // (19,4) leather hide
+    icon8(s, 19, 4, &[
+        "........",
+        ".2...2..",
+        ".22222..",
+        "2223222.",
+        "2222222.",
+        ".22222..",
+        ".2...2..",
+        "........",
+    ]);
+    // (20,4) meat chop: meat 2, bone stub 3
+    icon8(s, 20, 4, &[
+        "........",
+        "..1111..",
+        ".122221.",
+        ".123221.",
+        ".12221..",
+        "..333...",
+        "...3....",
+        "........",
+    ]);
+    // (21,4) bucket: body 1, contents 2 (fill color!), rim 3
+    icon8(s, 21, 4, &[
+        "........",
+        ".333333.",
+        ".122221.",
+        ".122221.",
+        "..1221..",
+        "..1111..",
+        "........",
+        "........",
+    ]);
+    // (22,4) scale: fan shell
+    icon8(s, 22, 4, &[
+        "........",
+        "...11...",
+        "..1221..",
+        ".122221.",
+        ".123321.",
+        "..1221..",
+        "...11...",
+        "........",
+    ]);
+    // (23,4) shard: angular fragment
+    icon8(s, 23, 4, &[
+        "....1...",
+        "...12...",
+        "..1232..",
+        ".12332..",
+        ".1232...",
+        "..12....",
+        "..1.....",
+        "........",
+    ]);
+    // (24,4) fish: body 2, eye/belly 3
+    icon8(s, 24, 4, &[
+        "........",
+        "..2222.2",
+        ".2322222",
+        ".2233222",
+        "..2222.2",
+        "........",
+        "........",
+        "........",
+    ]);
+    // (25,4) string: a loose coil
+    icon8(s, 25, 4, &[
+        "........",
+        "..2222..",
+        ".23..32.",
+        ".2....2.",
+        ".23..32.",
+        "..2222..",
+        "....2...",
+        ".....2..",
+    ]);
+    // (26,4) key: shades 0 AND 1 are transparent for keys — art in 2-3 only
+    icon8(s, 26, 4, &[
+        "........",
+        ".333....",
+        ".3.3....",
+        ".3332222",
+        "......2.",
+        ".....2.2",
+        "........",
+        "........",
+    ]);
+    // (27,4) potion: glass 1, cork 2, liquid 3
+    icon8(s, 27, 4, &[
+        "...22...",
+        "...11...",
+        "..1331..",
+        ".133331.",
+        ".133331.",
+        ".133331.",
+        "..1111..",
+        "........",
+    ]);
+    // (28,4) wood log with end rings
+    icon8(s, 28, 4, &[
+        "........",
+        ".111111.",
+        "12222321",
+        "13232221",
+        "12223231",
+        ".111111.",
+        "........",
+        "........",
+    ]);
+}
+
+/// Row 5: tools (1 = outline, 2 = wooden handle, 3 = head/tier color), the four flight
+/// arrows and a couple of stackables.
+#[rustfmt::skip]
+fn items_row5(s: &mut Sheet) {
+    // (0,5) shovel
+    icon8(s, 0, 5, &[
+        ".....33.",
+        "....3333",
+        "...13333",
+        "..12.33.",
+        ".12.....",
+        "12......",
+        "21......",
+        "........",
+    ]);
+    // (1,5) hoe
+    icon8(s, 1, 5, &[
+        "....333.",
+        "...1..3.",
+        "...12.3.",
+        "..12....",
+        ".12.....",
+        "12......",
+        "21......",
+        "........",
+    ]);
+    // (2,5) sword
+    icon8(s, 2, 5, &[
+        "......33",
+        ".....33.",
+        "....33..",
+        ".1.33...",
+        "..133...",
+        "..21....",
+        ".2.1....",
+        "1.......",
+    ]);
+    // (3,5) pickaxe
+    icon8(s, 3, 5, &[
+        "...333..",
+        ".33.133.",
+        "3..12.33",
+        "...12..3",
+        "..12....",
+        ".12.....",
+        "12......",
+        "........",
+    ]);
+    // (4,5) axe
+    icon8(s, 4, 5, &[
+        "...331..",
+        "..3333.1",
+        "..33312.",
+        "..33.2..",
+        "...12...",
+        "..12....",
+        ".12.....",
+        "12......",
+    ]);
+    // (5,5) bow: limb 3, string 2
+    icon8(s, 5, 5, &[
+        ".333...2",
+        "3...3.2.",
+        "3....32.",
+        ".3...32.",
+        ".3..3.2.",
+        "..33...2",
+        "........",
+        "........",
+    ]);
+    // (6,5) fishing rod: rod 1/2, line + hook 3
+    icon8(s, 6, 5, &[
+        ".....22.",
+        "....21.3",
+        "...21..3",
+        "..21...3",
+        ".21...33",
+        "21....3.",
+        "........",
+        "........",
+    ]);
+    // (7,5) claymore: broad blade, wide guard
+    icon8(s, 7, 5, &[
+        ".....333",
+        "....333.",
+        "...333..",
+        "1.333...",
+        ".1331...",
+        ".131....",
+        ".21.1...",
+        "12......",
+    ]);
+    // (13,5) arrow right (also the HUD ammo icon)
+    icon8(s, 13, 5, &[
+        "........",
+        "........",
+        "......3.",
+        "11222333",
+        "......3.",
+        "........",
+        "........",
+        "........",
+    ]);
+    // (14,5) arrow left
+    icon8(s, 14, 5, &[
+        "........",
+        "........",
+        ".3......",
+        "33322211",
+        ".3......",
+        "........",
+        "........",
+        "........",
+    ]);
+    // (15,5) arrow up
+    icon8(s, 15, 5, &[
+        "...3....",
+        "..333...",
+        "...2....",
+        "...2....",
+        "...2....",
+        "...1....",
+        "...1....",
+        "........",
+    ]);
+    // (16,5) arrow down
+    icon8(s, 16, 5, &[
+        "...1....",
+        "...1....",
+        "...2....",
+        "...2....",
+        "...2....",
+        "..333...",
+        "...3....",
+        "........",
+    ]);
+    // (20,5) stick
+    icon8(s, 20, 5, &[
+        "......3.",
+        ".....32.",
+        "....32..",
+        "...32...",
+        "..32....",
+        ".32.....",
+        "32......",
+        "........",
+    ]);
+    // (21,5) grass fibers
+    icon8(s, 21, 5, &[
+        "........",
+        "3..3..3.",
+        ".2.2.2..",
+        ".2.32...",
+        "..232...",
+        "..22....",
+        "..2.....",
+        "........",
+    ]);
+}
+
+/* ==============================  UI (rows 11-13)  ============================== */
+
+/// Row 12: HUD status icons + the smash particle + the clothing item.
+#[rustfmt::skip]
+fn ui_row12(s: &mut Sheet) {
+    // (0,12) heart: fill 2, shine 3, dark rim 1
+    icon8(s, 0, 12, &[
+        ".22.22..",
+        "2322222.",
+        "2322222.",
+        "1222221.",
+        ".12221..",
+        "..121...",
+        "...1....",
+        "........",
+    ]);
+    // (1,12) stamina bolt
+    icon8(s, 1, 12, &[
+        "....33..",
+        "...33...",
+        "..33332.",
+        "....32..",
+        "...32...",
+        "..32....",
+        ".2......",
+        "........",
+    ]);
+    // (2,12) hunger burger: buns 2, patty 3, rim 1
+    icon8(s, 2, 12, &[
+        "........",
+        ".122221.",
+        "12222221",
+        "13333331",
+        "12222221",
+        ".122221.",
+        "........",
+        "........",
+    ]);
+    // (3,12) armor: shield (also the armor items' sprite)
+    icon8(s, 3, 12, &[
+        ".111111.",
+        "12222221",
+        "12233221",
+        "12233221",
+        ".122221.",
+        ".12221..",
+        "..121...",
+        "...1....",
+    ]);
+    // (5,12) smash particle: one quadrant of the burst, mirrored around the
+    // tile center in-game (rays radiate from this cell's top-right corner)
+    icon8(s, 5, 12, &[
+        "...2.3.3",
+        "......3.",
+        ".....3.3",
+        "....3...",
+        "...3...2",
+        "..3.....",
+        ".2......",
+        "........",
+    ]);
+    // (6,12) clothes: folded shirt, body 3, folds 2
+    icon8(s, 6, 12, &[
+        "........",
+        ".11..11.",
+        "13311331",
+        "11333311",
+        ".133331.",
+        ".132231.",
+        ".111111.",
+        "........",
+    ]);
+}
+
+/// Row 13: menu frame pieces, swim ripple, attack slashes, spark.
+#[rustfmt::skip]
+fn ui_row13(s: &mut Sheet) {
+    // (0,13) frame corner (rounded), (1,13) top edge, (2,13) left edge / flat fill.
+    // Roles: 3 = light rim, 1 = dark line, 2 = panel face, 0 = outside.
+    icon8(s, 0, 13, &[
+        "........",
+        "...33333",
+        "..311111",
+        ".3112222",
+        ".3122222",
+        ".3122222",
+        ".3122222",
+        ".3122222",
+    ]);
+    icon8(s, 1, 13, &[
+        "........",
+        "33333333",
+        "11111111",
+        "22222222",
+        "22222222",
+        "22222222",
+        "22222222",
+        "22222222",
+    ]);
+    icon8(s, 2, 13, &[
+        ".3122222",
+        ".3122222",
+        ".3122222",
+        ".3122222",
+        ".3122222",
+        ".3122222",
+        ".3122222",
+        ".3122222",
+    ]);
+    // (5,13) swim ripple: covers the player's legs; crest 3, water body 2
+    icon8(s, 5, 13, &[
+        "........",
+        "........",
+        "........",
+        "3..3..3.",
+        "23.23.23",
+        "32233223",
+        "22222222",
+        "22222222",
+    ]);
+    // (6,13) horizontal slash (up/down attack arc, drawn twice mirrored)
+    icon8(s, 6, 13, &[
+        "........",
+        "........",
+        "......33",
+        "....332.",
+        "..332...",
+        "332.....",
+        "2.......",
+        "........",
+    ]);
+    // (7,13) vertical slash (left/right attack arc, drawn twice stacked)
+    icon8(s, 7, 13, &[
+        "....3...",
+        ".....3..",
+        ".....23.",
+        "......23",
+        "......23",
+        ".....23.",
+        ".....3..",
+        "....3...",
+    ]);
+    // (8,13) spark (air wizard's projectile)
+    icon8(s, 8, 13, &[
+        "........",
+        "...3....",
+        "..232...",
+        ".23332..",
+        "..232...",
+        "...3....",
+        "........",
+        "........",
+    ]);
+}
+
+/// Cells (0,11) and (3,11): the intro splash effect (drawn with animated palettes).
+fn splash_cells(s: &mut Sheet) {
+    let mut c = cell(s, 0, 11);
+    c.rect(0, 0, 8, 8, G1);
+    for y in 0..8 {
+        for x in 0..8 {
+            if speck(x, y, 71, 5) {
+                c.set(x, y, G2);
+            }
+            if speck(x, y, 72, 9) {
+                c.set(x, y, G3);
+            }
+        }
+    }
+    let mut c = cell(s, 3, 11);
+    for y in 0..8i32 {
+        for x in 0..8i32 {
+            let d = (x + y).rem_euclid(4);
+            let ink = if d < 2 { G2 } else { G0 };
+            c.set(x, y, ink);
+            if (x - y).rem_euclid(8) == 0 {
+                c.set(x, y, G3);
+            }
+        }
+    }
+}
+
+/* ==========================  decor tiles & structures  ========================== */
+
+/// A 16x16 grayscale sprite: shade0 background + pattern.
+fn spr16(s: &mut Sheet, cx: i32, cy: i32, rows: &[&str]) {
+    assert_eq!(rows.len(), 16, "spr16 rows at ({cx},{cy})");
+    for r in rows {
+        assert_eq!(r.len(), 16, "spr16 row width at ({cx},{cy})");
+    }
+    let mut c = cell(s, cx, cy);
+    c.rect(0, 0, 16, 16, G0);
+    c.pat(0, 0, rows, PMAP);
+}
+
+/// A 16x16 true-color sprite on a transparent background.
+fn tc16(s: &mut Sheet, cx: i32, cy: i32, rows: &[&str], map: &[(char, Ink)]) {
+    assert_eq!(rows.len(), 16, "tc16 rows at ({cx},{cy})");
+    for r in rows {
+        assert_eq!(r.len(), 16, "tc16 row width at ({cx},{cy})");
+    }
+    let mut c = cell(s, cx, cy);
+    c.pat(0, 0, rows, map);
+}
+
+/// Cells (0..1,24..25) open door, (2..3,24..25) closed door (full-tile, grayscale).
+/// Roles: 0 = frame, 1 = door face, 2 = detail, open door's walk-through gap = 3.
+fn door_cells(s: &mut Sheet) {
+    // closed: 1px frame, planked face, knob
+    let mut c = cell(s, 2, 24);
+    c.rect(0, 0, 16, 16, G0);
+    c.rect(1, 1, 14, 14, G1);
+    for (x, y) in [(1, 1), (14, 1), (1, 14), (14, 14)] {
+        c.set(x, y, G0); // rounded frame corners
+    }
+    c.vline(5, 1, 14, G2); // plank seams
+    c.vline(10, 1, 14, G2);
+    c.set(2, 3, G2); // hinges
+    c.set(2, 12, G2);
+    c.rect(12, 7, 1, 2, G3); // knob
+
+    // open: frame around a dark gap, door leaf swung against the left jamb
+    let mut c = cell(s, 0, 24);
+    c.rect(0, 0, 16, 16, G0);
+    c.rect(1, 1, 14, 14, G3); // the walk-through gap
+    c.rect(1, 1, 3, 14, G1); // swung leaf
+    c.vline(4, 1, 14, G2); // leaf edge
+    c.hline(1, 1, 14, G1); // lintel
+    c.hline(1, 14, 14, G1); // threshold
+    c.set(14, 1, G0);
+    c.set(14, 14, G0);
+}
+
+/// Wood wall: sparse blob (4..6,22..24) whose center cell doubles as the full tile,
+/// plus sides block (7..8,22..23). Stone/obsidian wall: sparse (4..6,25..27) + sides
+/// (7..8,24..25) (their full tile is `Sprite::blank`). Roles: 0 = seams/outline,
+/// 1 = face, 2 = face shading, 3 = outside.
+fn wall_cells(s: &mut Sheet) {
+    // -- wood: horizontal planks --
+    let mut c = cell(s, 4, 22);
+    blob24(&mut c, 5, G3, &[G0, G1], 91);
+    for y in 0..24 {
+        for x in 0..24 {
+            if !rounded_inside(x, y, 24, 24, 2, 5) {
+                continue;
+            }
+            match y % 4 {
+                0 => c.set(x, y, G0), // plank seam
+                3 => c.set(x, y, G2), // plank lower shading
+                _ => {
+                    if (x + (y / 4) * 5) % 9 == 0 {
+                        c.set(x, y, G0); // butt joint
+                    }
+                }
+            }
+        }
+    }
+    let mut sd = cell(s, 7, 22);
+    sd.rect(0, 0, 16, 16, G1);
+    for y in 0..16 {
+        if y % 4 == 0 {
+            sd.hline(0, y, 16, G0);
+        }
+        if y % 4 == 3 {
+            sd.hline(0, y, 16, G2);
+        }
+    }
+    sd.disc(8, 8, 4, G0);
+    sd.disc(8, 8, 2, G3);
+
+    // -- stone: running-bond bricks --
+    let mut c = cell(s, 4, 25);
+    blob24(&mut c, 5, G3, &[G0, G1], 92);
+    for y in 0..24 {
+        for x in 0..24 {
+            if !rounded_inside(x, y, 24, 24, 2, 5) {
+                continue;
+            }
+            if y % 4 == 0 {
+                c.set(x, y, G0); // mortar course
+            } else if (x + (y / 4 % 2) * 4) % 8 == 0 {
+                c.set(x, y, G0); // head joint, offset per course
+            } else if y % 4 == 1 && speck(x, y, 15, 4) {
+                c.set(x, y, G2); // top-lit brick faces
+            }
+        }
+    }
+    // stone sides: only shade0 differs from the face at its call sites
+    let mut sd = cell(s, 7, 24);
+    sd.rect(0, 0, 16, 16, G1);
+    for y in 0..16 {
+        if y % 4 == 0 {
+            sd.hline(0, y, 16, G0);
+        }
+    }
+    sd.disc(8, 8, 4, G0);
+}
+
+/// Grave stones (true color, drawn over grass): (11..12,11..12) standing,
+/// (13..14,11..12) broken.
+fn gravestone_cells(s: &mut Sheet) {
+    let map: &[(char, Ink)] = &[
+        ('o', OUT),
+        ('l', STONE_LT),
+        ('m', STONE_MD),
+        ('d', STONE_DK),
+        ('g', MOSS),
+        ('k', LEAF_DK),
+    ];
+    tc16(
+        s,
+        11,
+        11,
+        &[
+            "................",
+            "....oooooo......",
+            "...omllllmo.....",
+            "..olllllllmo....",
+            "..olllllllmo....",
+            "..olddldllmo....",
+            "..olllllllmo....",
+            "..oldldldlmo....",
+            "..olllllllmo....",
+            "..olldldllmo....",
+            "..ogllllllmo....",
+            "..oglllllgmo....",
+            ".ogglllllggmo...",
+            ".okgggggggggo...",
+            "..ooooooooooo...",
+            "................",
+        ],
+        map,
+    );
+    tc16(
+        s,
+        13,
+        11,
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "...ooo..........",
+            "..olmmo....oo...",
+            "..ollmo...ommo..",
+            "..olldmo..oldo..",
+            ".ogllldmo..oo...",
+            ".oglllldmo..om..",
+            ".okgglllgmo.oo..",
+            "..ooggggggo.....",
+            "...oooooooo.....",
+            "................",
+            "................",
+        ],
+        map,
+    );
+}
+
+/// Cells (22..23,8..9): pumpkin (true color, drawn over grass).
+fn pumpkin_cells(s: &mut Sheet) {
+    tc16(
+        s,
+        22,
+        8,
+        &[
+            "......ss........",
+            "......ss........",
+            "....oooooo......",
+            "..oopppppdoo....",
+            ".opppdppppddo...",
+            ".oppdppppdpdo...",
+            "opppdppppdppdo..",
+            "opydppppppdydo..",
+            "opyydpppppdyydo.", // eyes
+            "oppdpppppdpppdo.",
+            "opppdppppdpppdo.",
+            ".opddpyyyydpdo..",
+            ".oppdpyyyypddo..",
+            "..ooppddddppo...",
+            "....oooooooo....",
+            "................",
+        ],
+        &[
+            ('o', OUT),
+            ('p', PUMPK),
+            ('d', PUMPK_DK),
+            ('y', FLAME_YL),
+            ('s', LEAF_DK),
+        ],
+    );
+}
+
+/// Cells (26..31,8..9): tall grass — tall (26), small (28), medium (30). True color,
+/// drawn over grass.
+fn tall_grass_cells(s: &mut Sheet) {
+    let map: &[(char, Ink)] = &[
+        ('d', LEAF_DK),
+        ('m', LEAF_MD),
+        ('l', LEAF_LT),
+        ('g', GOLDEN),
+    ];
+    // tall: full-height fronds with golden seed heads
+    tc16(
+        s,
+        26,
+        8,
+        &[
+            "..g.....g....g..",
+            "..l..g..l....l..",
+            ".ml..l.ml.g.ml..",
+            ".ml.ml..l.l..l..",
+            ".dl.ml.ml.ml.ml.",
+            ".dl.dl.ml.ml.ml.",
+            "..l.dl.dl.dl.dl.",
+            ".ml..l..l.dl.dl.",
+            ".ml.ml.ml..l..l.",
+            ".dl.ml.ml.ml.ml.",
+            ".dl.dl.dl.ml.ml.",
+            "..d.dl.dl.dl.dl.",
+            "..d..d..d..d..d.",
+            "................",
+            "................",
+            "................",
+        ],
+        map,
+    );
+    // small: a few short tufts near the ground
+    tc16(
+        s,
+        28,
+        8,
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "....l........l..",
+            "....l...l....l..",
+            "...ml...l..ml...",
+            "...ml..ml..ml...",
+            "...dl.mdl..dl.l.",
+            "....d.dl....d.m.",
+            "......d.........",
+            "................",
+            "................",
+            "................",
+        ],
+        map,
+    );
+    // medium: knee-high tufts
+    tc16(
+        s,
+        30,
+        8,
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "..l....l....l...",
+            ".ml...ml...ml...",
+            ".ml.l.ml.l.ml...",
+            ".dl.m.dl.m.dl.l.",
+            ".dl.m.dl.m.dl.m.",
+            "..d.d..d.d..d.d.",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        map,
+    );
+}
+
+/* ==============================  furniture (rows 8-10)  ============================== */
+
+/// The 2x2-cell furniture sprites. Grayscale where call sites recolor them (chest,
+/// lantern, spawner); true color for the rest.
+fn furniture_sprites(s: &mut Sheet) {
+    // (0,8) anvil — true color
+    tc16(
+        s,
+        0,
+        8,
+        &[
+            "................",
+            "................",
+            "................",
+            ".oooooooooooo...",
+            "oliiiiiiiiiiio..",
+            "oiiddddddddddo..",
+            ".oo..oddddo.....",
+            ".....odddo......",
+            "....oddddo......",
+            "...odddddddo....",
+            "..oliiiiiiiido..",
+            "..oidddddddddo..",
+            "...oooooooooo...",
+            "................",
+            "................",
+            "................",
+        ],
+        &[('o', OUT), ('i', IRON_LT), ('l', IRON_LT), ('d', IRON_DK)],
+    );
+
+    // (2,8) chest — grayscale (chest / death chest / dungeon chest palettes)
+    spr16(
+        s,
+        2,
+        8,
+        &[
+            "................",
+            "................",
+            "................",
+            "..111111111111..",
+            ".13333333333331.",
+            ".13333333333331.",
+            ".12222222222221.",
+            ".11111111111111.",
+            ".12222133122221.",
+            ".12222133122221.",
+            ".12222222222221.",
+            ".12222222222221.",
+            "..111111111111..",
+            "................",
+            "................",
+            "................",
+        ],
+    );
+
+    // (4,8) oven — true color: stone dome with a warm mouth
+    tc16(
+        s,
+        4,
+        8,
+        &[
+            "................",
+            "................",
+            "....oooooooo....",
+            "..oolllllllloo..",
+            ".ollllllllllllo.",
+            ".olmmmmmmmmmmlo.",
+            "olmmooooooommmo.",
+            "olmoyyyyyyoommo.",
+            "olmoyffffyyommo.",
+            "olmooffffyoommo.",
+            "odmmooooooommdo.",
+            "oddmmmmmmmmmddo.",
+            ".oddddddddddddo.",
+            "..oooooooooooo..",
+            "................",
+            "................",
+        ],
+        &[
+            ('o', OUT),
+            ('l', STONE_LT),
+            ('m', STONE_MD),
+            ('d', STONE_DK),
+            ('y', FLAME_OR),
+            ('f', FLAME_YL),
+        ],
+    );
+
+    // (6,8) furnace — true color: squat stone box, coal fire
+    tc16(
+        s,
+        6,
+        8,
+        &[
+            "................",
+            "................",
+            "..oooooooooooo..",
+            ".ollllllllllllo.",
+            ".olmmlmmlmmllmo.",
+            ".olmmmmmmmmmmmo.",
+            ".ommoooooooommo.",
+            ".ommorryyrrommo.",
+            ".ommoryyyyrommo.",
+            ".ommorryyrrommo.",
+            ".odmoooooooomdo.",
+            ".oddmmmmmmmmddo.",
+            ".odddddddddddo..",
+            "..oooooooooooo..",
+            "................",
+            "................",
+        ],
+        &[
+            ('o', OUT),
+            ('l', STONE_LT),
+            ('m', STONE_MD),
+            ('d', STONE_DK),
+            ('r', FLAME_RD),
+            ('y', FLAME_YL),
+        ],
+    );
+
+    // (8,8) workbench — true color: sturdy table, hammer on top
+    tc16(
+        s,
+        8,
+        8,
+        &[
+            "................",
+            "................",
+            "................",
+            "....ii..........",
+            "...oiioo........",
+            "..ooiioko.......",
+            ".ollllokolllllo.", // top edge with hammer resting
+            "olwwwwwwwwwwwwlo",
+            "owmmmmmmmmmmmmwo",
+            ".oowmoooooomwoo.",
+            "..owmo....omwo..",
+            "..owmo....omwo..",
+            "..owmo....omwo..",
+            "..oooo....oooo..",
+            "................",
+            "................",
+        ],
+        &[
+            ('o', OUT),
+            ('l', WOOD_LT),
+            ('w', WOOD_MD),
+            ('m', WOOD_DK),
+            ('i', IRON_LT),
+            ('k', WOOD_DK),
+        ],
+    );
+
+    // (10,8) lantern — grayscale: frame 1, metal 2, glowing glass 3
+    spr16(
+        s,
+        10,
+        8,
+        &[
+            "................",
+            "................",
+            "......111.......",
+            ".....1...1......",
+            ".....1...1......",
+            "....1111111.....",
+            "...112222211....",
+            "...123333321....",
+            "...123333321....",
+            "...123333321....",
+            "...112333211....",
+            "....1111111.....",
+            "....1222221.....",
+            "................",
+            "................",
+            "................",
+        ],
+    );
+
+    // (12,8) enchanter — true color: pedestal with an open tome and sparks
+    tc16(
+        s,
+        12,
+        8,
+        &[
+            "....a.....a.....",
+            "..a.....a.......",
+            "....oooooooo....",
+            "..oopccccccpoo..",
+            ".opcccpoopcccpo.",
+            ".oppppo..oppppo.",
+            "..oooomoomoooo..",
+            ".....ommmmo.....",
+            ".....ommmmo.....",
+            ".....ommmmo.....",
+            "....ommmmmmo....",
+            "...odmmmmmmdo...",
+            "...oddddddddo...",
+            "....oooooooo....",
+            "................",
+            "................",
+        ],
+        &[
+            ('o', OUT),
+            ('c', CREAM),
+            ('p', MAGIC),
+            ('a', MAGIC_LT),
+            ('m', STONE_MD),
+            ('d', STONE_DK),
+        ],
+    );
+
+    // (14,8) tnt — true color: red crate, pale band, lit fuse
+    tc16(
+        s,
+        14,
+        8,
+        &[
+            "................",
+            "......ky........",
+            "......k.........",
+            "..oooookoooooo..",
+            ".orrrrrrrrrrrro.",
+            ".orrrrrrrrrrrro.",
+            ".ordrrrrrrdrrro.",
+            ".occcccccccccco.",
+            ".occocc.occocco.",
+            ".occcccccccccco.",
+            ".orrrrrrrrrrrro.",
+            ".ordrrrrdrrrdro.",
+            ".odddddddddddo..",
+            "..oooooooooooo..",
+            "................",
+            "................",
+        ],
+        &[
+            ('o', OUT),
+            ('r', FLAME_RD),
+            ('d', rgb(140, 38, 30)),
+            ('c', CREAM),
+            ('k', BARK_DK),
+            ('y', FLAME_YL),
+        ],
+    );
+
+    // (16,8) bed — true color: cream pillow, red blanket, wooden rail
+    tc16(
+        s,
+        16,
+        8,
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "..oooooooooooo..",
+            ".occccorrrrrrro.",
+            ".occccorrrrrrro.",
+            ".odccdorrrrrrdo.",
+            ".orrrrrrrrrrrdo.",
+            ".owwwwwwwwwwwwo.",
+            "..owo......owo..",
+            "..ooo......ooo..",
+            "................",
+            "................",
+            "................",
+        ],
+        &[
+            ('o', OUT),
+            ('c', CREAM),
+            ('r', RED_CL),
+            ('d', rgb(150, 42, 44)),
+            ('w', WOOD_MD),
+        ],
+    );
+
+    // (18,8) loom — true color: frame, warp threads, half-woven cloth
+    tc16(
+        s,
+        18,
+        8,
+        &[
+            "................",
+            "................",
+            "..oooooooooooo..",
+            ".owwwwwwwwwwwwo.",
+            ".owoc.c.c.c.owo.",
+            ".owoc.c.c.c.owo.",
+            ".owoc.c.c.c.owo.",
+            ".owoc.c.c.c.owo.",
+            ".oworrrrrrrrowo.",
+            ".oworrrrrrrrowo.",
+            ".owwwwwwwwwwwwo.",
+            "..owo......owo..",
+            "..ooo......ooo..",
+            "................",
+            "................",
+            "................",
+        ],
+        &[('o', OUT), ('w', WOOD_MD), ('c', CREAM), ('r', RED_CL)],
+    );
+
+    // (20,8) spawner — grayscale (tinted by the caged mob's palette):
+    // bars 1, the little captive 2 with shade3 eyes
+    spr16(
+        s,
+        20,
+        8,
+        &[
+            "................",
+            "................",
+            ".11111111111111.",
+            ".1..1..1..1..1..",
+            ".1..1..1..1..1..",
+            ".1..1222221..1..",
+            ".1..1232321..1..",
+            ".1..1222221..1..",
+            ".1..1222221..1..",
+            ".1...22222...1..",
+            ".1..1..1..1..1..",
+            ".1..1..1..1..1..",
+            ".11111111111111.",
+            "................",
+            "................",
+            "................",
+        ],
+    );
+}
+
+/// Row 10: 8x8 furniture item icons (grayscale — the spawner icon inherits the caged
+/// mob's palette, chests their chest palette, etc).
+#[rustfmt::skip]
+fn furniture_icons(s: &mut Sheet) {
+    // (0,10) anvil
+    icon8(s, 0, 10, &[
+        "........",
+        ".333333.",
+        ".222222.",
+        "...22...",
+        "...22...",
+        "..2222..",
+        ".222222.",
+        "........",
+    ]);
+    // (1,10) chest
+    icon8(s, 1, 10, &[
+        "........",
+        ".111111.",
+        "13333331",
+        "12222221",
+        "12233221",
+        "12222221",
+        ".111111.",
+        "........",
+    ]);
+    // (2,10) oven
+    icon8(s, 2, 10, &[
+        "........",
+        "..1111..",
+        ".133331.",
+        "13311331",
+        "13111131",
+        "13311331",
+        ".111111.",
+        "........",
+    ]);
+    // (3,10) furnace
+    icon8(s, 3, 10, &[
+        "........",
+        ".111111.",
+        "12222221",
+        "12111121",
+        "12133121",
+        "12111121",
+        ".111111.",
+        "........",
+    ]);
+    // (4,10) workbench
+    icon8(s, 4, 10, &[
+        "........",
+        "........",
+        ".111111.",
+        "13333331",
+        ".21..12.",
+        ".21..12.",
+        ".11..11.",
+        "........",
+    ]);
+    // (5,10) lantern
+    icon8(s, 5, 10, &[
+        "...11...",
+        "..1111..",
+        ".123321.",
+        ".123321.",
+        ".112211.",
+        "..1111..",
+        "........",
+        "........",
+    ]);
+    // (6,10) enchanter (open tome + sparkle)
+    icon8(s, 6, 10, &[
+        "..3..3..",
+        "........",
+        ".111111.",
+        "13313331",
+        "13311331",
+        ".111111.",
+        "........",
+        "........",
+    ]);
+    // (7,10) tnt
+    icon8(s, 7, 10, &[
+        "....1...",
+        ".111111.",
+        "12222221",
+        "13333331",
+        "12222221",
+        ".111111.",
+        "........",
+        "........",
+    ]);
+    // (8,10) bed
+    icon8(s, 8, 10, &[
+        "........",
+        "........",
+        ".111111.",
+        "13322221",
+        "13222221",
+        ".111111.",
+        ".1....1.",
+        "........",
+    ]);
+    // (9,10) loom
+    icon8(s, 9, 10, &[
+        "........",
+        ".111111.",
+        "1.2.2.21",
+        "1.2.2.21",
+        "13333331",
+        ".111111.",
+        "........",
+        "........",
+    ]);
+    // (10,10) spawner
+    icon8(s, 10, 10, &[
+        "........",
+        ".111111.",
+        "1.1..1.1",
+        "1.1221.1",
+        "1.1231.1",
+        "1.1..1.1",
+        ".111111.",
+        "........",
+    ]);
+}
+
+/* ==============================  mobs (rows 14-23)  ============================== */
+/* Every mob is grayscale: shade0 background (transparent via the mob palettes),
+ * 1 = outline/dark, 2 = mid (the *dynamic* color: player shirt, mob level tint),
+ * 3 = light (skin/highlight). A mob is 4 frames of 2x2 cells starting at its base
+ * cell: [down, up, right-step-a, right-step-b]; left is mirrored at draw time, and
+ * the down/up walk animation mirrors the (slightly asymmetric) frame. */
+
+/// Draw one 16x16 mob frame at cell (cx, cy).
+fn frame16(s: &mut Sheet, cx: i32, cy: i32, rows: &[&str]) {
+    spr16(s, cx, cy, rows);
+}
+
+/// Humanoids (player/zombie share cells 0,14; the "suit" is the player skin variant):
+/// composed from a 9-row head (per facing) + a 7-row body (per frame), so all eight
+/// player sets stay consistent.
+fn humanoid(s: &mut Sheet, cx: i32, cy: i32, heads: [&[&str; 9]; 3], bodies: [&[&str; 7]; 4]) {
+    for (i, body) in bodies.iter().enumerate() {
+        let head = match i {
+            0 => heads[0],
+            1 => heads[1],
+            _ => heads[2],
+        };
+        let mut rows: Vec<&str> = Vec::with_capacity(16);
+        rows.extend_from_slice(head);
+        rows.extend_from_slice(*body);
+        frame16(s, cx + i as i32 * 2, cy, &rows);
+    }
+}
+
+// bare head: shade1 hair cap, shade3 face, shade1 eyes
+const HEAD_DOWN: [&str; 9] = [
+    "....11111111....",
+    "..111111111111..",
+    ".11111111111111.",
+    ".11333333333311.",
+    ".13333333333331.",
+    ".13331333313331.", // eyes
+    ".13333333333331.",
+    "..133333333331..",
+    "...1111111111...",
+];
+const HEAD_UP: [&str; 9] = [
+    "....11111111....",
+    "..111111111111..",
+    ".11111111111111.",
+    ".11111111111111.",
+    ".11111111111111.",
+    ".11112111121111.", // hair strands
+    ".11111111111111.",
+    "..111111111111..",
+    "...1111111111...",
+];
+const HEAD_RIGHT: [&str; 9] = [
+    "....11111111....",
+    "..111111111111..",
+    ".11111111111111.",
+    ".11111133333311.",
+    ".11111333333331.",
+    ".11111333133331.", // eye
+    ".11111333333331.",
+    "..111133333331..",
+    "...1111111111...",
+];
+// hooded suit head (hood in shade2 so it tints with the player's palette)
+const SUIT_DOWN: [&str; 9] = [
+    "....22222222....",
+    "..222222222222..",
+    ".22222222222222.",
+    ".22133333333122.",
+    ".21333333333312.",
+    ".21331333313312.",
+    ".21333333333312.",
+    "..213333333312..",
+    "...2222222222...",
+];
+const SUIT_UP: [&str; 9] = [
+    "....22222222....",
+    "..222222222222..",
+    ".22222222222222.",
+    ".22222222222222.",
+    ".22222212222222.",
+    ".22222212222222.",
+    ".22222212222222.",
+    "..222222222222..",
+    "...2222222222...",
+];
+const SUIT_RIGHT: [&str; 9] = [
+    "....22222222....",
+    "..222222222222..",
+    ".22222222222222.",
+    ".22222133333322.",
+    ".22222133333332.",
+    ".22222133313332.",
+    ".22222133333332.",
+    "..222213333322..",
+    "...2222222222...",
+];
+// walking bodies (shirt shade2, hands shade3, boots shade1)
+const BODY_D: [&str; 7] = [
+    "..122222222221..",
+    ".13222222222231.",
+    ".13222222222231.",
+    "..122222222221..",
+    "...1122..2211...",
+    "...112....11....",
+    "................",
+];
+const BODY_U: [&str; 7] = [
+    "..122222222221..",
+    ".11222222222211.",
+    ".11222222222211.",
+    "..122222222221..",
+    "...1122..2211...",
+    "...112....11....",
+    "................",
+];
+const BODY_R1: [&str; 7] = [
+    "..122222222221..",
+    "..122222222231..",
+    "..122222222231..",
+    "..122222222221..",
+    "...1122.1122....",
+    "....11...11.....",
+    "................",
+];
+const BODY_R2: [&str; 7] = [
+    "..122222222221..",
+    "..122222222231..",
+    "..122222222231..",
+    "..122222222221..",
+    "..1122...1122...",
+    "...11.....11....",
+    "................",
+];
+// carrying bodies (arms raised, hands shade3 at the top corners)
+const CARRY_D: [&str; 7] = [
+    ".31222222222213.",
+    "..122222222221..",
+    "..122222222221..",
+    "..122222222221..",
+    "...1122..2211...",
+    "...112....11....",
+    "................",
+];
+const CARRY_R1: [&str; 7] = [
+    ".312222222221...",
+    "..122222222221..",
+    "..122222222221..",
+    "..122222222221..",
+    "...1122.1122....",
+    "....11...11.....",
+    "................",
+];
+const CARRY_R2: [&str; 7] = [
+    ".312222222221...",
+    "..122222222221..",
+    "..122222222221..",
+    "..122222222221..",
+    "..1122...1122...",
+    "...11.....11....",
+    "................",
+];
+
+fn player_sets(s: &mut Sheet) {
+    let heads = [&HEAD_DOWN, &HEAD_UP, &HEAD_RIGHT];
+    let suit = [&SUIT_DOWN, &SUIT_UP, &SUIT_RIGHT];
+    humanoid(s, 0, 14, heads, [&BODY_D, &BODY_U, &BODY_R1, &BODY_R2]);
+    humanoid(s, 0, 16, heads, [&CARRY_D, &CARRY_D, &CARRY_R1, &CARRY_R2]);
+    humanoid(s, 18, 20, suit, [&BODY_D, &BODY_U, &BODY_R1, &BODY_R2]);
+    humanoid(s, 18, 22, suit, [&CARRY_D, &CARRY_D, &CARRY_R1, &CARRY_R2]);
+}
+
+/// Air wizard (8,14): pointy hat, flaring robe, big beard (shade3).
+fn air_wizard(s: &mut Sheet) {
+    let down = [
+        "......11........",
+        ".....1221.......",
+        "....122221......",
+        "...12222221.....",
+        "..111111111111..",
+        "..133313313331..", // eyes under the brim
+        "..133333333331..",
+        "...1333333331...",
+        "..122233322221..", // beard over robe
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        "1222222222222221",
+        ".11111111111111.",
+        "................",
+    ];
+    let up = [
+        "......11........",
+        ".....1221.......",
+        "....122221......",
+        "...12222221.....",
+        "..111111111111..",
+        "..122222222221..",
+        "..122222222221..",
+        "...1222222221...",
+        "..122222222221..",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        "1222222222222221",
+        ".11111111111111.",
+        "................",
+    ];
+    let right = [
+        "......11........",
+        "......1221......",
+        ".....122221.....",
+        "....12222221....",
+        "..111111111111..",
+        "..111133313331..",
+        "..111133333331..",
+        "...113333331....",
+        "..122223332221..",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        "1222222222222221",
+        ".11111111111111.",
+        "................",
+    ];
+    let right2 = [
+        "......11........",
+        "......1221......",
+        ".....122221.....",
+        "....12222221....",
+        "..111111111111..",
+        "..111133313331..",
+        "..111133333331..",
+        "...113333331....",
+        "..122223332221..",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        "1222222222222221",
+        ".11111111111111.",
+        "................",
+        "................",
+    ];
+    frame16(s, 8, 14, &down);
+    frame16(s, 10, 14, &up);
+    frame16(s, 12, 14, &right);
+    frame16(s, 14, 14, &right2);
+}
+
+/// Pig (16,14): round face, big snout (shade2 = white accents, shade3 = pink body).
+fn pig(s: &mut Sheet) {
+    let down = [
+        "................",
+        "..11........11..",
+        ".1331......1331.",
+        "..111111111111..",
+        ".13333333333331.",
+        ".13331333313331.",
+        ".13333333333331.",
+        ".13332222233331.",
+        ".13332122123331.",
+        ".13333333333331.",
+        "..133333333331..",
+        "...1111111111...",
+        "..11..11.11..11.",
+        "..11..11.11..11.",
+        "................",
+        "................",
+    ];
+    let up = [
+        "................",
+        "..11........11..",
+        ".1331......1331.",
+        "..111111111111..",
+        ".13333333333331.",
+        ".13333333333331.",
+        ".13333223333331.", // tail curl
+        ".13333333333331.",
+        ".13333333333331.",
+        ".13333333333331.",
+        "..133333333331..",
+        "...1111111111...",
+        "..11..11.11..11.",
+        "..11..11.11..11.",
+        "................",
+        "................",
+    ];
+    let right = [
+        "................",
+        "...11....11.....",
+        "..1331..1331....",
+        "..111111111111..",
+        ".13333333333331.",
+        ".13333333313331.",
+        ".13333333333221.",
+        ".13333333332221.",
+        ".13333333333331.",
+        "..133333333331..",
+        "...1111111111...",
+        "..11..11.11..11.",
+        "..11..11.11..11.",
+        "................",
+        "................",
+        "................",
+    ];
+    let right2 = [
+        "................",
+        "...11....11.....",
+        "..1331..1331....",
+        "..111111111111..",
+        ".13333333333331.",
+        ".13333333313331.",
+        ".13333333333221.",
+        ".13333333332221.",
+        ".13333333333331.",
+        "..133333333331..",
+        "...1111111111...",
+        "..11..11.11..11.",
+        ".11....11....11.",
+        "................",
+        "................",
+        "................",
+    ];
+    frame16(s, 16, 14, &down);
+    frame16(s, 18, 14, &up);
+    frame16(s, 20, 14, &right);
+    frame16(s, 22, 14, &right2);
+}
+
+/// Knight (24,14): crested helm, visor slit; armor = shade2, plume = shade3.
+fn knight(s: &mut Sheet) {
+    let down = [
+        ".......33.......",
+        "......333.......",
+        "....12222221....",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12111222111221.", // visor
+        ".12222222222221.",
+        "..122222222221..",
+        "...1111111111...",
+        "..122222222221..",
+        ".13222222222231.",
+        ".13222222222231.",
+        "..122222222221..",
+        "...1122..2211...",
+        "...112....11....",
+        "................",
+    ];
+    let up = [
+        ".......33.......",
+        "......333.......",
+        "....12222221....",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        "..122222222221..",
+        "...1111111111...",
+        "..122222222221..",
+        ".11222222222211.",
+        ".11222222222211.",
+        "..122222222221..",
+        "...1122..2211...",
+        "...112....11....",
+        "................",
+    ];
+    let right = [
+        ".....33.........",
+        "....333.........",
+        "....12222221....",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222221112221.", // slit forward
+        ".12222222222221.",
+        "..122222222221..",
+        "...1111111111...",
+        "..122222222221..",
+        ".13222222222231.",
+        ".13222222222231.",
+        "..122222222221..",
+        "...1122.1122....",
+        "....11...11.....",
+        "................",
+    ];
+    let right2 = [
+        ".....33.........",
+        "....333.........",
+        "....12222221....",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222221112221.",
+        ".12222222222221.",
+        "..122222222221..",
+        "...1111111111...",
+        "..122222222221..",
+        ".13222222222231.",
+        ".13222222222231.",
+        "..122222222221..",
+        "..1122...1122...",
+        "...11.....11....",
+        "................",
+    ];
+    frame16(s, 24, 14, &down);
+    frame16(s, 26, 14, &up);
+    frame16(s, 28, 14, &right);
+    frame16(s, 30, 14, &right2);
+}
+
+/// Skeleton (8,16): big skull (bones shade3, sockets shade1, glow-pupils shade2).
+fn skeleton(s: &mut Sheet) {
+    let down = [
+        "....11111111....",
+        "..113333333311..",
+        ".13333333333331.",
+        ".13333333333331.",
+        ".13113333311331.", // sockets
+        ".13123333312331.", // pupils
+        ".13333113333331.", // nose
+        "..131313131313..", // teeth
+        "...1111111111...",
+        "....13333331....",
+        "....13131131....", // ribs
+        "....13333331....",
+        ".....111111.....",
+        ".....33..33.....",
+        ".....33...33....",
+        "................",
+    ];
+    let up = [
+        "....11111111....",
+        "..113333333311..",
+        ".13333333333331.",
+        ".13333333333331.",
+        ".13333333333331.",
+        ".13333333333331.",
+        ".13333333333331.",
+        "..133333333331..",
+        "...1111111111...",
+        "....13333331....",
+        "....13131131....",
+        "....13333331....",
+        ".....111111.....",
+        ".....33..33.....",
+        ".....33...33....",
+        "................",
+    ];
+    let right = [
+        "....11111111....",
+        "..113333333311..",
+        ".13333333333331.",
+        ".13333333333331.",
+        ".13333333113331.",
+        ".13333333123331.",
+        ".13333333333331.",
+        "..131313131313..",
+        "...1111111111...",
+        "....13333331.2..",
+        "....13131131.2..", // bow at the ready
+        "....13333331.2..",
+        ".....111111..2..",
+        "....33...33.....",
+        "...33.....33....",
+        "................",
+    ];
+    let right2 = [
+        "....11111111....",
+        "..113333333311..",
+        ".13333333333331.",
+        ".13333333333331.",
+        ".13333333113331.",
+        ".13333333123331.",
+        ".13333333333331.",
+        "..131313131313..",
+        "...1111111111...",
+        "....13333331.2..",
+        "....13131131.2..",
+        "....13333331.2..",
+        ".....111111..2..",
+        ".....33..33.....",
+        "....33.....33...",
+        "................",
+    ];
+    frame16(s, 8, 16, &down);
+    frame16(s, 10, 16, &up);
+    frame16(s, 12, 16, &right);
+    frame16(s, 14, 16, &right2);
+}
+
+/// Cow (16,16): horns shade2, brown body shade3, gray patches shade2.
+fn cow(s: &mut Sheet) {
+    let down = [
+        ".22..........22.",
+        ".122........221.",
+        "..111111111111..",
+        ".13333223333331.",
+        ".13333223333331.",
+        ".13313333313331.",
+        ".13333333333331.",
+        ".12222222222221.", // muzzle
+        ".12212222212221.", // nostrils
+        "..122222222221..",
+        "..133223322331..",
+        "...1111111111...",
+        "..11..11.11..11.",
+        "..11..11.11..11.",
+        "................",
+        "................",
+    ];
+    let up = [
+        ".22..........22.",
+        ".122........221.",
+        "..111111111111..",
+        ".13223333223331.",
+        ".13333333333331.",
+        ".13333223333331.",
+        ".13333223333331.",
+        ".13333333333331.",
+        ".13333311333331.", // tail
+        "..133333333331..",
+        "..132233223331..",
+        "...1111111111...",
+        "..11..11.11..11.",
+        "..11..11.11..11.",
+        "................",
+        "................",
+    ];
+    let right = [
+        "..........22....",
+        ".........221....",
+        "..111111111111..",
+        ".13223333333331.",
+        ".13223333333331.",
+        ".13333333313331.",
+        ".13333333322221.",
+        ".13333333321221.",
+        "..133223333331..",
+        "..133223333331..",
+        "..133333333331..",
+        "...1111111111...",
+        "..11..11.11..11.",
+        "..11..11.11..11.",
+        "................",
+        "................",
+    ];
+    let right2 = [
+        "..........22....",
+        ".........221....",
+        "..111111111111..",
+        ".13223333333331.",
+        ".13223333333331.",
+        ".13333333313331.",
+        ".13333333322221.",
+        ".13333333321221.",
+        "..133223333331..",
+        "..133223333331..",
+        "..133333333331..",
+        "...1111111111...",
+        "..11..11.11..11.",
+        ".11....11....11.",
+        "................",
+        "................",
+    ];
+    frame16(s, 16, 16, &down);
+    frame16(s, 18, 16, &up);
+    frame16(s, 20, 16, &right);
+    frame16(s, 22, 16, &right2);
+}
+
+/// Slime (0,18): two frames — resting puddle and tucked-up jump.
+fn slime(s: &mut Sheet) {
+    let ground = [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        ".....111111.....",
+        "...1122222211...",
+        "..122322222221..",
+        ".12332222222221.",
+        ".12221122112221.", // eyes
+        ".12221122112221.",
+        ".12222222222221.",
+        ".12222112222221.", // mouth
+        "..111111111111..",
+        "................",
+    ];
+    let jump = [
+        "................",
+        "................",
+        "................",
+        "......1111......",
+        "....11222211....",
+        "...1222322221...",
+        "..122332222221..",
+        "..122222222221..",
+        "..122112211221..",
+        "..122112211221..",
+        "..122222222221..",
+        "...1122222211...",
+        "....11111111....",
+        "....1......1....",
+        "................",
+        "................",
+    ];
+    frame16(s, 0, 18, &ground);
+    frame16(s, 2, 18, &jump);
+}
+
+/// Creeper (4,18): three frames. The third frame's bottom-right cell (9,19) doubles as
+/// the spawner fire particle, so it is a pure layered blob (outer 1, mid 2, core 3):
+/// a push-off foot in creeper green, a flame in the fire palette.
+fn creeper(s: &mut Sheet) {
+    let standing = [
+        "................",
+        "................",
+        "....11111111....",
+        "...1222222221...",
+        "...1222222221...",
+        "...1211221121...", // eyes
+        "...1211221121...",
+        "...1222112221...", // mouth
+        "...1221111221...",
+        "...1221111221...",
+        "...1222222221...",
+        "...1222222221...",
+        "...1222222221...",
+        "..1221....1221..",
+        "..1221....1221..",
+        "..11........11..",
+    ];
+    let walk = [
+        "................",
+        "................",
+        "....11111111....",
+        "...1222222221...",
+        "...1222222221...",
+        "...1211221121...",
+        "...1211221121...",
+        "...1222112221...",
+        "...1221111221...",
+        "...1221111221...",
+        "...1222222221...",
+        "...1222222221...",
+        "...1222222221...",
+        ".1221....1221...",
+        ".1221....1221...",
+        ".11........11...",
+    ];
+    let hop = [
+        "....11111111....",
+        "...1222222221...",
+        "...1222222221...",
+        "...1211221121...",
+        "...1211221121...",
+        "...1222112221...",
+        "...1221111221...",
+        "....11111111....",
+        "..1221..........",
+        "..1221..........",
+        "...11...........",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+    ];
+    frame16(s, 4, 18, &standing);
+    frame16(s, 6, 18, &walk);
+    frame16(s, 8, 18, &hop);
+    // the flame-foot blob in the bottom-right cell (9,19)
+    let mut c = cell(s, 8, 18);
+    c.disc(12, 12, 3, G1);
+    c.disc(12, 12, 2, G2);
+    c.set(12, 12, G3);
+    c.set(11, 12, G3);
+    c.set(12, 13, G3);
+    c.set(13, 10, G1); // flicker tip
+}
+
+/// Sheep (10,18): cloud of wool (shade2), tan face and legs (shade3).
+fn sheep(s: &mut Sheet) {
+    let down = [
+        "..11........11..",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12233333332221.",
+        ".12331333313321.",
+        ".12233333332221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        "..122222222221..",
+        "...1111111111...",
+        "..33..33.33..33.",
+        "..33..33.33..33.",
+        "................",
+    ];
+    let up = [
+        "..11........11..",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222332222221.", // tail tuft
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        "..122222222221..",
+        "...1111111111...",
+        "..33..33.33..33.",
+        "..33..33.33..33.",
+        "................",
+    ];
+    let right = [
+        "..........11....",
+        "..122222222221..",
+        ".12222222233321.",
+        ".12222222313321.",
+        ".12222222233321.",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        "..122222222221..",
+        "...1111111111...",
+        "..33..33.33..33.",
+        "..33..33.33..33.",
+        "................",
+    ];
+    let right2 = [
+        "..........11....",
+        "..122222222221..",
+        ".12222222233321.",
+        ".12222222313321.",
+        ".12222222233321.",
+        ".12222222222221.",
+        ".12222222222221.",
+        ".12222222222221.",
+        "..122222222221..",
+        ".12222222222221.",
+        ".12222222222221.",
+        "..122222222221..",
+        "...1111111111...",
+        ".33....33....33.",
+        ".33....33....33.",
+        "................",
+    ];
+    frame16(s, 10, 18, &down);
+    frame16(s, 12, 18, &up);
+    frame16(s, 14, 18, &right);
+    frame16(s, 16, 18, &right2);
+}
+
+/// Snake (18,18): coiled body (shade2) with diamond markings (shade3).
+fn snake(s: &mut Sheet) {
+    let down = [
+        "................",
+        "................",
+        "......3.3.......",
+        ".......3........",
+        "....11111111....",
+        "...1222222221...",
+        "...1233223321...", // eyes
+        "...1222222221...",
+        "....12222221....",
+        ".....122221.....",
+        "...112222211....",
+        "..12223322221...",
+        ".1222332233221..",
+        ".1222222222221..",
+        "..111111111111..",
+        "................",
+    ];
+    let up = [
+        "................",
+        "................",
+        "................",
+        "................",
+        "....11111111....",
+        "...1222222221...",
+        "...1222222221...",
+        "...1222222221...",
+        "....12222221....",
+        ".....122221.....",
+        "...112222211....",
+        "..12223322221...",
+        ".1222332233221..",
+        ".1222222222221..",
+        "..111111111111..",
+        "................",
+    ];
+    let right = [
+        "................",
+        "................",
+        "................",
+        "..............33",
+        "........11111...",
+        ".......1222221..",
+        ".......1231221..",
+        "......12222221..",
+        "..111122222211..",
+        ".122223322221...",
+        ".122332233221...",
+        "..1222222221....",
+        "...11111111.....",
+        "................",
+        "................",
+        "................",
+    ];
+    let right2 = [
+        "................",
+        "................",
+        "................",
+        "..............33",
+        "........11111...",
+        ".......1222221..",
+        ".......1231221..",
+        "......12222221..",
+        "..111122222211..",
+        ".122233222221...",
+        ".122332233221...",
+        "..1222222221....",
+        "...11111111.....",
+        "................",
+        "................",
+        "................",
+    ];
+    frame16(s, 18, 18, &down);
+    frame16(s, 20, 18, &up);
+    frame16(s, 22, 18, &right);
+    frame16(s, 24, 18, &right2);
+}
+
+/// Glow worm (26,19): shades 0 AND 1 are transparent in its palette — art in 2-3 only.
+fn glow_worm(s: &mut Sheet) {
+    icon8(
+        s,
+        26,
+        19,
+        &[
+            "........", "..22....", ".2332...", ".23332..", "..2332..", "...22...", "........",
+            "........",
+        ],
+    );
+}
+
+/* ==============================  font (rows 30-31)  ============================== */
+
+/// The renderable half of `Font::CHARS` (all text is uppercased before drawing, so the
+/// lowercase tail of CHARS maps to cells past this 256x256 sheet and is never used).
+/// Glyph cell = `30*32 + index`.
+const FONT_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ      0123456789.,!?'\"-+=/\\%()<>:;^@";
+
+/// An original 5x7 (6x7 for M/W) rounded pixel font, 1px stroke.
+/// '#' = stroke (shade3); background stays shade0.
+#[rustfmt::skip]
+fn glyph(ch: char) -> Option<[&'static str; 7]> {
+    Some(match ch {
+        'A' => [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+        'B' => ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+        'C' => [".####", "#....", "#....", "#....", "#....", "#....", ".####"],
+        'D' => ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+        'E' => ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+        'F' => ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+        'G' => [".####", "#....", "#....", "#..##", "#...#", "#...#", ".###."],
+        'H' => ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+        'I' => ["###", ".#.", ".#.", ".#.", ".#.", ".#.", "###"],
+        'J' => ["..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."],
+        'K' => ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+        'L' => ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+        'M' => ["#....#", "##..##", "#.##.#", "#....#", "#....#", "#....#", "#....#"],
+        'N' => ["#...#", "##..#", "#.#.#", "#.#.#", "#..##", "#...#", "#...#"],
+        'O' => [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+        'P' => ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+        'Q' => [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+        'R' => ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+        'S' => [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+        'T' => ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+        'U' => ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+        'V' => ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+        'W' => ["#....#", "#....#", "#....#", "#....#", "#.##.#", "##..##", "#....#"],
+        'X' => ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+        'Y' => ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
+        'Z' => ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+        '0' => [".###.", "#..##", "#.#.#", "#.#.#", "##..#", "#...#", ".###."],
+        '1' => ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+        '2' => [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+        '3' => ["####.", "....#", "....#", ".###.", "....#", "....#", "####."],
+        '4' => ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+        '5' => ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+        '6' => [".###.", "#....", "#....", "####.", "#...#", "#...#", ".###."],
+        '7' => ["#####", "....#", "...#.", "..#..", "..#..", ".#...", ".#..."],
+        '8' => [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+        '9' => [".###.", "#...#", "#...#", ".####", "....#", "....#", ".###."],
+        '.' => ["", "", "", "", "", ".##", ".##"],
+        ',' => ["", "", "", "", ".##", ".##", "..#"],
+        '!' => ["..#", "..#", "..#", "..#", "..#", "", "..#"],
+        '?' => [".###.", "#...#", "....#", "..##.", "..#..", "", "..#.."],
+        '\'' => ["..#", "..#", ".#.", "", "", "", ""],
+        '"' => [".#.#", ".#.#", "", "", "", "", ""],
+        '-' => ["", "", "", ".###.", "", "", ""],
+        '+' => ["", "..#..", "..#..", "#####", "..#..", "..#..", ""],
+        '=' => ["", "", "#####", "", "#####", "", ""],
+        '/' => ["....#", "...#.", "...#.", "..#..", ".#...", ".#...", "#...."],
+        '\\' => ["#....", ".#...", ".#...", "..#..", "...#.", "...#.", "....#"],
+        '%' => ["##..#", "##..#", "...#.", "..#..", ".#...", "#..##", "#..##"],
+        '(' => ["..#.", ".#..", ".#..", ".#..", ".#..", ".#..", "..#."],
+        ')' => [".#..", "..#.", "..#.", "..#.", "..#.", "..#.", ".#.."],
+        '<' => ["...#", "..#.", ".#..", "#...", ".#..", "..#.", "...#"],
+        '>' => ["#...", ".#..", "..#.", "...#", "..#.", ".#..", "#..."],
+        ':' => ["", ".##", ".##", "", ".##", ".##", ""],
+        ';' => ["", ".##", ".##", "", ".##", "..#", ".#."],
+        '^' => ["..#..", ".#.#.", "#...#", "", "", "", ""],
+        '@' => [".###.", "#...#", "#.###", "#.#.#", "#.###", "#....", ".###."],
+        _ => return None, // the six spaces: empty (invisible) cells
+    })
+}
+
+fn font(s: &mut Sheet) {
+    for (i, ch) in FONT_CHARS.chars().enumerate() {
+        let pos = 30 * 32 + i as i32;
+        let (cx, cy) = (pos % 32, pos / 32);
+        let mut c = cell(s, cx, cy);
+        c.rect(0, 0, 8, 8, G0); // glyph backing box (colored by some callers)
+        if let Some(rows) = glyph(ch) {
+            c.pat(0, 0, &rows, &[('#', G3)]);
+        }
+    }
+}
+
+/* ==============================  title logo (0..13, 6..7)  ============================== */
+
+/// "FDOOM" — the font glyphs stretched to 3x2 with a warm red gradient, a drop shadow,
+/// side ornaments and a full-width underline (the game blits all 14x2 logo cells).
+/// True color: the title screen's palette is ignored.
+fn logo(s: &mut Sheet) {
+    let word = "FDOOM";
+    let hi = rgb(240, 110, 70);
+    let md = RED_CL;
+    let dk = rgb(128, 28, 32);
+    let (sx, sy) = (3, 2);
+
+    let widths: Vec<i32> = word
+        .chars()
+        .map(|ch| {
+            glyph(ch)
+                .expect("logo letters exist")
+                .iter()
+                .map(|r| r.len() as i32)
+                .max()
+                .unwrap()
+        })
+        .collect();
+    let total: i32 = widths.iter().map(|w| w * sx).sum::<i32>() + (word.len() as i32 - 1) * 3;
+    let x0 = (112 - total) / 2;
+
+    let mut c = cell(s, 0, 6);
+    // drop shadow first, then the gradient fill
+    for pass in 0..2 {
+        let mut lx = x0;
+        for (li, ch) in word.chars().enumerate() {
+            let rows = glyph(ch).expect("logo letters exist");
+            for (ry, row) in rows.iter().enumerate() {
+                for (rx, g) in row.chars().enumerate() {
+                    if g != '#' {
+                        continue;
+                    }
+                    for dy in 0..sy {
+                        for dx in 0..sx {
+                            let x = lx + rx as i32 * sx + dx;
+                            let y = ry as i32 * sy + dy;
+                            if pass == 0 {
+                                c.set(x + 1, y + 1, OUT);
+                            } else {
+                                let ink = if y < 5 {
+                                    hi
+                                } else if y < 10 {
+                                    md
+                                } else {
+                                    dk
+                                };
+                                c.set(x, y, ink);
+                            }
+                        }
+                    }
+                }
+            }
+            lx += widths[li] * sx + 3;
+        }
+    }
+    // side ornaments (diamonds) + full-width underline
+    for (ox, oy) in [(4, 7), (107, 7)] {
+        for d in -2i32..=2 {
+            c.set(ox + d, oy, md);
+            c.set(ox, oy + d, md);
+        }
+        c.set(ox, oy, hi);
+    }
+    c.hline(1, 15, 110, dk);
+    c.set(0, 15, md);
+    c.set(111, 15, md);
+}
+
+/// Cell (30,30): `Sprite::missing_texture` (drawn flat magenta by its palette).
+fn missing_texture(s: &mut Sheet) {
+    let mut c = cell(s, 30, 30);
+    c.rect(0, 0, 8, 8, G1);
+    c.dither(0, 0, 8, 8, 0, G2);
+}
+
+/* ==============================  main  ============================== */
+
+fn main() {
+    let mut s = Sheet::new();
+
+    // terrain
+    dots_cells(&mut s);
+    rock_connector(&mut s);
+    grass_connector(&mut s);
+    water_connector(&mut s);
+    wool_cell(&mut s);
+    cloud_full_cells(&mut s);
+    farm_cell(&mut s);
+    footprint_cell(&mut s);
+    ore_cells(&mut s);
+    quicksand_cells(&mut s);
+    stairs_cells(&mut s);
+    blank_cell(&mut s);
+    cactus_cells(&mut s);
+    wheat_cells(&mut s);
+    sapling_cell(&mut s);
+    torch_cell(&mut s);
+    floor_cells(&mut s);
+    tree_cells(&mut s);
+    door_cells(&mut s);
+    wall_cells(&mut s);
+    gravestone_cells(&mut s);
+    pumpkin_cells(&mut s);
+    tall_grass_cells(&mut s);
+
+    // items + UI
+    items_row4(&mut s);
+    items_row5(&mut s);
+    ui_row12(&mut s);
+    ui_row13(&mut s);
+    splash_cells(&mut s);
+
+    // furniture
+    furniture_sprites(&mut s);
+    furniture_icons(&mut s);
+
+    // mobs
+    player_sets(&mut s);
+    air_wizard(&mut s);
+    pig(&mut s);
+    knight(&mut s);
+    skeleton(&mut s);
+    cow(&mut s);
+    slime(&mut s);
+    creeper(&mut s);
+    sheep(&mut s);
+    snake(&mut s);
+    glow_worm(&mut s);
+
+    // text
+    font(&mut s);
+    logo(&mut s);
+    missing_texture(&mut s);
+
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/sprites.png");
+    s.save(&path);
+    println!("wrote {}", path.display());
+}

@@ -58,7 +58,7 @@ pub fn run(args: Vec<String>) {
 
     game.set_menu(SplashMenu::new()); // sets menu to the title screen
 
-    let sheet = Arc::new(SpriteSheet::from_png(assets::ICONS_PNG));
+    let sheet = Arc::new(SpriteSheet::from_png(assets::SPRITES_PNG));
     let renderer = Renderer::new(sheet);
 
     platform::run(game, renderer);

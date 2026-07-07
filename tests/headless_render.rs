@@ -31,7 +31,7 @@ fn dump_png(name: &str, s: &Screen) {
 
 #[test]
 fn sheet_loads_and_text_renders() {
-    let sheet = Arc::new(SpriteSheet::from_png(fdoom::assets::ICONS_PNG));
+    let sheet = Arc::new(SpriteSheet::from_png(fdoom::assets::SPRITES_PNG));
     assert!(
         sheet.width >= 256 && sheet.height >= 256,
         "unexpected sheet size {}x{}",
