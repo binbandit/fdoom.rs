@@ -8,7 +8,9 @@ use crate::gfx::{Screen, color, font};
 
 use super::display::{Display, DisplayBase};
 use super::entry::input_entry::{self, InputEntry, Validation};
-use super::entry::{EntryFlags, EntryHandle, ListEntry, SelectEntry, handle};
+use super::entry::{
+    BlankEntry, EntryFlags, EntryHandle, ListEntry, SelectEntry, StringEntry, handle,
+};
 use super::loading_display::LoadingDisplay;
 use super::menu::MenuBuilder;
 use super::rel_pos::RelPos;
@@ -113,16 +115,27 @@ impl WorldGenDisplay {
             }
         };
 
-        // Worlds are always infinite (user direction): no mode/type/size/theme rows —
-        // a world is fully described by its name and seed.
-        let entries: Vec<EntryHandle> = vec![name_field, handle(create_world), handle(world_seed)];
+        // Worlds are always infinite (user direction): a world is fully described by
+        // its name and seed. The screen floats over the title flyover like the main
+        // menu, centered, with breathing room and a hint about random seeds.
+        let entries: Vec<EntryHandle> = vec![
+            name_field,
+            handle(BlankEntry::new()),
+            handle(world_seed),
+            handle(StringEntry::with_color(
+                "(leave empty for a random seed)",
+                color::get(-1, 222),
+            )),
+            handle(BlankEntry::new()),
+            handle(create_world),
+        ];
 
-        let menu = MenuBuilder::new(false, 10, RelPos::Left, entries)
-            .set_title("World Gen Options")
+        let menu = MenuBuilder::new(false, 4, RelPos::Center, entries)
+            .set_title("NEW WORLD")
             .create_menu(g);
 
         WorldGenDisplay {
-            base: DisplayBase::new(true, true, vec![menu]),
+            base: DisplayBase::new(false, true, vec![menu]),
         }
     }
 }
