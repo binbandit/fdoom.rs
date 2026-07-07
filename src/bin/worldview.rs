@@ -523,7 +523,8 @@ impl App {
                     Mode::Tile => Mode::Biome,
                 }
             }
-            KeyCode::KeyN => {
+            // R = regenerate with a new seed (user muscle memory), N kept as alias
+            KeyCode::KeyR | KeyCode::KeyN => {
                 self.wv.set_seed(random_seed());
                 println!("new seed: {}", self.wv.seed);
                 self.wv.print_view_stats();
