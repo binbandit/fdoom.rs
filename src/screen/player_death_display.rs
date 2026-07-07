@@ -25,7 +25,7 @@ impl PlayerDeathDisplay {
     pub fn new(g: &Game) -> PlayerDeathDisplay {
         let mut entries: Vec<EntryHandle> = vec![
             handle(StringEntry::new(&format!(
-                "Time: {}",
+                "Time Survived: {}",
                 info_display::get_time_string(g)
             ))),
             handle(StringEntry::new(&format!(
@@ -45,8 +45,9 @@ impl PlayerDeathDisplay {
             })));
         }
 
-        // JAVA: if hardcore || !Game.isValidClient() — always true.
-        entries.push(handle(SelectEntry::new("Quit", |g: &mut Game| {
+        // JAVA: if hardcore || !Game.isValidClient() — always true. (JAVA: "Quit";
+        // renamed so the choice vs. "Respawn" is unambiguous.)
+        entries.push(handle(SelectEntry::new("Main Menu", |g: &mut Game| {
             g.set_menu(TitleDisplay::new(g))
         })));
 

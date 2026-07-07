@@ -2,8 +2,9 @@
 
 use crate::core::game::Game;
 use crate::entity::Entity;
+use crate::gfx::Screen;
 
-use super::display::{Display, DisplayBase, display_tick_default};
+use super::display::{Display, DisplayBase, display_render_default, display_tick_default};
 use super::inventory_menu;
 
 pub struct PlayerInvDisplay {
@@ -53,5 +54,10 @@ impl Display for PlayerInvDisplay {
             }
             g.clear_menu();
         }
+    }
+
+    fn render(&mut self, screen: &mut Screen, g: &mut Game) {
+        display_render_default(&mut self.base, screen, g);
+        inventory_menu::render_selected_info(&self.base.menus[0], screen, g);
     }
 }

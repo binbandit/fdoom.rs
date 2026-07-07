@@ -15,16 +15,13 @@ pub struct InfoDisplay {
 
 impl InfoDisplay {
     pub fn new(g: &Game) -> InfoDisplay {
+        // (Post-port cleanup: the "{select}/{exit}:Exit" hint line is gone — navigation
+        // hints are title-screen-only now.)
         let lines = [
             "----------------------------".to_string(),
             format!("Time Played: {}", get_time_string(g)),
             format!("Current Score: {}", g.player().player().get_score()),
             "----------------------------".to_string(),
-            format!(
-                "{}/{}:Exit",
-                g.input.get_mapping("select"),
-                g.input.get_mapping("exit")
-            ),
         ];
 
         let menu = MenuBuilder::new(true, 4, RelPos::Left, StringEntry::use_lines(&lines))

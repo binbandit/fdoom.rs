@@ -6,10 +6,9 @@ use std::sync::Arc;
 use crate::core::game::{self, Game};
 use crate::core::updater;
 use crate::entity::furniture::bed_behavior;
-use crate::gfx::ellipsis::Ellipsis;
 use crate::gfx::screen::{self, Screen};
 use crate::gfx::sprite_sheet::SpriteSheet;
-use crate::gfx::{FontStyle, color, font};
+use crate::gfx::{Dimension, FontStyle, Point, color, font};
 use crate::item::ItemKind;
 use crate::screen::RelPos;
 
@@ -31,8 +30,17 @@ pub struct Renderer {
     /// The darkness/fog-of-war overlay screen (JAVA: the overlay call is commented out in
     /// this fork, but the screen is still constructed).
     pub light_screen: Screen,
-    #[allow(dead_code)]
-    ellipsis: Ellipsis,
+}
+
+/// Fill a screen-space rect with a literal RGB color (bounds-clipped). The HUD's
+/// durability bar needs a flat fill, which no sprite-cell primitive provides.
+fn fill_rect_screen(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i32) {
+    for yy in y.max(0)..(y + h).min(screen::H) {
+        let row = (yy * screen::W) as usize;
+        for xx in x.max(0)..(x + w).min(screen::W) {
+            screen.pixels[row + xx as usize] = rgb;
+        }
+    }
 }
 
 impl Renderer {
@@ -41,7 +49,6 @@ impl Renderer {
             flyover: None,
             screen: Screen::new(sheet.clone()),
             light_screen: Screen::new(sheet),
-            ellipsis: Ellipsis::smooth_tick(),
         }
     }
 
@@ -276,6 +283,21 @@ impl Renderer {
                 .set_y_pos(screen::H * 2 / 5)
                 .set_rel_text_pos_both(RelPos::Top, false);
             let notes = g.notifications.clone();
+            // smoked-glass backing band (same primitive as the menu panels) so the text
+            // reads over any terrain; mirrors the geometry FontStyle computes above
+            let size = Dimension::new(
+                font::text_width_para(&notes),
+                notes.len() as i32 * font::text_height(),
+            );
+            let band =
+                RelPos::Top.position_rect(size, Point::new(screen::W / 2, screen::H * 2 / 5));
+            screen.darken_rect_screen(
+                band.left() - 4,
+                band.top() - 3,
+                band.width() + 8,
+                band.height() + 5,
+                185,
+            );
             font::draw_paragraph(&notes, screen, &mut style, 0);
         }
 
@@ -391,6 +413,28 @@ impl Renderer {
         if let Some(item) = active {
             // shows active item sprite and name in bottom toolbar
             item.render_inventory(&mut self.screen, g, 12 * 7 + 10, 8, false);
+
+            // HELD-TOOL DURABILITY BAR: a thin gauge under the toolbar item display,
+            // green -> yellow -> red as the remaining durability fraction drops.
+            if let ItemKind::Tool { ttype, level, dur } = &item.kind {
+                let screen = &mut self.screen;
+                let max = (ttype.durability() * (level + 1)).max(1);
+                let frac = (*dur).clamp(0, max) as f32 / max as f32;
+                let readable = if frac > 0.5 {
+                    140 // green
+                } else if frac > 0.25 {
+                    540 // yellow
+                } else {
+                    500 // red
+                };
+                let fill = color::upgrade(color::get_byte(readable));
+                let empty = color::upgrade(color::get_byte(111));
+                let (bx, by, bw) = (96, 17, 104); // inside the item frame's bottom border
+                fill_rect_screen(screen, bx - 1, by - 1, bw + 2, 4, 0x000000);
+                fill_rect_screen(screen, bx, by, bw, 2, empty);
+                let fw = ((bw as f32 * frac).round() as i32).clamp(0, bw);
+                fill_rect_screen(screen, bx, by, fw, 2, fill);
+            }
         }
     }
 
@@ -493,10 +537,5 @@ impl Renderer {
         } else {
             font::draw(msg, screen, xx, yy, color::get(color::hex("#2c2c2c"), 555));
         }
-    }
-
-    /// Access for gameplay screens that need the ellipsis (server waiting screen).
-    pub fn ellipsis_update(&mut self, tick_count: i32) -> String {
-        self.ellipsis.update_and_get(tick_count)
     }
 }

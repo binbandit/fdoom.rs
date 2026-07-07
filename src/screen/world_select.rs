@@ -9,9 +9,10 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use crate::core::file_handler::{self, SAVE_EXTENSION};
+use crate::core::file_handler;
 use crate::core::game::{self, Game};
 use crate::gfx::{Screen, color, font};
+use crate::saveload::save::EXTENSION as SAVE_EXTENSION;
 use crate::saveload::version::Version;
 
 use super::display::{Display, DisplayBase, display_render_default, display_tick_default};

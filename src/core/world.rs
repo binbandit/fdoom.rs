@@ -462,7 +462,7 @@ pub fn init_world(g: &mut Game) {
     } else {
         g.world_size = g.settings.get("size").as_int();
         let world_size = g.world_size;
-        let infinite = g.settings.get("worldtype").as_str() == "Infinite";
+        let infinite = true; // worlds are always infinite (user direction)
 
         let loading_inc =
             100.0 / (crate::level::MAX_LEVEL_DEPTH - crate::level::MIN_LEVEL_DEPTH + 1) as f32;

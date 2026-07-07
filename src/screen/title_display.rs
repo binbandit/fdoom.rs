@@ -2,11 +2,10 @@
 
 use crate::core::game::{self, Game};
 use crate::gfx::{Point, Screen, color, font};
-use crate::rng::Rng;
 
 use super::book_display::BookDisplay;
-use super::display::{Display, DisplayBase, display_render_default, display_tick_default};
-use super::entry::{BlankEntry, EntryHandle, SelectEntry, handle};
+use super::display::{Display, DisplayBase, display_render_default};
+use super::entry::{EntryHandle, SelectEntry, handle};
 use super::menu::MenuBuilder;
 use super::options_display::OptionsDisplay;
 use super::rel_pos::RelPos;
@@ -15,11 +14,6 @@ use super::world_select::WorldSelectDisplay;
 
 pub struct TitleDisplay {
     base: DisplayBase,
-    #[allow(dead_code)]
-    rand: i32,
-    count: i32, // this and reverse are for the logo; they produce the fade-in/out effect
-    reverse: bool,
-    random: Rng,
 }
 
 /// Java `displayFactory(entryText, entries...)` — a submenu-in-a-plain-Display button.
@@ -62,13 +56,9 @@ impl TitleDisplay {
             })),
             display_factory(
                 "Help",
-                vec![
-                    handle(SelectEntry::new("Instructions", |g: &mut Game| {
-                        g.set_menu(BookDisplay::new(g, super::book_data::INSTRUCTIONS));
-                    })),
-                    handle(BlankEntry::new()),
-                    handle(BlankEntry::new()),
-                ],
+                vec![handle(SelectEntry::new("Instructions", |g: &mut Game| {
+                    g.set_menu(BookDisplay::new(g, super::book_data::INSTRUCTIONS));
+                }))],
             ),
             handle(SelectEntry::new("Quit", |g: &mut Game| g.quit())),
         ];
@@ -83,10 +73,6 @@ impl TitleDisplay {
         TitleDisplay {
             // clear_screen=false: the renderer draws the drone-flyover world behind us
             base: DisplayBase::new(false, false, vec![menu]),
-            rand: 0,
-            count: 0,
-            reverse: false,
-            random: Rng::from_time(),
         }
     }
 }
@@ -105,10 +91,8 @@ impl Display for TitleDisplay {
         g.display.stack.clear();
         g.ready_to_render_gameplay = false;
 
-        // JAVA: checkVersion() — the update check is disabled upstream (findLatestVersion
-        // is commented out), so the "Checking for updates..." entry stays as-is.
-
-        self.rand = self.random.next_int_bound(SPLASHES.len() as i32);
+        // (Post-port cleanup: the Java splash-text list, its "r" reroll, and the unused
+        // logo fade counters are gone — none of them were ever rendered in this fork.)
 
         // JAVA: World.levels = new Level[World.levels.length];
         for level in g.levels.iter_mut() {
@@ -117,26 +101,6 @@ impl Display for TitleDisplay {
 
         // JAVA: World.resetGame(false) only ran when the player was null or a
         // RemotePlayer (after online play); the singleplayer player always exists here.
-    }
-
-    fn tick(&mut self, g: &mut Game) {
-        if g.input.get_key("r").clicked {
-            self.rand = self.random.next_int_bound(SPLASHES.len() as i32);
-        }
-
-        if !self.reverse {
-            self.count += 1;
-            if self.count == 25 {
-                self.reverse = true;
-            }
-        } else {
-            self.count -= 1;
-            if self.count == 0 {
-                self.reverse = false;
-            }
-        }
-
-        display_tick_default(&mut self.base, g);
     }
 
     fn render(&mut self, screen: &mut Screen, g: &mut Game) {
@@ -168,139 +132,39 @@ impl Display for TitleDisplay {
             color::get(-1, 111),
         );
 
-        let up_string = format!(
-            "({}, {}{})",
-            g.input.get_mapping("up"),
-            g.input.get_mapping("down"),
-            g.localization.get_localized(" to select")
-        );
-        let select_string = format!(
-            "({}{})",
-            g.input.get_mapping("select"),
-            g.localization.get_localized(" to accept")
-        );
-        let exit_string = format!(
-            "({}{})",
-            g.input.get_mapping("exit"),
-            g.localization.get_localized(" to return")
-        );
-
-        font::draw_centered(
-            &up_string,
-            screen,
-            crate::gfx::screen::H - 32,
-            color::get(-1, 111),
-        );
-        font::draw_centered(
-            &select_string,
-            screen,
-            crate::gfx::screen::H - 22,
-            color::get(-1, 111),
-        );
-        font::draw_centered(
-            &exit_string,
-            screen,
-            crate::gfx::screen::H - 12,
-            color::get(-1, 111),
+        // Navigation hints — title screen only (in-game menus skip them), and dimmed
+        // past the palette floor with a post-draw multiplicative darken.
+        let hints = [
+            format!(
+                "({}, {}{})",
+                g.input.get_mapping("up"),
+                g.input.get_mapping("down"),
+                g.localization.get_localized(" to select")
+            ),
+            format!(
+                "({}{})",
+                g.input.get_mapping("select"),
+                g.localization.get_localized(" to accept")
+            ),
+            format!(
+                "({}{})",
+                g.input.get_mapping("exit"),
+                g.localization.get_localized(" to return")
+            ),
+        ];
+        for (i, hint) in hints.iter().enumerate() {
+            let y = crate::gfx::screen::H - 32 + i as i32 * 10;
+            font::draw_centered(hint, screen, y, color::get(-1, 111));
+        }
+        // one multiplicative darken over the whole hint block: drops the text below the
+        // palette's dimmest gray without leaving per-line boxes
+        let w = hints.iter().map(|h| font::text_width(h)).max().unwrap_or(0) + 8;
+        screen.darken_rect_screen(
+            (crate::gfx::screen::W - w) / 2,
+            crate::gfx::screen::H - 35,
+            w,
+            32,
+            110,
         );
     }
 }
-
-#[allow(dead_code)]
-static SPLASHES: &[&str] = &[
-    "Multiplayer Now Included!",
-    "Only on PlayMinicraft.com!",
-    "Playminicraft.com is the bomb!",
-    "MinicraftPlus on Youtube",
-    "The Wiki is weak! Help it!",
-    "Notch is Awesome!",
-    "Dillyg10 is cool as Ice!",
-    "Shylor is the man!",
-    "AntVenom loves cows! Honest!",
-    "You should read Antidious Venomi!",
-    "Oh Hi Mark",
-    "Use the force!",
-    "Keep calm!",
-    "Get him, Steve!",
-    "Forty-Two!",
-    "Kill Creeper, get Gunpowder!",
-    "Kill Cow, get Beef!",
-    "Kill Zombie, get Cloth!",
-    "Kill Slime, get Slime!",
-    "Kill Skeleton, get Bones!",
-    "Kill Sheep, get Wool!",
-    "Kill Pig, get Porkchop!",
-    "Gold > Iron",
-    "Gem > Gold",
-    "Test == InDev!",
-    "Story? Uhh...",
-    "Infinite terrain? What's that?",
-    "Redstone? What's that?",
-    "Minecarts? What are those?",
-    "Windows? I prefer Doors!",
-    "2.5D FTW!",
-    "3rd dimension not included!",
-    "Mouse not included!",
-    "No spiders included!",
-    "No Endermen included!",
-    "No chickens included!",
-    "Grab your friends!",
-    "Creepers included!",
-    "Skeletons included!",
-    "Knights included!",
-    "Snakes included!",
-    "Cows included!",
-    "Sheep included!",
-    "Pigs included!",
-    "Bigger Worlds!",
-    "World types!",
-    "World themes!",
-    "Sugarcane is a Idea!",
-    "Milk is an idea!",
-    "So we back in the mine,",
-    "pickaxe swinging from side to side",
-    "Life itself suspended by a thread",
-    "In search of Gems!",
-    "saying ay-oh, that creeper's KO'd!",
-    "Gimmie a bucket!",
-    "Farming with water!",
-    "Press \"R\"!",
-    "Get the High-Score!",
-    "Potions ftw!",
-    "Beds ftw!",
-    "Defeat the Air Wizard!",
-    "Conquer the Dungeon!",
-    "One down, one to go...",
-    "Loom + Wool = String!",
-    "String + Wood = Rod!",
-    "Sand + Gunpowder = TNT!",
-    "Sleep at Night!",
-    "Farm at Day!",
-    "Explanation Mark!",
-    "!sdrawkcab si sihT",
-    "This is forwards!",
-    "Why is this blue?",
-    "Green is a nice color!",
-    "Red is my favorite color!",
-    "Y U NO BOAT!?",
-    "Made with 10000% Vitamin Z!",
-    "Too much DP!",
-    "Punch the Moon!",
-    "This is String qq!",
-    "Why?",
-    "You are null!",
-    "hello down there!",
-    "That guy is such a sly fox!",
-    "Hola senor!",
-    "Sonic Boom!",
-    "Hakuna Matata!",
-    "One truth prevails!",
-    "Awesome!",
-    "Sweet!",
-    "Cool!",
-    "Radical!",
-    "011011000110111101101100!",
-    "001100010011000000110001!",
-    "011010000110110101101101?",
-    "...zzz...",
-];

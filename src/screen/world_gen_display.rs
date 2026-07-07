@@ -5,9 +5,7 @@ use std::rc::Rc;
 
 use crate::core::game::Game;
 use crate::gfx::{Screen, color, font};
-use crate::screen::settings_widgets::{self, SettingEntry};
 
-use super::book_display::BookDisplay;
 use super::display::{Display, DisplayBase};
 use super::entry::input_entry::{self, InputEntry, Validation};
 use super::entry::{EntryFlags, EntryHandle, ListEntry, SelectEntry, handle};
@@ -46,34 +44,6 @@ pub fn make_world_name_input(
     entry
 }
 
-/// Java's anonymous `SelectEntry` override: "Trouble with world name?" renders in a fixed
-/// dim color regardless of selection.
-struct NameHelpEntry {
-    inner: SelectEntry,
-}
-
-impl ListEntry for NameHelpEntry {
-    fn flags(&self) -> EntryFlags {
-        self.inner.flags()
-    }
-
-    fn flags_mut(&mut self) -> &mut EntryFlags {
-        self.inner.flags_mut()
-    }
-
-    fn tick(&mut self, g: &mut Game) {
-        self.inner.tick(g);
-    }
-
-    fn to_display_string(&self, g: &Game) -> String {
-        self.inner.to_display_string(g)
-    }
-
-    fn get_color(&self, _is_selected: bool) -> i32 {
-        color::get(-1, 444)
-    }
-}
-
 /// Java's anonymous `SelectEntry` override: "Create World" always renders cyan.
 struct CreateWorldEntry {
     inner: SelectEntry,
@@ -104,7 +74,6 @@ impl ListEntry for CreateWorldEntry {
 
 pub struct WorldGenDisplay {
     base: DisplayBase,
-    settings: Vec<SettingEntry>,
 }
 
 impl WorldGenDisplay {
@@ -117,15 +86,6 @@ impl WorldGenDisplay {
 
         // (The Java "Trouble with world name?" help entry is gone: text rows now capture
         // typing, and menu navigation while typing uses the physical arrow keys.)
-        let mut name_help = NameHelpEntry {
-            inner: SelectEntry::new("Trouble with world name?", |g: &mut Game| {
-                g.set_menu(BookDisplay::new(
-                    g,
-                    "While typing a name, letters always type; use the arrow keys to move between fields.",
-                ));
-            }),
-        };
-        name_help.set_visible(false);
 
         // JAVA: worldSeed = new InputEntry("World Seed", "[0-9]+", 20) { isValid() → true }
         WORLD_SEED.with(|s| s.borrow_mut().clear());
@@ -153,32 +113,16 @@ impl WorldGenDisplay {
             }
         };
 
-        // survival is the only game mode (user direction); no mode picker
-        let settings: Vec<SettingEntry> = ["worldtype", "size", "theme", "type"]
-            .iter()
-            .map(|key| settings_widgets::make_entry(g, key))
-            .collect();
-
-        let entries: Vec<EntryHandle> = vec![
-            name_field,
-            handle(name_help),
-            settings[0].1.clone(),
-            handle(create_world),
-            settings[1].1.clone(),
-            settings[2].1.clone(),
-            settings[3].1.clone(),
-            handle(world_seed),
-        ];
+        // Worlds are always infinite (user direction): no mode/type/size/theme rows —
+        // a world is fully described by its name and seed.
+        let entries: Vec<EntryHandle> = vec![name_field, handle(create_world), handle(world_seed)];
 
         let menu = MenuBuilder::new(false, 10, RelPos::Left, entries)
-            .set_display_length(5)
-            .set_scroll_policies(0.8, false)
             .set_title("World Gen Options")
             .create_menu(g);
 
         WorldGenDisplay {
             base: DisplayBase::new(true, true, vec![menu]),
-            settings,
         }
     }
 }
@@ -190,11 +134,6 @@ impl Display for WorldGenDisplay {
 
     fn base_mut(&mut self) -> &mut DisplayBase {
         &mut self.base
-    }
-
-    fn tick(&mut self, g: &mut Game) {
-        super::display::display_tick_default(&mut self.base, g);
-        settings_widgets::sync(g, &self.settings);
     }
 
     // JAVA: init forces the parent to a TitleDisplay when not opened from one; with the

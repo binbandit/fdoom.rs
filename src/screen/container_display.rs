@@ -2,9 +2,9 @@
 
 use crate::core::game::Game;
 use crate::entity::Entity;
-use crate::gfx::screen;
+use crate::gfx::{Screen, screen};
 
-use super::display::{Display, DisplayBase, display_tick_default};
+use super::display::{Display, DisplayBase, display_render_default, display_tick_default};
 use super::inventory_menu;
 
 const PADDING: i32 = 10;
@@ -185,5 +185,12 @@ impl Display for ContainerDisplay {
             g.entities.put_back(chest);
             self.update(g);
         }
+    }
+
+    fn render(&mut self, screen: &mut Screen, g: &mut Game) {
+        display_render_default(&mut self.base, screen, g);
+        // pinned selected-item line for whichever inventory panel has focus
+        let sel = self.base.selection as usize;
+        inventory_menu::render_selected_info(&self.base.menus[sel], screen, g);
     }
 }

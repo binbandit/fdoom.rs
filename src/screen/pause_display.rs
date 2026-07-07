@@ -16,19 +16,6 @@ pub struct PauseDisplay {
 
 impl PauseDisplay {
     pub fn new(g: &Game) -> PauseDisplay {
-        let up_string = format!(
-            "{}{}{}{}",
-            g.input.get_mapping("up"),
-            g.localization.get_localized(" and "),
-            g.input.get_mapping("down"),
-            g.localization.get_localized(" to Scroll")
-        );
-        let select_string = format!(
-            "{}{}",
-            g.input.get_mapping("select"),
-            g.localization.get_localized(": Choose")
-        );
-
         let mut entries: Vec<EntryHandle> = vec![
             handle(BlankEntry::new()),
             handle(SelectEntry::new("Return to Game", |g: &mut Game| {
@@ -75,10 +62,7 @@ impl PauseDisplay {
             g.set_menu(super::plain_display(false, true, vec![menu]));
         })));
 
-        entries.push(handle(BlankEntry::new()));
-        entries.push(handle(StringEntry::with_color(&up_string, color::GRAY)));
-        entries.push(handle(StringEntry::with_color(&select_string, color::GRAY)));
-
+        // (Post-port cleanup: the scroll/choose hint lines are title-screen-only now.)
         let menu = MenuBuilder::new(true, 4, RelPos::Center, entries)
             .set_title_color("Paused", 550, false)
             .create_menu(g);

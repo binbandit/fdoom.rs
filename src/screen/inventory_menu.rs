@@ -9,6 +9,7 @@
 
 use crate::core::game::Game;
 use crate::entity::Entity;
+use crate::gfx::{Screen, sprite_sheet};
 use crate::item::Inventory;
 use crate::level;
 
@@ -52,6 +53,26 @@ pub fn rebuilt(g: &Game, holder: &Entity, title: &str, selection: i32) -> Menu {
     let mut menu = new(g, holder, title);
     menu.set_selection(selection);
     menu
+}
+
+/// QOL: the selected item's row (icon + name, including its stack count), pinned to the
+/// panel's bottom border — the counterpart of the title overlapping the top border.
+pub fn render_selected_info(menu: &Menu, screen: &mut Screen, g: &mut Game) {
+    let Some(entry) = menu.get_cur_entry() else {
+        return;
+    };
+    let b = menu.get_bounds();
+    let x = b.left() + sprite_sheet::BOX_WIDTH;
+    let y = b.bottom() - sprite_sheet::BOX_WIDTH;
+    // smoked-glass backing over the border sprites so the line reads clearly
+    screen.darken_rect_screen(
+        b.left() + 2,
+        y - 1,
+        b.width() - 4,
+        sprite_sheet::BOX_WIDTH + 1,
+        185,
+    );
+    entry.borrow_mut().render(screen, g, x, y, true);
 }
 
 /// The tail of Java `InventoryMenu.tick(input)` (after `super.tick`): drop one item or a
