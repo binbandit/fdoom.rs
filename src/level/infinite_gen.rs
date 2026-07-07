@@ -279,7 +279,7 @@ pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) ->
             let y = base_y + ly;
             let t = match depth {
                 0 => surface_tile(seed, x, y, &ids),
-                -1 | -2 | -3 => mine_tile(seed, depth, x, y, &ids),
+                -3..=-1 => mine_tile(seed, depth, x, y, &ids),
                 _ => ids.rock, // infinite gen only covers surface + mines
             };
             chunk.tiles[(lx + ly * CHUNK_SIZE) as usize] = t;
