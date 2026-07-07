@@ -271,14 +271,16 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             if detail < 0.02 { ids.palm } else { ids.sand }
         }
         Biome::Mountains => {
-            // snow-capped peaks where the range runs cold: the coldest mountain
-            // cores (same temperature/belt fields as biome_at) turn white
+            // Altitude beats climate (user request): the belt field doubles as
+            // elevation, so the very highest peaks are snow-capped ANYWHERE — like
+            // real mountains — while merely-high slopes only whiten where it's cold.
+            let belt = fractal(seed, 9, x, y, 320, 2);
+            if belt > 0.80 {
+                return ids.snow; // summit line: snow in any climate
+            }
             let temperature = fractal(seed, 6, x, y, 512, 2);
-            if temperature < 0.42 {
-                let belt = fractal(seed, 9, x, y, 320, 2);
-                if belt > 0.76 {
-                    return ids.snow;
-                }
+            if temperature < 0.42 && belt > 0.76 {
+                return ids.snow; // cold ranges whiten further down the slopes
             }
             ids.rock
         }
