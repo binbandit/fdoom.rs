@@ -206,6 +206,8 @@ impl Recipes {
             r("Stone Brick*2", "Stone*2"),
             r("Stone Wall", "Stone Brick*3"),
             r("Stone Door", "Stone Brick*5"),
+            // a paned wall segment: two panes leaded into a wooden frame
+            r("Window", "glass*2 + Wood*2"),
             r("Oven", "Stone*15"),
             r("Furnace", "Stone*20"),
             r("Enchanter", "Wood*5 + String*2 + Lapis*10"),
@@ -293,7 +295,10 @@ impl Recipes {
         let furnace = vec![
             r("iron", "iron Ore*4 + coal"),
             r("gold", "gold Ore*4 + coal"),
-            r("glass", "sand*4 + coal"),
+            // light & shelter: cheapened from sand*4 so windows (glass*2 each) are
+            // an early-house build, not a late-game luxury; coal is the fuel, as in
+            // the ore smelts above
+            r("glass", "sand*2 + coal"),
             // roast forage — available at either heat station (also in the oven list)
             r("Cooked Mushroom", "Mushroom + coal"),
         ];

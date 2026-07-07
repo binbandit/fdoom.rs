@@ -625,6 +625,15 @@ every entity in the visible tile window, **sorts by `e.c.y` ascending** ("Java s
 then renders each via `g.with_entity(eid, entity_render)` (the take-out pattern). Entities not
 on this level or `removed` are pruned from the level rather than drawn.
 
+**Lighting/atmosphere post-pass**: `render_level` ends with
+`gfx::lighting::render_pass(&mut screen, &mut light_screen, g, lvl, x_scroll, y_scroll)` —
+biome ground tint, time-of-day grading, emitter radiance, and event skies, applied before
+the HUD so UI text stays crisp (the module's doc comment is the full reference). Emitter
+stamping is **occlusion-aware**: tiles with `TileDef.blocks_light` (walls, rock, hard rock;
+closed doors via `dispatch::blocks_light`) cast per-emitter tile-grid shadows, so torchlight
+fills a room and beams through doorways/Windows instead of glowing through walls. Emitters
+with no blocker in reach skip the mask — open terrain stamps at the pre-occlusion cost.
+
 ### 9.5 `render_gui` — full HUD anatomy (`renderer.rs:197-393`)
 
 Draw order:

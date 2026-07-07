@@ -49,6 +49,7 @@ pub mod tree_species;
 pub mod wall;
 pub mod water;
 pub mod wheat;
+pub mod window;
 pub mod wool;
 
 use std::cell::RefCell;
@@ -147,6 +148,11 @@ pub struct TileDef {
     pub connects_to_water: bool,
     pub light: i32,
     pub may_spawn: bool,
+    /// Post-port (light & shelter wave): this tile occludes emitter light in the
+    /// `gfx::lighting` radiance pass. Walls, rock, and hard rock set it; doors set it
+    /// too but are gated on their closed state in `dispatch::blocks_light`. Trees
+    /// deliberately don't (forests stay lit); windows are the whole point of not.
+    pub blocks_light: bool,
     pub sprite: Option<Sprite>,
     pub csprite: Option<ConnectorSprite>,
     pub kind: TileKind,
@@ -164,6 +170,7 @@ impl TileDef {
             connects_to_water: false,
             light: 1,
             may_spawn: false,
+            blocks_light: false,
             sprite: None,
             csprite: None,
             kind,
@@ -230,6 +237,9 @@ pub enum TileKind {
     Door {
         material: Material,
     },
+    /// Light & shelter wave: a wall segment with a glass pane — solid to movement
+    /// like a wall, but transparent to light and sight (see `window.rs`).
+    Window,
     Wool,
     QuickSand,
     Snow,
@@ -396,6 +406,9 @@ impl Tiles {
 
         // fossicking: the mine-ceiling support post (see fossick.rs)
         set(65, dispatch::make_timber_prop_tile("Timber Prop"));
+
+        // light & shelter: the glass-paned wall segment (see window.rs)
+        set(66, dispatch::make_window_tile("Window"));
 
         Tiles {
             list: RefCell::new(t),

@@ -100,6 +100,11 @@ the count the planned refactor should collapse.) Example: a "Mud" tile.
    }
    pub fn stepped_on(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, e: &mut Entity) { ... }
    ```
+   If the tile is a solid, opaque mass (a wall/rock family member), also set
+   `t.blocks_light = true` — the lighting pass (`gfx::lighting`) shadows emitter
+   light behind such tiles. State-dependent occlusion (a door's open/closed data)
+   goes through `dispatch::blocks_light` instead; see-through solids like the
+   Window leave it `false`.
 3. `src/level/tile/dispatch.rs` — wire it up:
    - add a constructor wrapper in the constructors block:
      `pub fn make_mud_tile(name: &str) -> TileDef { mud::make(name) }`

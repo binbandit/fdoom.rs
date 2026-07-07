@@ -234,6 +234,22 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         items.push(spawner(mob::sheep::new(g)));
         items.push(spawner(mob::zombie::new(g, 1)));
         items.push(spawner(mob::snake::new(g, 1)));
+        items.push(spawner(mob::snake::new_variant(
+            g,
+            mob::snake::SnakeVariant::Grass,
+            1,
+        )));
+        items.push(spawner(mob::snake::new_variant(
+            g,
+            mob::snake::SnakeVariant::Adder,
+            1,
+        )));
+        items.push(spawner(mob::snake::new_variant(
+            g,
+            mob::snake::SnakeVariant::Rattler,
+            1,
+        )));
+        items.push(spawner(mob::ghost::new(g, 1)));
         items.push(spawner(mob::knight::new(g, 1)));
         items.push(spawner(mob::marsh_lurker::new(g, 1)));
         items.push(spawner(mob::feral_hound::new(g, 1)));
@@ -371,6 +387,17 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         get4(-1, 159, 59, 59),
         "Obsidian Door",
         &["Obsidian"],
+    ));
+    // Light & shelter: a glass pane in a wall segment — solid like a wall, but
+    // light and sight pass straight through (the tile's blocks_light stays false).
+    // TODO(art): dedicated window icon (frame + pane); placeholder reuses the wall
+    // cell in pale glass tones.
+    items.push(tile_item(
+        "Window",
+        (16, 4),
+        get4(-1, 111, 344, 455),
+        "Window",
+        &["Wood Planks", "Stone Bricks", "Obsidian"],
     ));
     items.push(tile_item(
         "Wool",

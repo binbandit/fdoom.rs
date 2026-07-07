@@ -17,7 +17,12 @@
 //!    the final pixel is `grade(pixel) * max(ambient, light)`, quantized into bands with
 //!    Bayer 4x4 ordered dithering on the falloff so light edges read as pixel-art, not
 //!    smooth banding. Underground levels get a near-black ambient — real cave darkness —
-//!    that only emitters can push back.
+//!    that only emitters can push back. Stamping is **occlusion-aware** (light &
+//!    shelter wave): walls, rock, and closed doors (`dispatch::blocks_light`) shadow
+//!    the falloff via a per-emitter tile-grid line-of-sight mask, so a torch in a
+//!    stone room lights the room and spills beams through the doorway and windows,
+//!    but never glows through the walls. Emitters with no blocker in reach skip the
+//!    mask entirely — open terrain costs what it always did.
 //! 3. **Event skies** — Aurora nights (`core::events`) drift slow green/teal bands over
 //!    the scene, additively and subtly.
 
@@ -437,16 +442,149 @@ fn build_luts(amb: &Ambient) -> Vec<[[u8; 256]; 3]> {
     luts
 }
 
-/// Collect this frame's emitters and stamp radial falloff into the light buffer.
-fn stamp_emitters(light: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_scroll: i32) {
+/// Per-emitter tile-grid line-of-sight mask: `vis` is a `(2*rt+1)²` grid centered on
+/// the emitter's tile, true where the emitter can see the tile.
+struct Occlusion {
+    vis: Vec<bool>,
+    etx: i32,
+    ety: i32,
+    rt: i32,
+}
+
+impl Occlusion {
+    fn visible(&self, tx: i32, ty: i32) -> bool {
+        let w = 2 * self.rt + 1;
+        let dx = tx - self.etx + self.rt;
+        let dy = ty - self.ety + self.rt;
+        dx >= 0 && dy >= 0 && dx < w && dy < w && self.vis[(dy * w + dx) as usize]
+    }
+}
+
+/// Whether the center-to-center segment from the origin tile to `(dx, dy)`
+/// (mask-local coords) crosses a blocked cell. A supercover grid walk: at each step
+/// the segment's next grid-line crossing decides an x-step, a y-step, or (exactly
+/// through a corner) a diagonal step. Endpoints are exempt — the emitter's own tile
+/// never blocks, and a wall's *face* still catches light.
+fn line_clear(blocked: &[bool], rt: i32, dx: i32, dy: i32) -> bool {
+    let w = 2 * rt + 1;
+    let (sx, sy) = (dx.signum(), dy.signum());
+    let (adx, ady) = (dx.abs(), dy.abs());
+    let (mut x, mut y) = (0i32, 0i32);
+    let (mut ix, mut iy) = (0i32, 0i32); // vertical / horizontal grid lines crossed
+    while (x, y) != (dx, dy) {
+        // Fractions along the segment of the next crossings: (2ix+1)/(2adx) vs
+        // (2iy+1)/(2ady), compared via cross-multiplication (no division).
+        let dec = (2 * ix + 1) * ady - (2 * iy + 1) * adx;
+        match dec.cmp(&0) {
+            std::cmp::Ordering::Equal => {
+                x += sx;
+                y += sy;
+                ix += 1;
+                iy += 1;
+            }
+            std::cmp::Ordering::Less => {
+                x += sx;
+                ix += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                y += sy;
+                iy += 1;
+            }
+        }
+        if (x, y) == (dx, dy) {
+            break;
+        }
+        if blocked[((y + rt) * w + x + rt) as usize] {
+            return false;
+        }
+    }
+    true
+}
+
+/// The line-of-sight mask around an emitter, or `None` when no tile in reach blocks
+/// light — the common open-terrain case, which then stamps mask-free at the exact
+/// pre-occlusion cost.
+fn occlusion_mask(g: &Game, lvl: usize, etx: i32, ety: i32, rt: i32) -> Option<Occlusion> {
+    let w = 2 * rt + 1;
+    let mut blocked = vec![false; (w * w) as usize];
+    let mut any = false;
+    for dy in -rt..=rt {
+        for dx in -rt..=rt {
+            let (tx, ty) = (etx + dx, ety + dy);
+            let def = g.tile_at(lvl, tx, ty);
+            if crate::level::tile::dispatch::blocks_light(g, &def, lvl, tx, ty) {
+                blocked[((dy + rt) * w + dx + rt) as usize] = true;
+                any = true;
+            }
+        }
+    }
+    if !any {
+        return None;
+    }
+    let mut vis = vec![false; (w * w) as usize];
+    for dy in -rt..=rt {
+        for dx in -rt..=rt {
+            vis[((dy + rt) * w + dx + rt) as usize] = line_clear(&blocked, rt, dx, dy);
+        }
+    }
+    Some(Occlusion { vis, etx, ety, rt })
+}
+
+/// Stamp one emitter's radial falloff (the `Screen::render_light` curve) into the
+/// light buffer, masked per tile by the emitter's line-of-sight when it has one.
+fn stamp_falloff(
+    light: &mut Screen,
+    cx: i32,
+    cy: i32,
+    r: i32,
+    occ: Option<&Occlusion>,
+    x_scroll: i32,
+    y_scroll: i32,
+) {
+    let x = cx - x_scroll;
+    let y = cy - y_scroll;
+    let x0 = (x - r).max(0);
+    let x1 = (x + r).min(screen::W);
+    let y0 = (y - r).max(0);
+    let y1 = (y + r).min(screen::H);
+    let rr = r * r;
+    for yy in y0..y1 {
+        let ty = (yy + y_scroll) >> 4;
+        let yd = (yy - y) * (yy - y);
+        let row = (yy * screen::W) as usize;
+        for xx in x0..x1 {
+            if let Some(o) = occ {
+                if !o.visible((xx + x_scroll) >> 4, ty) {
+                    continue;
+                }
+            }
+            let xd = xx - x;
+            let dist = xd * xd + yd;
+            if dist <= rr {
+                let br = 255 - dist * 255 / rr;
+                let px = &mut light.pixels[row + xx as usize];
+                if *px < br {
+                    *px = br;
+                }
+            }
+        }
+    }
+}
+
+/// Collect this frame's emitters and stamp radial falloff into the light buffer,
+/// shadowed by light-blocking tiles (see [`Occlusion`]). Public for the shelter
+/// tests (`tests/light_shelter.rs`); the game only calls it via [`render_pass`].
+pub fn stamp_emitters(light: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_scroll: i32) {
     light.clear(0);
-    light.set_offset(x_scroll, y_scroll);
 
     let xo = x_scroll >> 4;
     let yo = y_scroll >> 4;
     let w = (screen::W + 15) >> 4;
     let h = (screen::H + 15) >> 4;
     const MARGIN: i32 = 8; // widest emitter (gold lantern, r=15) reaches ~8 tiles
+
+    // (level-pixel center x, y, pixel radius) per emitter this frame.
+    let mut emitters: Vec<(i32, i32, i32)> = Vec::new();
 
     // Entity emitters: lanterns, glow worms, night wisps, the player (bigger radius
     // when holding a torch or lantern), plus furnace/oven ember glow.
@@ -491,7 +629,7 @@ fn stamp_emitters(light: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_scr
             _ => {}
         }
         if r > 0 {
-            light.render_light(e.c.x - 1, e.c.y - 4, r * PX_PER_RADIUS);
+            emitters.push((e.c.x - 1, e.c.y - 4, r * PX_PER_RADIUS));
         }
     }
 
@@ -503,12 +641,18 @@ fn stamp_emitters(light: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_scr
             let tile = g.tile_at(lvl, xt, yt);
             let lr = crate::level::tile::dispatch::get_light_radius(g, &tile, lvl, xt, yt);
             if lr > 0 {
-                light.render_light(xt * 16 + 8, yt * 16 + 8, lr * PX_PER_RADIUS);
+                emitters.push((xt * 16 + 8, yt * 16 + 8, lr * PX_PER_RADIUS));
             }
         }
     }
 
-    light.set_offset(0, 0);
+    for (cx, cy, r) in emitters {
+        // Tile reach of the falloff: r px / 16, +1 for the emitter's own off-center
+        // position within its tile.
+        let rt = (r >> 4) + 1;
+        let occ = occlusion_mask(g, lvl, cx >> 4, cy >> 4, rt);
+        stamp_falloff(light, cx, cy, r, occ.as_ref(), x_scroll, y_scroll);
+    }
 }
 
 /// Final per-pixel mix: `grade(pixel) * max(ambient, light)`, with the light term

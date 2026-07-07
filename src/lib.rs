@@ -36,10 +36,6 @@ pub fn run(args: Vec<String>) {
                 i += 1;
                 save_dir = args[i].clone();
             }
-            "--localclient" | "--server" => {
-                eprintln!("multiplayer is not available in this build (see PORTING.md)");
-                std::process::exit(1);
-            }
             _ => {}
         }
         i += 1;

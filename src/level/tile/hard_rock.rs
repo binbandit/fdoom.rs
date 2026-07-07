@@ -12,6 +12,7 @@ use crate::item::{Item, ItemKind, ToolType};
 /// Java `HardRockTile` constructor.
 pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::HardRock);
+    def.blocks_light = true; // solid stone occludes emitter light
     // JAVA: Color.get(001, ...) — leading-zero (octal) literal 001 == 1.
     def.csprite = Some(ConnectorSprite::new(
         Sprite::new(4, 0, 3, 3, color::get4(1, 334, 445, 321), 3),

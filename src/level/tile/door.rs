@@ -35,6 +35,9 @@ pub fn make(material: Material) -> TileDef {
         &format!("{} Door", material.name()),
         TileKind::Door { material },
     );
+    // Occludes light only while closed — `dispatch::blocks_light` gates this flag on
+    // the per-tile open/closed data (0 = closed), same state `may_pass` reads.
+    def.blocks_light = true;
     def.sprite = Some(closed_sprite(material));
     def
 }

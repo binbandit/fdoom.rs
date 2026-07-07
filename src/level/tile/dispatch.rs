@@ -134,6 +134,9 @@ pub fn make_torch_tile(on: &TileDef) -> TileDef {
 pub fn make_timber_prop_tile(name: &str) -> TileDef {
     timber_prop::make(name)
 }
+pub fn make_window_tile(name: &str) -> TileDef {
+    window::make(name)
+}
 
 /* ---------------- dispatch (Java virtual methods) ---------------- */
 
@@ -176,6 +179,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         TileKind::GraveStone { .. } => grave_stone::render(g, screen, def, lvl, x, y),
         TileKind::Fence => fence::render(g, screen, def, lvl, x, y),
         TileKind::TimberProp => timber_prop::render(g, screen, def, lvl, x, y),
+        TileKind::Window => window::render(g, screen, def, lvl, x, y),
         TileKind::Torch { .. } => torch::render(g, screen, def, lvl, x, y),
         _ => default_render(g, screen, def, lvl, x, y),
     }
@@ -256,6 +260,7 @@ pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity)
         TileKind::Floor { .. } => floor::may_pass(g, def, lvl, x, y, e),
         TileKind::Wall { .. } => wall::may_pass(g, def, lvl, x, y, e),
         TileKind::Door { .. } => door::may_pass(g, def, lvl, x, y, e),
+        TileKind::Window => window::may_pass(g, def, lvl, x, y, e),
         TileKind::Wool => wool::may_pass(g, def, lvl, x, y, e),
         TileKind::SnowTree => snow_tree::may_pass(g, def, lvl, x, y, e),
         TileKind::TallGrass { .. } => tall_grass::may_pass(g, def, lvl, x, y, e),
@@ -274,6 +279,18 @@ pub fn get_light_radius(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32) -> 
         TileKind::GraveStone { .. } => grave_stone::get_light_radius(g, def, lvl, x, y),
         TileKind::Torch { .. } => torch::get_light_radius(g, def, lvl, x, y),
         _ => 0,
+    }
+}
+
+/// Post-port (light & shelter wave): whether this tile occludes emitter light in the
+/// `gfx::lighting` radiance pass. The static answer lives on `TileDef.blocks_light`
+/// (walls, rock, hard rock, doors); doors additionally check their per-tile
+/// open/closed state (data 0 = closed, as in `door::may_pass`). Windows and trees
+/// transmit — windows by design, trees so forests stay lit at v1.
+pub fn blocks_light(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32) -> bool {
+    match &def.kind {
+        TileKind::Door { .. } => g.level(lvl).get_data(x, y) == 0,
+        _ => def.blocks_light,
     }
 }
 
@@ -322,6 +339,7 @@ pub fn hurt_by(
             grave_stone::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir)
         }
         TileKind::TimberProp => timber_prop::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::Window => window::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         _ => false,
     }
 }
@@ -427,6 +445,8 @@ pub fn connects_to(def: &TileDef, other: &TileDef, is_side: bool) -> bool {
         TileKind::Exploded => exploded::connects_to(def, other, is_side),
         TileKind::Cloud => cloud::connects_to(def, other, is_side),
         TileKind::Snow => snow::connects_to(def, other, is_side),
+        TileKind::Wall { .. } => wall::connects_to(def, other, is_side),
+        TileKind::Window => window::connects_to(def, other, is_side),
         _ => same_class(def, other),
     }
 }

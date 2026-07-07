@@ -37,6 +37,7 @@ use crate::level::infinite_gen;
 /// Java `RockTile` constructor.
 pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::Rock);
+    def.blocks_light = true; // solid stone occludes emitter light
     def.csprite = Some(ConnectorSprite::new(
         Sprite::new(4, 0, 3, 3, color::get4(111, 444, 555, 321), 3),
         Sprite::new(7, 0, 2, 2, color::get4(111, 444, 555, 321), 3),

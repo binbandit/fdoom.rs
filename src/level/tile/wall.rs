@@ -24,6 +24,7 @@ pub fn make(material: Material) -> TileDef {
         &format!("{} Wall", material.name()),
         TileKind::Wall { material },
     );
+    def.blocks_light = true; // all wall materials occlude emitter light
     def.csprite = Some(match material {
         Material::Wood => ConnectorSprite::new(
             Sprite::new(4, 22, 3, 3, color::get4(100, 430, 320, 540), 3),
@@ -47,6 +48,12 @@ pub fn make(material: Material) -> TileDef {
 #[allow(clippy::too_many_arguments)]
 pub fn may_pass(_g: &Game, _def: &TileDef, _lvl: usize, _x: i32, _y: i32, _e: &Entity) -> bool {
     false
+}
+
+/// Walls connect to other walls (any material, the Java `same_class` default) and,
+/// post-port, to Windows — so a paned segment merges into the masonry run.
+pub fn connects_to(def: &TileDef, other: &TileDef, _is_side: bool) -> bool {
+    super::dispatch::same_class(def, other) || matches!(other.kind, TileKind::Window)
 }
 
 #[allow(clippy::too_many_arguments)]
