@@ -28,6 +28,12 @@ check:
 worldview seed="":
     cargo run --bin worldview -- {{seed}}
 
+# Pixel-art studio: browse and edit the game's sprite PNGs in place. No target =
+# assets/sprites (dir) if it exists, else assets/sprites.png. Pass a dir or a PNG
+# (docs/DEV_GUIDE.md#pixel-art-studio-pixel_studio).
+studio target="":
+    cargo run --bin pixel_studio -- {{target}}
+
 # Scripted run: boot to the title screen and screenshot it (target/verify/title.png).
 demo-title:
     FDOOM_DEMO="wait:220;shot:{{verify_dir}}/title.png;quit" cargo run

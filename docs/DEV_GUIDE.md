@@ -127,6 +127,73 @@ cargo run --bin worldview -- --dump 123 out.png --center -2048 -1024   # away fr
 
 The dump also prints per-kind structure counts for the rendered rect to stdout.
 
+## Pixel-art studio: `pixel_studio`
+
+`src/bin/pixel_studio.rs` is the game's art tool: a standalone winit/softbuffer window
+for making and editing sprite art in place. The PNG files it edits **are the source of
+truth** — with artgen deprecated, `assets/sprites/**` is the art, and the studio writes
+those files directly.
+
+```sh
+just studio                            # assets/sprites (dir) if present, else assets/sprites.png
+just studio target=assets/sprites.png  # browse a monolithic sheet by 8x8/16x16 cells
+cargo run --bin pixel_studio -- assets/sprites.png --cell 4 10 --size 16
+cargo run --bin pixel_studio -- --sheet target/some_atlas.png
+```
+
+Two modes, same editor:
+
+- **Directory mode** (primary): the left pane is a file browser over every `*.png`
+  under the target folder (`tiles/`, `mobs/<mob>/`, `items/`, ...; `*.bak.png` is
+  hidden). Opening a file sizes the editor to the image — 8x8 items and 16x16
+  tiles/mob frames are edited whole; larger strips are edited one 8/16px block at a
+  time (Left/Right arrows and `I`/`K` step, Tab toggles 8/16 stepping).
+- **Sheet mode** (fallback, for the legacy monolithic sheet or any stitched atlas):
+  the left pane is the whole sheet at 2x; click or arrow-select a cell. 256px-wide
+  sheets get the legacy region labels (TERRAIN / ITEMS / MOBS / ...) per row.
+
+The right pane is the editor canvas (~24x zoom, pixel grid, 8px cell boundaries
+marked), the two palette banks, and a live preview strip: the block at 1x/2x/4x plus a
+3x3 tiling at 2x for judging seamless tile edges.
+
+| Input | Action |
+|---|---|
+| left-click / drag on canvas | paint with the current color |
+| right-click on canvas | eyedrop the pixel under the cursor |
+| `F` | flood-fill at the cursor |
+| `H` / `V` | flip the block horizontally / vertically |
+| `E` (or the T swatch) | eraser — paint transparent |
+| `U` / Ctrl+Z | undo, 64 levels |
+| `C` | toggle the custom swatch; arrows then step RGB (Left/Right channel, Up/Down value, Shift = fine) |
+| Up/Down | browse files (dir mode) / move cell (sheet mode); Shift+move discards unsaved edits when switching files |
+| Tab | 8px / 16px block stepping |
+| `S` | save in place (title bar shows `*` while dirty) |
+| Esc | quit (asks twice if dirty) |
+
+The first save of a session copies the file to `<name>.bak.png` alongside before
+overwriting, so one session can never silently destroy art.
+
+**Palette rules** (see `src/gfx/sprite_sheet.rs`): every opaque gray pixel
+(`r == g == b`) is a *palette pixel* — the renderer quantizes it (`gray / 64`) to a
+shade 0-3 and recolors it through the draw call's packed palette. The SHADES bank
+offers exactly the four legal grays `0 / 85 / 170 / 255`; do not invent other grays.
+Any saturated color is drawn literally, and alpha < 128 is transparent. The studio
+shows a `! GRAY + COLOR MIXED IN CELL` warning when a single 8x8 cell contains both
+palette grays and saturated colors — that is almost always a mistake, because the gray
+half of the cell will recolor at draw time (mob tints, shirts, tool tiers) while the
+true-color half stays fixed. Keep a cell entirely in one mode.
+
+Headless (CI / agent) hook — edit pixels without a window, same backup+save path:
+
+```sh
+cargo run --bin pixel_studio -- assets/sprites.png --set 3 5 FF00AA --set 10 5 t
+cargo run --bin pixel_studio -- assets/sprites --file tiles/grass.png --set 0 0 336699
+```
+
+`--set X Y COLOR` takes `RRGGBB`, `RRGGBBAA`, or `t` (transparent); coordinates are
+image-absolute. `tests/pixel_studio.rs` round-trips both modes through the game's own
+sheet loader.
+
 ## Headless testing
 
 The game core never touches the platform layer, so tests can build a `Game`, generate a
