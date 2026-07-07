@@ -34,7 +34,7 @@ EntityCommon (x, y, xr, yr, level, eid, removed, col)
         │                                                             MobData { health, dir, sprites, ... }
         │
         ├── kind: EntityKind::{Zombie,Snake,Knight,MarshLurker,  *Data { enemy: EnemyMobData, <leaf fields> }
-        │         FeralHound,StoneGolem,NightWisp}                 EnemyMobData { ai: MobAiData, lvl, lvlcols, detect_dist }
+        │         FeralHound,StoneGolem,NightWisp,Ghost}           EnemyMobData { ai: MobAiData, lvl, lvlcols, detect_dist }
         │                                                            MobAiData { mob: MobData, ... }
         │                                                              MobData { health, dir, sprites, ... }
         │
@@ -173,8 +173,10 @@ pub enum EntityKind {
     FeralHound(mob::feral_hound::FeralHoundData),
     StoneGolem(mob::stone_golem::StoneGolemData),
     NightWisp(mob::night_wisp::NightWispData),
+    Ghost(mob::ghost::GhostData),
     // free-floating things
     ItemEntity(ItemEntityData), Arrow(ArrowData), Zap(ZapData),
+    Fireflies(fireflies::FirefliesData),   // ambient swarm; not a mob
     // particles
     Particle(ParticleData), TextParticle(TextParticleData),
     // furniture
@@ -392,6 +394,21 @@ probability, calls `randomize_walk_dir` to pick a new wander direction; counts d
 shared function** (checked via `e.passive_mob().is_some()`) rather than a separate
 override function — passive mobs get a "50% chance of just standing still" multiplier
 (`(next_int_bound(3)-1) * next_int_bound(2)` for each axis) that enemy mobs don't.
+
+**Movement personalities** (mob-life wave): `MobAiData.movement_style: MovementStyle`
+(`Classic` default — the untouched original walk) is consumed by `style_step` inside
+`mobai_tick_base`: `Slither`/`Curve` add a perpendicular S-curve side-offset (applied
+via a separate `entity_move` so the facing direction never flips), `FreezeBurst` holds
+still ~2 s then bursts at double step, `SineFloat` layers a vertical bob, and `Circle`
+leaves the step alone but reshapes the *chase targeting* in `enemy_mob_tick_base`
+(`circle_chase`: orbit the target at ~4 tiles tangentially, straight lunge one beat in
+three). Zombies, knights, and all passive mobs stay `Classic`.
+
+**Tall-grass stealth** (`mobai_render`): a mob standing on a `TallGrass` tile sinks in
+(bottom sprite row clipped, like the swimming clip); a *hostile* mob there at night is
+drawn as nothing but two warm eye-glint pixels (true-color cell (11,20) — palette-mode
+yellow would be laundered gray by `color::upgrade` + the night grade). A hurt flash
+always reveals the whole body.
 
 ### 5.3 `EnemyMob` layer — `enemy_mob_tick_base`
 
@@ -616,6 +633,12 @@ trigger it.
 > attack. Old saves containing removed mobs load fine — unknown entity names are skipped
 > with a `LOAD WARNING` log (§12.1); a Spawner whose template mob is gone falls back to
 > its default Zombie template.
+>
+> **Mob-life wave (done):** the single Snake became a four-variant family (Grass
+> Snake / Adder / Rattler / Cave Serpent — the last keeps the `"Snake"` save name);
+> the **Ghost** rises from broken graves at night; **Fireflies** drift out at dusk as
+> a non-mob ambient swarm; and the shared MobAi layer gained movement personalities
+> (`MovementStyle` — §5.2) plus tall-grass stealth rendering.
 
 | Mob | Data layer | Notable behavior |
 |---|---|---|
@@ -624,11 +647,13 @@ trigger it.
 | Sheep | `PassiveMobData` | Wanders; drops wool on death — **no shearing mechanic** (explicit `// JAVA:` note that this fork never added wool-cutting). |
 | GlowWorm | `PassiveMobData` | Single static 1×1 sprite; ambient light source (radius 2); self-removes outside night/evening; spawns as a side-effect of any surface passive-mob roll, placed beside the mob it escorts (the Java raw-`(0,0)` quirk was fixed post-port — §11). |
 | Zombie | `EnemyMobData`, 4 mob levels | Chases and touches for damage; no leaf-level tick/render override (pure `enemy_mob_tick_base`); drops cloth (scales with difficulty), rare iron (1/60), rare colored-clothes (1/40). Cemetery staple. |
-| Snake | `EnemyMobData`, **5 mob levels** | Custom touch-damage formula `lvl + diff_idx` in `snake::touched_by` — now properly wired into the `touched_by` dispatch (the dead-code bug is fixed); drops scale, rare key drop. |
+| Snake family | `SnakeData { enemy, variant, coiled, rattled, strike_primed }`, **5 mob levels**, one `EntityKind::Snake` with a `SnakeVariant` tag | **Mob-life wave**: the classic Snake became four zone-scaled variants, all `Slither` movers with the classic `lvl + diff_idx` base bite (dead-code dispatch bug long fixed). **Grass Snake** (`"GrassSnake"`): plains/forest ambience, health factor 2, harmless — inverts the chase and flees; rare single scale. **Adder** (`"Adder"`): marsh/savanna, health 6; bite adds a 2-stamina drain (same hurt-cooldown gate as the damage). **Rattler** (`"Rattler"`): desert, health 7; spawns **coiled** (own 16x16 pose, cell (4,20)) and sits still; a one-time dry-rattle warning (notification + sound cue) when the player is within 4 tiles; at ~1.5 tiles it uncoils with a primed strike worth **2x** damage, then slithers normally. **Cave Serpent** (saves as `"Snake"` — save-name compat; mines/dungeon, where the classic spawned): health 10/12, bite `lvl + diff_idx + 2`, dark palette. All variants drop scale + rare key except the Grass Snake. |
 | Knight | `EnemyMobData`, 5 mob levels | Hostile dungeon keeper — standard `lvl*(hard?2:1)` touch damage via the shared `enemy_touched_by` path; drops shard, rare key drop; spawns naturally in the dungeon (§11). |
 | Marsh Lurker | `MarshLurkerData { enemy, ambush_armed, ambush_recharge }` | **Original mob.** Lurks in marsh water: `can_swim` = true, leaf `tick` sets `speed = 2` while swimming / `1` on land (net: full walk speed in water, half on land). Ambush: an *armed* first touch deals the standard formula **+2**, then disarms; re-arms only after 300 ticks spent back in water. Short `detect_dist` 80, base health 6. Drops raw fish 0–2, rare Slime item (1/12). |
 | Feral Hound | `FeralHoundData { enemy }` | **Original mob.** Plains/savanna pack hunter: spawns in packs of 2–3 (§11), `walk_time = 1` (full player speed — twice a normal mob), long `detect_dist` 120, fragile (base health 3). Standard touch damage. Drops leather 0–1, rare raw beef (1/20). |
 | Stone Golem | `StoneGolemData { enemy }` | **Original mob.** Mines only: very slow (leaf `tick` stalls the chase acceleration outside a 1-in-4 tick window, on top of the shared `walk_time = 2` gate ⇒ half a normal mob's pace), very tanky (base health 12), heavy melee `2*lvl + diff_idx` via its own `touched_by`. Short `detect_dist` 60 — a lair guard. Drops stone 1–3 + coal 0–2, rare iron (1/8), rare gold (1/20). |
+| Ghost | `GhostData { enemy }` | **Mob-life wave.** Rises from broken-grave tiles at night (`ghost::try_rise`, rolled in `try_spawn`; **mass-rises** during `events::hollow_night_active`). Phases through terrain *and* blocking entities — the phase check lives in `entity_move2` (entity layer), not the tile `may_pass` hub; `is_solid` = false. `SineFloat` bob; floats over lava/water like the wisp. Pulses on a 20-tick cycle (`is_solid_pulse`): **only damageable during the solid half** (gated in `behavior::do_hurt`); render flickers + dims the palette in the phase half (two pulse frames at (6,20)/(8,20), shade-1 eye holes). Touch: 1 damage + 3 stamina drain. Faint light radius 1 (a cold gleam). Despawns at dawn. Base health 4, detect 100. Drops: rare gem (1/30). |
+| Fireflies | `FirefliesData { count, seed, time, state, home, dx, dy }` — **not a mob** (no `MobData`, `is_solid` = false, never counted against the mob cap, never saved) | **Mob-life wave.** One entity renders 4-8 glow specks as pure functions of `(time, seed, i)` — cheap ambience. Spawns at dusk near trees/marsh water (`firefly_check_start_pos`; `fireflies::weather_allows` is a stub `true` awaiting the weather wave). Wanders in curvy loops, then **roosts** on a nearby tree tile (specks glow over the canopy; the roost snapshot of the tile's data means an axe hit — or felling — spooks it). **Spook** (player within ~3 tiles or tree hit): burst scatter, regroup after ~10 s. Dawn despawn. Tiny light emitter (radius 2, like the glow worm). Speck cell (10,20) is true-color so the glow stays warm through the night grade. |
 | Night Wisp | `NightWispData { enemy, zap_cooldown }` | **Original mob.** Night-time floating light: light radius 4, palette shades 0–1 transparent (glowing sprite), tick-timed two-frame pulse render. Floats over **all** terrain (`tiles::may_pass`/`bumped_into` early-return for it — the removed AirWizard's flight, generalized), immune to lava-underfoot and never "swims". Despawns at dawn on the surface like the GlowWorm. Ranged attack: fires a `Zap` (flat 1 damage, ~2–3 s lifetime, spent on impact) at a player within 8 tiles on a 90+rand(60)-tick cooldown. Base health 2. Rare gem drop (1/25). |
 
 ### 8.1 Detail notes not already covered above
@@ -772,11 +797,16 @@ attempts (stopping at the first successful spawn):
   | Where | Mob | Roll / gate |
   |---|---|---|
   | Surface, any hour | **Marsh Lurker** | `rnd <= 25` **and** `lurker_check_start_pos` (clearance + tile is `WATER`/`MUD` + unlit) — in practice marsh pools/pond rims |
+  | Surface, day or night | **Grass Snake** | `grass_snake_biome` (Plains/Forest; finite: `GRASS`) **and** `rnd ∈ 13..=18` + `enemy_check_start_pos` |
+  | Surface, day or night | **Adder** | `adder_biome` (Marsh/Savanna; finite: `MUD`) **and** `rnd ∈ 19..=25` + `enemy_check_start_pos` |
+  | Surface, day or night | **Rattler** (spawns coiled) | `rattler_biome` (Desert; finite: `SAND`) **and** `rnd ∈ 19..=25` + `enemy_check_start_pos` |
   | Surface, day or night | **Feral Hound** (pack of `2 + rand(0..2)`, spread over adjacent passable tiles) | `hound_biome` (infinite: `biome_at` ∈ Plains/Savanna; finite: `GRASS` tile) **and** (`rnd <= 12` by day, `41..=60` by night) + `enemy_check_start_pos` |
   | Surface, night (past day 1) | **Zombie** | `rnd <= 40` + `enemy_check_start_pos` |
   | Surface, night (past day 1) | **Night Wisp** | `rnd ∈ 61..=75` + `wisp_check_start_pos` (clearance + unlit; no `may_spawn` tile gate — it floats) |
-  | Mines (depth < 0, not −4), any hour | **Zombie / Snake / Stone Golem** | `rnd <= 40` / `41..=70` / `71..=85` + `enemy_check_start_pos` |
-  | Dungeon (depth −4), any hour | **Zombie / Snake / Knight** | `rnd <= 40` / `41..=55` / `56..=75` + `enemy_check_start_pos` (which requires `OBSIDIAN` there) |
+  | Surface, night (past day 1) | **Ghost** (rises from a broken grave within 4 tiles of the roll) | `rnd ∈ 86..=90` normally, `rnd <= 45` on a Hollow Night (the mass-rise) + `ghost_check_start_pos` (`ghost::try_rise` scans for the grave) |
+  | Surface, dusk (`Time::Evening`) | **Fireflies** (ambient swarm; not a mob) | `rnd >= 91` + `fireflies::weather_allows` (stub `true`) + `firefly_check_start_pos` (tree within 2 tiles, or marsh water) |
+  | Mines (depth < 0, not −4), any hour | **Zombie / Cave Serpent / Stone Golem** | `rnd <= 40` / `41..=70` / `71..=85` + `enemy_check_start_pos` (the mine/dungeon snake is the Cave Serpent — `snake::new`) |
+  | Dungeon (depth −4), any hour | **Zombie / Cave Serpent / Knight** | `rnd <= 40` / `41..=55` / `56..=75` + `enemy_check_start_pos` (which requires `OBSIDIAN` there) |
 
   `enemy_check_start_pos` is unchanged (distance-from-player ≥ 60px, density-scaled
   "no other mob nearby" radius via `mobai_check_start_pos`, tile-type + unlit checks).
@@ -825,7 +855,9 @@ attempts (stopping at the first successful spawn):
    requires inlining the whole base-tick body yourself (see §8.1) since there is no
    virtual dispatch to hook into; there is no shortcut for this today.
 5. Register a sprite via `compile_mob_sprite_animations`/`compile_sprite_list`
-   (`src/gfx/sprite.rs`) at whatever sheet coordinates are free.
+   (`src/gfx/sprite.rs`) at whatever sheet coordinates are free. Pick a
+   `MovementStyle` in the constructor if the mob shouldn't walk `Classic`
+   (see §5.2 — `enemy.ai.movement_style = MovementStyle::...`).
 6. If it should spawn naturally, add a roll to `level::try_spawn` (`src/level/mod.rs`) —
    note this is currently a hardcoded if/else-if chain (see the §11 spawn table), not a
    data table; also decide its `max_mob_level` in `furniture::spawner::max_mob_level`,
@@ -926,6 +958,18 @@ attempts (stopping at the first successful spawn):
   own ad-hoc state (like `SpawnerData`'s boxed mob template, or `LanternData`'s type) needs
   its own explicit `if let EntityKind::YourKind(...)` block added to both `write_entity` and
   `load_entity` — there is no generic "serialize whatever extra fields exist" mechanism.
+- **The Ghost's phasing is an entity-layer check, not a tile one** — `entity_move2`
+  skips both the tile `may_pass` loop and the entity-`blocks` loop for
+  `EntityKind::Ghost` (the Night Wisp's carve-out lives tile-side in
+  `dispatch::may_pass`; the Ghost's deliberately does not, so `src/level/tile/` stays
+  untouched). Its damage gate is in `behavior::do_hurt` (`ghost::is_solid_pulse`).
+- **Fireflies are never persisted** — `write_entity` skips them like particles, and
+  they despawn at dawn anyway. They are also invisible to the mob cap (`is_mob()` is
+  false — no `MobData` layer).
+- **Snake variants share one `EntityKind::Snake`** — `SnakeVariant` picks save name,
+  palette, health, and bite; only the Cave Serpent writes the legacy `"Snake"` name.
+  When matching on snakes, remember the variant field (e.g. the Grass Snake must not
+  fall into a "snakes bite" assumption).
 - **Chest/DeathChest/DungeonChest all funnel through one `die()`** (`chest_behavior::die`)
   that spills the inventory as dropped items — a plain `Furniture` (no inventory) has no
   such override and just vanishes on death via the default `remove_entity` fallback in the
@@ -944,6 +988,7 @@ narrowly-scoped display tests. No `#[cfg(test)]` modules exist inside `src/entit
 | `tests/gameplay_soak.rs` (`soak_tnt_explosion_near_player`) | Places a pre-fused `Tnt` entity next to the player and ticks through fuse + blast + the post-explosion tile-restore countdown; asserts the player survives the world-sanity check and the `Tnt` entity is fully gone (`EntityKind::Tnt` count == 0) once resolved — locks in the whole `tnt_behavior::tick` state machine end-to-end. |
 | `tests/save_load_roundtrip.rs` (`world_roundtrip`) | Builds a world containing a leveled `Zombie` (with a modified `health`), a `Chest`, an `Iron`-type `Lantern`, a `StoneGolem`-templated `Spawner`, and a `DungeonChest`, saves, reloads, and checks the entities come back — the closest thing to an entity save-format regression test today; exercises `entity_class_name`/`get_entity` naming agreement (§12) and the chest/spawner/lantern extra-data round trip. |
 | `tests/crafting_chain.rs` (`early_loop_crafts_a_crude_axe`, `crude_axe_outchops_fists_and_grass_yields_fibers`) | Drives a real player entity (`with_entity(0, ...)`) through crafting and tool use — indirectly exercises `PlayerData.inventory`/`active_item` plumbing and tool-attack damage, though it is a crafting-focused test, not an entity-focused one. |
+| `tests/mob_life.rs` (11 tests) | The mob-life wave: snake-family params + save names (`"Snake"` compat), rattler warn→strike sequence, adder stamina drain / grass-snake harmlessness, ghost grave-rise + dawn despawn + phase-through-rock + solid-pulse damage gate, firefly dusk spawn + spook scatter + dawn despawn, per-biome spawn tables (desert rattler, marsh adder, plains grass snake), `MovementStyle` wiring + `style_step` semantics, and a tall-grass stealth render smoke (eye glints present, body clipped) plus a night gallery screenshot (`target/verify/mob_life_gallery.png`). |
 | `tests/display_flow.rs` (`inventory_esc_closes`) | Takes the player out of the arena, builds `PlayerInvDisplay` from it, puts it back — exercises the take-out pattern from a UI-construction angle (a display needs a `&Entity` while the entity is deliberately out of the arena for the duration of the borrow). |
 
 Run everything above with `cargo test --test gameplay_soak --test save_load_roundtrip

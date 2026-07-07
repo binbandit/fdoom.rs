@@ -112,6 +112,7 @@ pub fn die(g: &mut Game, e: &mut Entity) {
         EntityKind::FeralHound(_) => super::mob::feral_hound::die(g, e),
         EntityKind::StoneGolem(_) => super::mob::stone_golem::die(g, e),
         EntityKind::NightWisp(_) => super::mob::night_wisp::die(g, e),
+        EntityKind::Ghost(_) => super::mob::ghost::die(g, e),
         // JAVA: Chest.die spills the inventory
         EntityKind::Chest(_) | EntityKind::DeathChest(_) | EntityKind::DungeonChest(_) => {
             super::furniture::chest_behavior::die(g, e)
@@ -121,6 +122,8 @@ pub fn die(g: &mut Game, e: &mut Entity) {
 }
 
 /// Java `Entity.isSolid()` (overridden to false by the free-floating kinds).
+/// The Ghost and the firefly swarm are intangible too: nothing blocks on them and
+/// they block nothing (the Ghost still *touches* — see `touched_by`).
 pub fn is_solid(e: &Entity) -> bool {
     !matches!(
         e.kind,
@@ -129,6 +132,8 @@ pub fn is_solid(e: &Entity) -> bool {
             | EntityKind::Zap(_)
             | EntityKind::Particle(_)
             | EntityKind::TextParticle(_)
+            | EntityKind::Ghost(_)
+            | EntityKind::Fireflies(_)
     )
 }
 
@@ -153,7 +158,8 @@ pub fn can_swim(e: &Entity) -> bool {
 pub fn can_wool(e: &Entity) -> bool {
     match &e.kind {
         EntityKind::Player(_) => true,
-        EntityKind::NightWisp(_) => false, // floats over wool like everything else
+        // float over wool like everything else
+        EntityKind::NightWisp(_) | EntityKind::Ghost(_) => false,
         _ => e.is_mob_ai() || e.is_furniture(),
     }
 }
@@ -165,6 +171,8 @@ pub fn get_light_radius(e: &Entity) -> i32 {
         EntityKind::Lantern(l) => l.lantern_type.light(),
         EntityKind::GlowWorm(_) => 2, // JAVA: GlowWorm.getLightRadius()
         EntityKind::NightWisp(_) => 4, // a drifting lantern of the night
+        EntityKind::Fireflies(_) => 2, // a faint swarm-glow, like the glow worm
+        EntityKind::Ghost(_) => 1,    // a cold gleam; night-only, so it never glares
         _ => 0,
     }
 }
@@ -209,6 +217,9 @@ pub fn entity_move2(g: &mut Game, e: &mut Entity, xa: i32, ya: i32) -> bool {
     let Some(lvl) = e.c.level else { return false };
 
     let interact = true;
+    // the Ghost phases through terrain and blocking entities (the Night Wisp's
+    // tile-side may_pass carve-out, generalized at the entity layer)
+    let phases = matches!(e.kind, EntityKind::Ghost(_));
 
     // tile coordinates of the sprite's corners, before...
     let xto0 = (e.c.x - e.c.xr) >> 4;
@@ -226,6 +237,9 @@ pub fn entity_move2(g: &mut Game, e: &mut Entity, xa: i32, ya: i32) -> bool {
         for xt in xt0..=xt1 {
             if xt >= xto0 && xt <= xto1 && yt >= yto0 && yt <= yto1 {
                 continue; // skip tiles the entity is already touching
+            }
+            if phases {
+                continue; // drifts through walls without even brushing them
             }
             let tile = g.tile_at(lvl, xt, yt);
             if interact {
@@ -282,7 +296,7 @@ pub fn entity_move2(g: &mut Game, e: &mut Entity, xa: i32, ya: i32) -> bool {
         let Some(other) = g.entities.get(*other_id) else {
             continue;
         };
-        if blocks(other, e) {
+        if !phases && blocks(other, e) {
             return false; // the other entity prevents movement
         }
     }
@@ -323,6 +337,8 @@ pub fn touched_by(g: &mut Game, this_e: &mut Entity, by: &mut Entity) {
         EntityKind::Snake(_) => super::mob::snake::touched_by(g, this_e, by),
         EntityKind::MarshLurker(_) => super::mob::marsh_lurker::touched_by(g, this_e, by),
         EntityKind::StoneGolem(_) => super::mob::stone_golem::touched_by(g, this_e, by),
+        // Ghost: a chilling touch — 1 damage plus a stamina drain
+        EntityKind::Ghost(_) => super::mob::ghost::touched_by(g, this_e, by),
         _ => {}
     }
 }
@@ -397,6 +413,8 @@ pub fn entity_tick(g: &mut Game, e: &mut Entity) {
         EntityKind::FeralHound(_) => super::mob::feral_hound::tick(g, e),
         EntityKind::StoneGolem(_) => super::mob::stone_golem::tick(g, e),
         EntityKind::NightWisp(_) => super::mob::night_wisp::tick(g, e),
+        EntityKind::Ghost(_) => super::mob::ghost::tick(g, e),
+        EntityKind::Fireflies(_) => super::fireflies::tick(g, e),
         EntityKind::ItemEntity(_) => super::item_entity_behavior::tick(g, e),
         EntityKind::Arrow(_) => super::projectile_behavior::arrow_tick(g, e),
         EntityKind::Zap(_) => super::projectile_behavior::zap_tick(g, e),
@@ -423,12 +441,15 @@ pub fn entity_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         }
         EntityKind::GlowWorm(_) => super::mob::glow_worm::render(g, screen, e),
         EntityKind::Zombie(_)
-        | EntityKind::Snake(_)
         | EntityKind::Knight(_)
         | EntityKind::MarshLurker(_)
         | EntityKind::FeralHound(_)
         | EntityKind::StoneGolem(_) => enemy_mob_render(g, screen, e),
+        // Snake: own arm for the Rattler's coiled pose
+        EntityKind::Snake(_) => super::mob::snake::render(g, screen, e),
         EntityKind::NightWisp(_) => super::mob::night_wisp::render(g, screen, e),
+        EntityKind::Ghost(_) => super::mob::ghost::render(g, screen, e),
+        EntityKind::Fireflies(_) => super::fireflies::render(g, screen, e),
         EntityKind::ItemEntity(_) => super::item_entity_behavior::render(g, screen, e),
         EntityKind::Arrow(_) => super::projectile_behavior::arrow_render(g, screen, e),
         EntityKind::Zap(_) => super::projectile_behavior::zap_render(g, screen, e),
@@ -456,8 +477,11 @@ pub fn mob_tick_base(g: &mut Game, e: &mut Entity) -> bool {
         return false;
     }
 
-    // the Night Wisp floats above tiles, so lava under it never touches it
-    if let (Some(lvl), false) = (e.c.level, matches!(e.kind, EntityKind::NightWisp(_))) {
+    // the Night Wisp and the Ghost float above tiles, so lava under them never touches
+    if let (Some(lvl), false) = (
+        e.c.level,
+        matches!(e.kind, EntityKind::NightWisp(_) | EntityKind::Ghost(_)),
+    ) {
         let standing = g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4);
         if standing.name == "LAVA" {
             // hurt ourselves, sourced from the lava tile
@@ -567,7 +591,7 @@ pub fn mob_is_light(g: &Game, e: &Entity) -> bool {
 
 /// Java `Mob.isSwimming()`.
 pub fn is_swimming(g: &Game, e: &Entity) -> bool {
-    if matches!(e.kind, EntityKind::NightWisp(_)) {
+    if matches!(e.kind, EntityKind::NightWisp(_) | EntityKind::Ghost(_)) {
         return false; // floats over water/lava, never wades in it
     }
     let Some(lvl) = e.c.level else { return false };
@@ -654,6 +678,13 @@ pub fn do_hurt(g: &mut Game, e: &mut Entity, damage: i32, attack_dir: Direction)
     if e.is_player() {
         super::mob::player_behavior::do_hurt(g, e, damage, attack_dir);
         return;
+    }
+    // the Ghost is only vulnerable during the solid half of its pulse
+    if matches!(e.kind, EntityKind::Ghost(_)) {
+        let tick_time = e.mob().map(|m| m.tick_time).unwrap_or(0);
+        if !super::mob::ghost::is_solid_pulse(tick_time) {
+            return; // the blow passes through the phase form
+        }
     }
     if e.is_mob_ai() {
         mobai_do_hurt(g, e, damage, attack_dir);
@@ -786,14 +817,26 @@ pub fn mobai_tick_base(g: &mut Game, e: &mut Entity) -> bool {
         }
     }
 
-    let (xa, ya, speed) = {
+    let (dx, dy, sway) = {
         let Some(ai) = e.mob_ai() else { return false };
-        (ai.xa, ai.ya, ai.mob.speed)
+        style_step(
+            ai.movement_style,
+            ai.mob.tick_time,
+            ai.xa * ai.mob.speed,
+            ai.ya * ai.mob.speed,
+        )
     };
-    if !mobai_move(g, e, xa * speed, ya * speed) {
+    if !mobai_move(g, e, dx, dy) {
         if let Some(ai) = e.mob_ai_mut() {
             ai.xa = 0;
             ai.ya = 0;
+        }
+    }
+    // the styling side-offset moves separately (plain `entity_move`) so it never
+    // flips the facing direction the main step just set
+    if let Some((wx, wy)) = sway {
+        if e.mob().map(|m| m.hurt_time).unwrap_or(0) == 0 {
+            entity_move(g, e, wx, wy);
         }
     }
 
@@ -815,11 +858,70 @@ pub fn mobai_move(g: &mut Game, e: &mut Entity, xa: i32, ya: i32) -> bool {
     mob_move(g, e, xa, ya, true)
 }
 
-/// Java `MobAi.render(screen)` — the shared mob render.
-pub fn mobai_render(screen: &mut Screen, e: &mut Entity) {
+/// How a [`MovementStyle`](crate::entity::mob::MovementStyle) shapes one tick of AI
+/// movement: returns the main step plus an optional perpendicular side-offset that is
+/// applied without changing the facing direction. `Classic` passes through untouched;
+/// `Circle` shapes the *chase targeting* instead (see `circle_chase`).
+pub fn style_step(
+    style: crate::entity::mob::MovementStyle,
+    tick: i32,
+    dx: i32,
+    dy: i32,
+) -> (i32, i32, Option<(i32, i32)>) {
+    use crate::entity::mob::MovementStyle as S;
+    match style {
+        S::Classic | S::Circle => (dx, dy, None),
+        S::Slither => (dx, dy, sway_offset(tick, 8, dx, dy)),
+        S::Curve => (dx, dy, sway_offset(tick, 16, dx, dy)),
+        S::FreezeBurst => {
+            // hold dead still ~2 s, then a fast ~1 s burst at double step
+            if tick % 180 < 120 {
+                (0, 0, None)
+            } else {
+                (dx * 2, dy * 2, None)
+            }
+        }
+        S::SineFloat => {
+            // gentle vertical bob layered on the drift
+            let bob = if tick % 8 == 0 {
+                Some((0, if (tick / 16) % 2 == 0 { -1 } else { 1 }))
+            } else {
+                None
+            };
+            (dx, dy, bob)
+        }
+    }
+}
+
+/// Perpendicular S-curve offset while moving: flips side every `period` ticks and is
+/// applied on alternate ticks (net ~half-step sway). Diagonal steps already read as a
+/// curve and get none.
+fn sway_offset(tick: i32, period: i32, dx: i32, dy: i32) -> Option<(i32, i32)> {
+    if (dx == 0 && dy == 0) || tick % 2 != 0 {
+        return None;
+    }
+    let side = if (tick / period) % 2 == 0 { 1 } else { -1 };
+    if dy == 0 {
+        Some((0, side)) // moving horizontally: sway vertically
+    } else if dx == 0 {
+        Some((side, 0)) // moving vertically: sway horizontally
+    } else {
+        None
+    }
+}
+
+/// Sheet cell (11,20): two warm eye-glint pixels for grass-hidden hostiles at night
+/// (a true-color cell — the palette is ignored, so the glints survive the night grade).
+const EYES_POS: i32 = 11 + 20 * 32;
+
+/// Java `MobAi.render(screen)` — the shared mob render, plus the tall-grass stealth
+/// clip: a mob standing in tall grass sinks in (lower half clipped, like the swimming
+/// clip); a *hostile* mob at night disappears into it entirely — only two warm
+/// eye-glint pixels give it away. A hurt flash always reveals the whole body.
+pub fn mobai_render(g: &Game, screen: &mut Screen, e: &mut Entity) {
     let Some(mob) = e.mob() else { return };
     let xo = e.c.x - 8;
-    let yo = e.c.y - 11;
+    let mut yo = e.c.y - 11;
 
     let color = if mob.hurt_time > 0 {
         color::WHITE
@@ -830,6 +932,26 @@ pub fn mobai_render(screen: &mut Screen, e: &mut Entity) {
     let dir_idx = mob.dir.get_dir() as usize;
     let row = &mob.sprites[dir_idx.min(mob.sprites.len() - 1)];
     let cur_sprite = &row[((mob.walk_dist >> 3) as usize) % row.len()];
+
+    let in_tall_grass =
+        e.c.level
+            .map(|lvl| {
+                matches!(
+                    g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4).kind,
+                    crate::level::tile::TileKind::TallGrass { .. }
+                )
+            })
+            .unwrap_or(false);
+    if in_tall_grass && mob.hurt_time == 0 {
+        if e.is_enemy_mob() && g.get_time() == Time::Night {
+            screen.render(e.c.x - 4, e.c.y - 8, EYES_POS, 0, 0);
+            return;
+        }
+        yo += 4;
+        cur_sprite.render_row_color(0, screen, xo, yo, color);
+        return;
+    }
+
     cur_sprite.render_color(screen, xo, yo, color);
 }
 
@@ -941,6 +1063,46 @@ pub fn wisp_check_start_pos(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
     check_start_pos_clearance(g, lvl, x, y, 60, 13) && !level::is_light(g, lvl, x >> 4, y >> 4)
 }
 
+/// Ghost rise gate: player distance + a light crowding check (the grave itself is the
+/// tile gate — see `ghost::try_rise`). No darkness requirement: cemeteries are
+/// sometimes torch-lit, and night alone gates the rise.
+pub fn ghost_check_start_pos(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    check_start_pos_clearance(g, lvl, x, y, 60, 4)
+}
+
+/// Firefly swarm gate: a tree within 2 tiles, or standing water in marsh country
+/// (infinite worlds), with only a light clearance — the swarm is intangible ambience.
+pub fn firefly_check_start_pos(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    use crate::level::tile::TileKind;
+
+    if !check_start_pos_clearance(g, lvl, x, y, 48, 4) {
+        return false;
+    }
+    let (xt, yt) = (x >> 4, y >> 4);
+    let mut near_tree = false;
+    let mut near_water = false;
+    for dy in -2..=2 {
+        for dx in -2..=2 {
+            match g.tile_at(lvl, xt + dx, yt + dy).kind {
+                TileKind::Tree | TileKind::TreeSpecies { .. } | TileKind::SnowTree => {
+                    near_tree = true
+                }
+                TileKind::Water => near_water = true,
+                _ => {}
+            }
+        }
+    }
+    if near_tree {
+        return true;
+    }
+    near_water
+        && (!g.level(lvl).is_infinite()
+            || matches!(
+                crate::level::infinite_gen::biome_at(g.world_seed, xt, yt),
+                crate::level::infinite_gen::Biome::Marsh
+            ))
+}
+
 /// Java `MobAi.die(points, multAdd)`.
 pub fn mobai_die(g: &mut Game, e: &mut Entity, points: i32, mult_add: i32) {
     if let Some(lvl) = e.c.level {
@@ -978,21 +1140,29 @@ pub fn enemy_mob_tick_base(g: &mut Game, e: &mut Entity) -> bool {
                 let yd = player.c.y - e.c.y;
                 let detect_dist = e.enemy_mob().map(|em| em.detect_dist).unwrap_or(0);
                 if xd * xd + yd * yd < detect_dist * detect_dist {
-                    let sig0 = 1; // prevents mobs from bobbing up and down
-                    if let Some(ai) = e.mob_ai_mut() {
-                        ai.xa = 0;
-                        ai.ya = 0;
-                        if xd < sig0 {
-                            ai.xa = -1;
-                        }
-                        if xd > sig0 {
-                            ai.xa = 1;
-                        }
-                        if yd < sig0 {
-                            ai.ya = -1;
-                        }
-                        if yd > sig0 {
-                            ai.ya = 1;
+                    let circles = e
+                        .mob_ai()
+                        .map(|ai| ai.movement_style == crate::entity::mob::MovementStyle::Circle)
+                        .unwrap_or(false);
+                    if circles {
+                        circle_chase(e, xd, yd);
+                    } else {
+                        let sig0 = 1; // prevents mobs from bobbing up and down
+                        if let Some(ai) = e.mob_ai_mut() {
+                            ai.xa = 0;
+                            ai.ya = 0;
+                            if xd < sig0 {
+                                ai.xa = -1;
+                            }
+                            if xd > sig0 {
+                                ai.xa = 1;
+                            }
+                            if yd < sig0 {
+                                ai.ya = -1;
+                            }
+                            if yd > sig0 {
+                                ai.ya = 1;
+                            }
                         }
                     }
                 } else {
@@ -1004,12 +1174,38 @@ pub fn enemy_mob_tick_base(g: &mut Game, e: &mut Entity) -> bool {
     !e.c.removed
 }
 
+/// `MovementStyle::Circle` chase targeting: orbit the target at ~4 tiles, moving
+/// tangentially (orbit direction fixed per individual by eid parity), and drop into a
+/// straight lunge for one beat out of every three.
+fn circle_chase(e: &mut Entity, xd: i32, yd: i32) {
+    const ORBIT: i32 = 4 * 16;
+    const BAND: i32 = 20;
+    let tick = e.mob().map(|m| m.tick_time).unwrap_or(0);
+    let clockwise = e.c.eid & 1 == 0;
+    let lunging = (tick / 60) % 3 == 2; // ~2 s circling, ~1 s lunge
+    let (sx, sy) = (xd.signum(), yd.signum());
+    let d2 = xd * xd + yd * yd;
+    let (xa, ya) = if lunging || d2 > (ORBIT + BAND) * (ORBIT + BAND) {
+        (sx, sy) // close in / the lunge itself
+    } else if d2 < (ORBIT - BAND) * (ORBIT - BAND) {
+        (-sx, -sy) // too close: peel back out to the orbit ring
+    } else if clockwise {
+        (-sy, sx) // tangent
+    } else {
+        (sy, -sx)
+    };
+    if let Some(ai) = e.mob_ai_mut() {
+        ai.xa = xa;
+        ai.ya = ya;
+    }
+}
+
 /// Java `EnemyMob.render(screen)`.
-pub fn enemy_mob_render(_g: &mut Game, screen: &mut Screen, e: &mut Entity) {
+pub fn enemy_mob_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     if let Some(em) = e.enemy_mob() {
         e.c.col = em.lvlcols[(em.lvl - 1) as usize];
     }
-    mobai_render(screen, e);
+    mobai_render(g, screen, e);
 }
 
 /// Java `EnemyMob.die()` — 50 points per level, +1 multiplier.
@@ -1056,11 +1252,11 @@ pub fn enemy_check_start_pos(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
 /* -------------------------- PassiveMob base (PassiveMob.java) -------------------------- */
 
 /// Java `PassiveMob.render(screen)`.
-pub fn passive_mob_render(_g: &mut Game, screen: &mut Screen, e: &mut Entity) {
+pub fn passive_mob_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     if let Some(pm) = e.passive_mob() {
         e.c.col = pm.color;
     }
-    mobai_render(screen, e);
+    mobai_render(g, screen, e);
 }
 
 /// Java `PassiveMob.die()` — 15 points.

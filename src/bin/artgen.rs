@@ -60,8 +60,14 @@
 //! - fire particle (9,19): a layered blob (outer 1, mid 2, core 3), drawn in the flame
 //!   palette by the spawner. (It once doubled as the removed Creeper's foot.)
 //! - night wisp (0..3,20..21): shades 0 and 1 are both transparent — art in 2-3 only.
+//! - mob-life cells (`mob_life_cells`): coiled Rattler (4..5,20..21); Ghost pulse
+//!   frames (6..9,20..21, wisp-style shades 0+1 transparent, shade-1 eye holes);
+//!   firefly speck (10,20) and grass-stealth eye glints (11,20), both true-color
+//!   warm pixels. The snake-family body
+//!   variants reuse the traced snake frames (18..25,18..19) via per-variant palettes.
 //! - FREE cells (from the mob-roster overhaul): (8,18), (9,18), (8,19) — the remainder
-//!   of the old Creeper block. The old AirWizard (8,14), Skeleton (8,16), and Slime
+//!   of the old Creeper block — plus (10..11,21) and (12..17,20..21) beside the
+//!   mob-life cells. The old AirWizard (8,14), Skeleton (8,16), and Slime
 //!   (0,18) blocks were reused for the Marsh Lurker, Feral Hound, and Stone Golem.
 //!
 //! # Art-wave additions (see the per-recipe docs for exact roles)
@@ -4941,6 +4947,111 @@ fn glow_worm(s: &mut Sheet) {
     );
 }
 
+/* =========================  mob-life cells (row 20-21)  ========================= */
+
+/// Mob-life wave cells, in the free block left of the player-suit frames:
+///
+/// - (4..5,20..21): the Rattler's coiled pose — a top-down coil, head resting at the
+///   upper-left, segmented rattle raised at the upper-right. Standard mob shades
+///   (0 = transparent bg, 1 = outline, 2 = body/level tint, 3 = glints).
+/// - (6..9,20..21): the Ghost's two 16x16 pulse frames [phase, solid]. Wisp-style
+///   palette: shades 0 AND 1 transparent — the shade-1 eye sockets read as holes.
+/// - (10,20): firefly glow speck — TRUE-COLOR warm pixels on transparency.
+/// - (11,20): grass-stealth eye glints — two TRUE-COLOR warm pixels, drawn over
+///   hostiles hidden in tall grass at night (palette-mode yellow would be laundered
+///   gray by `color::upgrade` + the night grade).
+fn mob_life_cells(s: &mut Sheet) {
+    // Rattler, coiled
+    frame16(
+        s,
+        4,
+        20,
+        &[
+            "................",
+            "...111.....11...",
+            "..12221....11...",
+            ".113132....33...",
+            ".133322....11...",
+            "..12222111133...",
+            "....111333311...",
+            "...1333223221...",
+            "...1331111221...",
+            "...1221221221...",
+            "...1221221221...",
+            "...1221111221...",
+            "...1222222221...",
+            "....12222221....",
+            ".....111111.....",
+            "................",
+        ],
+    );
+
+    // Ghost pulse frame A: the translucent phase form (narrow, trailing away)
+    frame16(
+        s,
+        6,
+        20,
+        &[
+            "................",
+            "................",
+            "......2222......",
+            ".....223322.....",
+            "....22333322....",
+            "....23133132....",
+            "....23333332....",
+            "....22333322....",
+            "....223333222...",
+            "....2233332.2...",
+            "....223322......",
+            "....22.22.2.....",
+            "....2...2.......",
+            "................",
+            "................",
+            "................",
+        ],
+    );
+
+    // Ghost pulse frame B: the brief solid form (full, bright)
+    frame16(
+        s,
+        8,
+        20,
+        &[
+            "................",
+            ".....222222.....",
+            "....22333322....",
+            "...2233333322...",
+            "...2331331332...",
+            "...2333333332...",
+            "...2333333332...",
+            "...2333333332...",
+            "...2233333322...",
+            "...2223333222...",
+            "...22233332.2...",
+            "...22.2222.22...",
+            "...2...22...2...",
+            "................",
+            "................",
+            "................",
+        ],
+    );
+
+    // Firefly glow speck + grass-stealth eye glints: TRUE-COLOR cells — literal warm
+    // pixels. The palette path would launder the yellow toward gray (`color::upgrade`
+    // mixes luminance into blue) and the deep-blue night grade would then neutralize
+    // the glow entirely; drawn literally, they stay warm through the grade.
+    {
+        let mut c = cell(s, 10, 20);
+        c.set(3, 3, rgb(255, 224, 96)); // core
+        c.set(4, 4, rgb(150, 200, 60)); // fading tail
+    }
+    {
+        let mut c = cell(s, 11, 20);
+        c.set(2, 3, rgb(255, 216, 48));
+        c.set(5, 3, rgb(255, 216, 48));
+    }
+}
+
 /* ==============================  font (rows 30-31)  ============================== */
 
 /// The renderable half of `Font::CHARS` (all text is uppercased before drawing, so the
@@ -5196,6 +5307,7 @@ fn main() {
     sheep(&mut s);
     snake(&mut s);
     glow_worm(&mut s);
+    mob_life_cells(&mut s);
 
     // text
     font(&mut s);

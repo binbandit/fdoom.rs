@@ -7,6 +7,7 @@
 
 pub mod behavior;
 pub mod direction;
+pub mod fireflies;
 pub mod furniture;
 pub mod item_entity;
 pub mod item_entity_behavior;
@@ -90,10 +91,13 @@ pub enum EntityKind {
     FeralHound(mob::feral_hound::FeralHoundData),
     StoneGolem(mob::stone_golem::StoneGolemData),
     NightWisp(mob::night_wisp::NightWispData),
+    Ghost(mob::ghost::GhostData),
     // free-floating things
     ItemEntity(ItemEntityData),
     Arrow(ArrowData),
     Zap(ZapData),
+    /// Ambient glow-speck swarm — not a mob (no health/collision, never mob-capped).
+    Fireflies(fireflies::FirefliesData),
     // particles
     Particle(ParticleData),
     TextParticle(TextParticleData),
@@ -179,6 +183,7 @@ impl Entity {
             EntityKind::FeralHound(m) => &m.enemy.ai.mob,
             EntityKind::StoneGolem(m) => &m.enemy.ai.mob,
             EntityKind::NightWisp(m) => &m.enemy.ai.mob,
+            EntityKind::Ghost(m) => &m.enemy.ai.mob,
             _ => return None,
         })
     }
@@ -197,6 +202,7 @@ impl Entity {
             EntityKind::FeralHound(m) => &mut m.enemy.ai.mob,
             EntityKind::StoneGolem(m) => &mut m.enemy.ai.mob,
             EntityKind::NightWisp(m) => &mut m.enemy.ai.mob,
+            EntityKind::Ghost(m) => &mut m.enemy.ai.mob,
             _ => return None,
         })
     }
@@ -215,6 +221,7 @@ impl Entity {
             EntityKind::FeralHound(m) => &m.enemy.ai,
             EntityKind::StoneGolem(m) => &m.enemy.ai,
             EntityKind::NightWisp(m) => &m.enemy.ai,
+            EntityKind::Ghost(m) => &m.enemy.ai,
             _ => return None,
         })
     }
@@ -232,6 +239,7 @@ impl Entity {
             EntityKind::FeralHound(m) => &mut m.enemy.ai,
             EntityKind::StoneGolem(m) => &mut m.enemy.ai,
             EntityKind::NightWisp(m) => &mut m.enemy.ai,
+            EntityKind::Ghost(m) => &mut m.enemy.ai,
             _ => return None,
         })
     }
@@ -246,6 +254,7 @@ impl Entity {
             EntityKind::FeralHound(m) => &m.enemy,
             EntityKind::StoneGolem(m) => &m.enemy,
             EntityKind::NightWisp(m) => &m.enemy,
+            EntityKind::Ghost(m) => &m.enemy,
             _ => return None,
         })
     }
@@ -259,6 +268,7 @@ impl Entity {
             EntityKind::FeralHound(m) => &mut m.enemy,
             EntityKind::StoneGolem(m) => &mut m.enemy,
             EntityKind::NightWisp(m) => &mut m.enemy,
+            EntityKind::Ghost(m) => &mut m.enemy,
             _ => return None,
         })
     }

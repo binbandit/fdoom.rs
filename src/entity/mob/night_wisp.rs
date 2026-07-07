@@ -11,7 +11,7 @@ use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::gfx::color;
 use crate::gfx::sprite::{MobAnims, compile_sprite_list};
 
-use super::EnemyMobData;
+use super::{EnemyMobData, MovementStyle};
 
 // A single row of two 16x16 pulse frames (like the old Slime sheet shape).
 static SPRITES: LazyLock<MobAnims> = LazyLock::new(|| vec![compile_sprite_list(0, 20, 2, 2, 0, 2)]);
@@ -40,7 +40,9 @@ pub struct NightWispData {
 pub fn new(g: &Game, lvl: i32) -> Entity {
     let lvl = lvl.clamp(1, LVLCOLS.len() as i32);
     let diff_idx = g.settings.get_idx("diff");
-    let (enemy, col) = EnemyMobData::simple(lvl, &SPRITES, &LVLCOLS, 2, 100, diff_idx);
+    let (mut enemy, col) = EnemyMobData::simple(lvl, &SPRITES, &LVLCOLS, 2, 100, diff_idx);
+    // lantern-of-the-night gait: sinusoidal drift
+    enemy.ai.movement_style = MovementStyle::Curve;
     let mut c = EntityCommon::new(4, 3);
     c.col = col;
     Entity::new(

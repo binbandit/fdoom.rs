@@ -9,7 +9,7 @@ use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::gfx::color;
 use crate::gfx::sprite::{MobAnims, compile_mob_sprite_animations};
 
-use super::EnemyMobData;
+use super::{EnemyMobData, MovementStyle};
 
 static SPRITES: LazyLock<MobAnims> = LazyLock::new(|| compile_mob_sprite_animations(8, 16));
 
@@ -32,6 +32,8 @@ pub fn new(g: &Game, lvl: i32) -> Entity {
     let (mut enemy, col) = EnemyMobData::simple(lvl, &SPRITES, &LVLCOLS, 3, 120, diff_idx);
     // walk_time 1 = no skipped movement ticks: as fast as the player, twice a zombie.
     enemy.ai.mob.walk_time = 1;
+    // pack-hunter gait: circle the prey at ~4 tiles, then lunge
+    enemy.ai.movement_style = MovementStyle::Circle;
     let mut c = EntityCommon::new(4, 3);
     c.col = col;
     Entity::new(c, EntityKind::FeralHound(FeralHoundData { enemy }))

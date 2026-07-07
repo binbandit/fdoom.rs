@@ -360,13 +360,18 @@ fn entity_class_name(e: &Entity) -> &'static str {
         EntityKind::Sheep(_) => "Sheep",
         EntityKind::GlowWorm(_) => "GlowWorm",
         EntityKind::Zombie(_) => "Zombie",
-        EntityKind::Snake(_) => "Snake",
+        // the snake family: one kind, the variant carries the save name ("Snake" is
+        // kept by the Cave Serpent for save compatibility)
+        EntityKind::Snake(m) => m.variant.class_name(),
         EntityKind::Knight(_) => "Knight",
         EntityKind::MarshLurker(_) => "MarshLurker",
         EntityKind::FeralHound(_) => "FeralHound",
         EntityKind::StoneGolem(_) => "StoneGolem",
         EntityKind::NightWisp(_) => "NightWisp",
+        EntityKind::Ghost(_) => "Ghost",
         EntityKind::ItemEntity(_) => "ItemEntity",
+        // ambience, never persisted (skipped below like particles)
+        EntityKind::Fireflies(_) => "Fireflies",
         EntityKind::Arrow(_) => "Arrow",
         EntityKind::Zap(_) => "Zap",
         // JAVA: FireParticle/SmashParticle are separate classes; both map to the merged
@@ -401,6 +406,7 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
                 | EntityKind::Zap(_)
                 | EntityKind::Particle(_)
                 | EntityKind::TextParticle(_)
+                | EntityKind::Fireflies(_)
         )
     {
         // JAVA: RemotePlayer is also skipped here; no such entity exists in this build.

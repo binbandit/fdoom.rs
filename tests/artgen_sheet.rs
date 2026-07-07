@@ -128,6 +128,10 @@ const INVENTORY: &[(i32, i32, i32, i32, &str)] = &[
     (18, 18, 8, 2, "snake frames"),
     (26, 19, 1, 1, "glow worm"),
     (0, 20, 4, 2, "night wisp frames"),
+    (4, 20, 2, 2, "rattler coiled pose"),
+    (6, 20, 4, 2, "ghost pulse frames"),
+    (10, 20, 1, 1, "firefly glow speck"),
+    (11, 20, 1, 1, "grass-stealth eye glints"),
     (18, 20, 8, 2, "player suit frames"),
     (18, 22, 8, 2, "player suit carry frames"),
     // -- structures --
@@ -229,6 +233,7 @@ fn palette_cells_stay_grayscale() {
         (0, 16, 24, 2, "mob row 16"),
         (0, 18, 26, 2, "mob row 18"),
         (0, 20, 4, 2, "night wisp"),
+        (4, 20, 6, 2, "mob-life cells (rattler coil + ghost frames)"),
         (18, 20, 8, 2, "suit"),
         (18, 22, 8, 2, "suit carry"),
         (0, 24, 4, 2, "doors"),

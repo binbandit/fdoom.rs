@@ -933,6 +933,10 @@ pub fn load_entity(
                 | "FeralHound"
                 | "StoneGolem"
                 | "NightWisp"
+                | "GrassSnake"
+                | "Adder"
+                | "Rattler"
+                | "Ghost"
         );
         if !is_crafter_name && is_enemy_mob_class {
             mob_lvl = info[info.len() - 2].parse().unwrap();
@@ -1098,10 +1102,26 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
         "GlowWorm" => Some(mob::glow_worm::new(g)),
         "Knight" => Some(mob::knight::new(g, moblvl)),
         "Snake" => Some(mob::snake::new(g, moblvl)),
+        "GrassSnake" => Some(mob::snake::new_variant(
+            g,
+            mob::snake::SnakeVariant::Grass,
+            moblvl,
+        )),
+        "Adder" => Some(mob::snake::new_variant(
+            g,
+            mob::snake::SnakeVariant::Adder,
+            moblvl,
+        )),
+        "Rattler" => Some(mob::snake::new_variant(
+            g,
+            mob::snake::SnakeVariant::Rattler,
+            moblvl,
+        )),
         "MarshLurker" => Some(mob::marsh_lurker::new(g, moblvl)),
         "FeralHound" => Some(mob::feral_hound::new(g, moblvl)),
         "StoneGolem" => Some(mob::stone_golem::new(g, moblvl)),
         "NightWisp" => Some(mob::night_wisp::new(g, moblvl)),
+        "Ghost" => Some(mob::ghost::new(g, moblvl)),
         "Spawner" => {
             let zombie = mob::zombie::new(g, 1);
             let mut rnd = g.random.clone();

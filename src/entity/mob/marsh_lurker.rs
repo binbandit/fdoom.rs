@@ -9,7 +9,7 @@ use crate::entity::{Entity, EntityCommon, EntityKind};
 use crate::gfx::color;
 use crate::gfx::sprite::{MobAnims, compile_mob_sprite_animations};
 
-use super::EnemyMobData;
+use super::{EnemyMobData, MovementStyle};
 
 static SPRITES: LazyLock<MobAnims> = LazyLock::new(|| compile_mob_sprite_animations(8, 14));
 
@@ -38,7 +38,9 @@ pub fn new(g: &Game, lvl: i32) -> Entity {
     let lvl = lvl.clamp(1, LVLCOLS.len() as i32);
     let diff_idx = g.settings.get_idx("diff");
     // Short detect distance: it waits for prey to come close rather than roaming.
-    let (enemy, col) = EnemyMobData::simple(lvl, &SPRITES, &LVLCOLS, 6, 80, diff_idx);
+    let (mut enemy, col) = EnemyMobData::simple(lvl, &SPRITES, &LVLCOLS, 6, 80, diff_idx);
+    // ambush gait: hold dead still, then burst
+    enemy.ai.movement_style = MovementStyle::FreezeBurst;
     let mut c = EntityCommon::new(4, 3);
     c.col = col;
     Entity::new(

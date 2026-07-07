@@ -37,12 +37,13 @@ fn new_mob_instance(g: &Game, template: &Entity, lvl: i32) -> Option<Entity> {
         EntityKind::Sheep(_) => mob::sheep::new(g),
         EntityKind::GlowWorm(_) => mob::glow_worm::new(g),
         EntityKind::Zombie(_) => mob::zombie::new(g, lvl),
-        EntityKind::Snake(_) => mob::snake::new(g, lvl),
+        EntityKind::Snake(sd) => mob::snake::new_variant(g, sd.variant, lvl),
         EntityKind::Knight(_) => mob::knight::new(g, lvl),
         EntityKind::MarshLurker(_) => mob::marsh_lurker::new(g, lvl),
         EntityKind::FeralHound(_) => mob::feral_hound::new(g, lvl),
         EntityKind::StoneGolem(_) => mob::stone_golem::new(g, lvl),
         EntityKind::NightWisp(_) => mob::night_wisp::new(g, lvl),
+        EntityKind::Ghost(_) => mob::ghost::new(g, lvl),
         _ => return None,
     })
 }

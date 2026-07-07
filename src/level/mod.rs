@@ -679,6 +679,42 @@ fn hound_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
     }
 }
 
+/// Grass Snake country: plains/forest (infinite); open grass on finite worlds.
+fn grass_snake_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    if g.level(lvl).is_infinite() {
+        matches!(
+            infinite_gen::biome_at(g.world_seed, x >> 4, y >> 4),
+            infinite_gen::Biome::Plains | infinite_gen::Biome::Forest
+        )
+    } else {
+        g.tile_at(lvl, x >> 4, y >> 4).name == "GRASS"
+    }
+}
+
+/// Adder country: marsh/savanna (infinite); the muddy fringe on finite worlds.
+fn adder_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    if g.level(lvl).is_infinite() {
+        matches!(
+            infinite_gen::biome_at(g.world_seed, x >> 4, y >> 4),
+            infinite_gen::Biome::Marsh | infinite_gen::Biome::Savanna
+        )
+    } else {
+        g.tile_at(lvl, x >> 4, y >> 4).name == "MUD"
+    }
+}
+
+/// Rattler country: the desert (infinite); sand on finite worlds.
+fn rattler_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    if g.level(lvl).is_infinite() {
+        matches!(
+            infinite_gen::biome_at(g.world_seed, x >> 4, y >> 4),
+            infinite_gen::Biome::Desert
+        )
+    } else {
+        g.tile_at(lvl, x >> 4, y >> 4).name == "SAND"
+    }
+}
+
 /// Java `Level.trySpawn()`, behind the world-events gate (`core::events::spawn_passes`):
 /// Aurora pauses spawning for the night (0 passes); Whisper Fog doubles marsh spawn
 /// pressure with a second full pass while the player stands in the fog.
@@ -788,6 +824,41 @@ fn try_spawn_pass(g: &mut Game, lvl: usize) {
                 let e = crate::entity::mob::marsh_lurker::new(g, mlvl);
                 g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
                 spawned = true;
+            } else if grass_snake_biome(g, lvl, nx, ny)
+                && (13..=18).contains(&rnd)
+                && crate::entity::behavior::enemy_check_start_pos(g, lvl, nx, ny)
+            {
+                // harmless ambience for the open green country, day and night
+                let e = crate::entity::mob::snake::new_variant(
+                    g,
+                    crate::entity::mob::snake::SnakeVariant::Grass,
+                    mlvl,
+                );
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                spawned = true;
+            } else if adder_biome(g, lvl, nx, ny)
+                && (19..=25).contains(&rnd)
+                && crate::entity::behavior::enemy_check_start_pos(g, lvl, nx, ny)
+            {
+                let e = crate::entity::mob::snake::new_variant(
+                    g,
+                    crate::entity::mob::snake::SnakeVariant::Adder,
+                    mlvl,
+                );
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                spawned = true;
+            } else if rattler_biome(g, lvl, nx, ny)
+                && (19..=25).contains(&rnd)
+                && crate::entity::behavior::enemy_check_start_pos(g, lvl, nx, ny)
+            {
+                // spawns coiled and still, waiting in the sand
+                let e = crate::entity::mob::snake::new_variant(
+                    g,
+                    crate::entity::mob::snake::SnakeVariant::Rattler,
+                    mlvl,
+                );
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                spawned = true;
             } else if hound_biome(g, lvl, nx, ny)
                 && (if night {
                     (41..=60).contains(&rnd)
@@ -825,6 +896,31 @@ fn try_spawn_pass(g: &mut Game, lvl: usize) {
                 g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
                 spawned = true;
             }
+        }
+
+        // ghosts rise from broken graves at night; on a Hollow Night they mass-rise
+        if depth == 0 && night && !spawned {
+            let rises = if crate::core::events::hollow_night_active(g) {
+                rnd <= 45
+            } else {
+                (86..=90).contains(&rnd)
+            };
+            if rises && crate::entity::mob::ghost::try_rise(g, lvl, nx, ny, mlvl) {
+                spawned = true;
+            }
+        }
+
+        // firefly swarms drift out at dusk near trees and marsh water
+        if depth == 0
+            && !spawned
+            && g.get_time() == crate::core::updater::Time::Evening
+            && rnd >= 91
+            && crate::entity::fireflies::weather_allows(g)
+            && crate::entity::behavior::firefly_check_start_pos(g, lvl, nx, ny)
+        {
+            let e = crate::entity::fireflies::new(&mut g.random);
+            g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+            spawned = true;
         }
 
         if depth == 0 && crate::entity::behavior::passive_check_start_pos(g, lvl, nx, ny) {

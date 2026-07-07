@@ -4,6 +4,7 @@
 
 pub mod cow;
 pub mod feral_hound;
+pub mod ghost;
 pub mod glow_worm;
 pub mod knight;
 pub mod marsh_lurker;
@@ -18,6 +19,26 @@ pub mod zombie;
 
 use crate::entity::Direction;
 use crate::gfx::sprite::MobAnims;
+
+/// Movement personality consumed by the shared MobAi/EnemyMob layers
+/// (`behavior::mobai_tick_base` / `enemy_mob_tick_base`). `Classic` is the untouched
+/// original walk — zombies, knights, and every passive mob keep it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MovementStyle {
+    /// The original MobAi walk, byte-for-byte.
+    #[default]
+    Classic,
+    /// Orbit the target at ~4 tiles, with a periodic straight lunge (Feral Hound).
+    Circle,
+    /// Wide sinusoidal drift while moving (Night Wisp).
+    Curve,
+    /// Hold still ~2 s, then a fast burst of movement (Marsh Lurker).
+    FreezeBurst,
+    /// Tight S-curve side-offsets while moving (the snake family).
+    Slither,
+    /// Gentle vertical bob layered on the drift (Ghost).
+    SineFloat,
+}
 
 /// Fields of the Java `Mob` base class.
 #[derive(Debug, Clone)]
@@ -69,6 +90,8 @@ pub struct MobAiData {
     pub lifetime: i32,
     pub age: i32,
     pub slowtick: bool,
+    /// How this mob carries itself while moving (see [`MovementStyle`]).
+    pub movement_style: MovementStyle,
 }
 
 impl MobAiData {
@@ -92,6 +115,7 @@ impl MobAiData {
             lifetime,
             age: 0,
             slowtick: false,
+            movement_style: MovementStyle::Classic,
         }
     }
 }

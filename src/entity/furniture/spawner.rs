@@ -31,12 +31,14 @@ fn mob_class_name(mob: &Entity) -> &'static str {
         EntityKind::Sheep(_) => "Sheep",
         EntityKind::GlowWorm(_) => "GlowWorm",
         EntityKind::Zombie(_) => "Zombie",
-        EntityKind::Snake(_) => "Snake",
+        // the snake family shares one kind; the variant carries the name
+        EntityKind::Snake(m) => m.variant.class_name(),
         EntityKind::Knight(_) => "Knight",
         EntityKind::MarshLurker(_) => "MarshLurker",
         EntityKind::FeralHound(_) => "FeralHound",
         EntityKind::StoneGolem(_) => "StoneGolem",
         EntityKind::NightWisp(_) => "NightWisp",
+        EntityKind::Ghost(_) => "Ghost",
         _ => "Mob",
     }
 }
@@ -51,6 +53,7 @@ pub fn max_mob_level(mob: &Entity) -> i32 {
         EntityKind::FeralHound(m) => m.enemy.lvlcols.len() as i32,
         EntityKind::StoneGolem(m) => m.enemy.lvlcols.len() as i32,
         EntityKind::NightWisp(m) => m.enemy.lvlcols.len() as i32,
+        EntityKind::Ghost(m) => m.enemy.lvlcols.len() as i32,
         _ => 1, // passive mobs
     }
 }
