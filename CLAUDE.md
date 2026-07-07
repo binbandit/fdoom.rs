@@ -1,36 +1,61 @@
-# fdoom.rs
+# fdoom.rs — Fossickers Doom
 
-See also: `docs/` — ARCHITECTURE.md (codebase tour), DEV_GUIDE.md (commands, FDOOM_DEMO
-scripted runs, headless testing, cheat keys), ADDING_CONTENT.md (item/tile/mob recipes).
+An original open-sandbox survival game in pure Rust (no engine): infinite
+deterministic worlds, dig-based descent, fossicking/mining, weather, tides, rare
+world events, day/night lighting with occlusion, and a fully original mob roster.
+Began as a 1:1 port of the Java game "Fossicker" — **tag `v0.1.0` is the pure port**;
+everything after evolves the game on its own terms.
 
-Rust port of the Java game "Fossickers Doom" (Fossicker repo). **Read `PORTING.md` first** —
-it defines the architecture and the Java→Rust conventions. The Java source of truth lives in
-a scratch clone outside this repo; when in doubt about behavior, defer to the Java code.
+## Read first
+- `docs/HANDOFF_TODO.md` — ACTIVE work program: in-flight lanes, queued waves,
+  acceptance criteria. If you're picking this project up, start there.
+- `docs/ARCHITECTURE.md` — 15-minute codebase tour; `docs/TERRAIN.md`,
+  `docs/ENTITIES.md`, `docs/ITEMS_AND_CRAFTING.md`, `docs/RENDERING_AND_UI.md`,
+  `docs/CORE_AND_SAVES.md` — exhaustive per-system references.
+- `docs/ART_GUIDE.md` (once the sprite decomposition lands) + `CONTRIBUTING.md` —
+  house style. `docs/REQUESTS_AUDIT.md` / `docs/AUDIT_RESULTS.md` — request tracking.
+- `docs/DEV_GUIDE.md` — daily commands, FDOOM_DEMO scripted runs, headless testing.
 
 ## Commands
+- `cargo run` — play (add `-- --debug` for cheat keys).
+- `just check` — fmt --check + clippy `-D warnings` + full test suite. MUST be green
+  before every commit.
+- `just --list` — all dev verbs (worldview, studio, seed, biome-map, soak, shots...).
+- `cargo run --bin worldview -- <seed>` — world inspection window.
+- `cargo run --bin pixel_studio` — the pixel art editor (sole art tool; artgen is
+  deprecated/removed).
 
-- `cargo run` — run the game (windowed).
-- `cargo test` — unit + headless render tests.
-- `cargo clippy --all-targets -- -D warnings` — must stay clean.
-- `cargo fmt` — rustfmt, default style.
+## Hard conventions
+1. **No `// JAVA:` comments.** Comment only what a maintainer needs: non-obvious
+   behavior, constraints, formula rationale. (The historical sweep is in progress —
+   see HANDOFF_TODO 1a.)
+2. **`g: &mut Game`** is the world-state root (no statics). Render fns take
+   `(&mut Screen, &Game-ish)`, tick fns `&mut Game`. Screens/Renderer live outside.
+3. **Entities**: `EntityCommon` + `EntityKind` enum, take-out tick pattern
+   (`g.with_entity`); an entity is absent from the arena while it ticks.
+4. **World generation is pure**: everything derives from `(seed, depth, x, y)` (+ day
+   clock for time-varying systems like tides/weather/events). No `Date::now`/ambient
+   randomness in gen. Chunk-border exactness is tested — preserve it.
+5. **Randomness**: only `crate::rng::Rng` (+ the SplitMix hash helpers in
+   `infinite_gen`). No `rand` crate.
+6. **Art**: sprites live as individual PNGs under `assets/sprites/**` (stitched into
+   a runtime atlas; see ART_GUIDE). Palette-mode sprites use ONLY grays 0/85/170/255
+   (+ transparent); true-color pixels must never be pure gray. Player and classic-mob
+   cells are pixel-traced from the original — NEVER redesign their anatomy. Terrain
+   texture taste: calm base, sparse clustered detail — no uniform dither.
+7. **Testing**: use `fdoom::testutil::TestWorld` for game-booting tests; visual
+   changes are verified by screenshots you actually look at (`target/verify/`).
+8. **No new dependencies** without updating PORTING.md. Platform code stays in
+   `src/platform/`; tools are self-contained bins in `src/bin/`.
+9. **Multi-agent discipline**: one lane per commit with an explicit file list (never
+   `git add -A` with concurrent work); never two agents writing one file
+   (`item/registry.rs` is the classic collision).
+10. Saves: version-gated (3.0+); world shape is 5 layers (surface, 3 mines, dungeon).
+    Old-save tolerance: unknown entity names skip with a warning, never panic.
 
-## Porting conventions (mandatory)
-
-1. **Post-port era** (after tag `v0.1.0`): the codebase no longer preserves Java quirks
-   for their own sake — prefer clear, idiomatic Rust and fix inherited bugs. Do NOT
-   write `// JAVA:` provenance comments (the remaining ones are being removed); comment
-   only what a maintainer needs — non-obvious behavior, constraints, formula rationale.
-2. **`g: &mut Game`** replaces all Java statics (`Game.*`, `Updater.*`, `World.*`,
-   `Settings`, `Sound`). Renderer/Screens live outside `Game`; render fns take
-   `(&mut Screen, &Game)`, tick fns take `&mut Game`.
-3. **Entities** = `EntityCommon` + `EntityKind` enum; tick via the take-out pattern
-   (`g.with_entity`). Java `instanceof` → matches!/predicates. Java `super.foo()` → call the
-   parent layer's shared function.
-4. **Naming**: Java camelCase → Rust snake_case; class names stay PascalCase. File layout
-   mirrors the Java package layout (see PORTING.md module map).
-5. **Randomness**: only `crate::rng::Rng` (deterministic per seed). World gen seeds its
-   own instances; incidental randomness uses `g.random`. No `rand` crate dependency.
-6. **No new dependencies** without updating PORTING.md. Platform code (winit/softbuffer/
-   rodio) is confined to `src/platform/`.
-7. Doc-comment each ported item with a short note of its Java origin only when the mapping
-   is non-obvious (renames, merged classes). Don't restate the Java file for straight ports.
+## Product taste (user-established, enforce in reviews)
+- Original flavor over clones: fossicking identity (pans, veins, cave-ins), invisible
+  fish, dig-descent instead of stairs, stamina-draining ghosts. Inspired-by is fine;
+  1:1 copies of other games' mechanics are not.
+- Show, don't tell: every user-facing change ships with a screenshot.
+- Sandbox: no win condition, survival-only, worlds are infinite and seed-described.
