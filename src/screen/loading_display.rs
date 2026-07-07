@@ -52,7 +52,6 @@ impl LoadingDisplay {
             base: DisplayBase::new(true, false, Vec::new()),
             ticks: 0,
             msg: String::new(),
-            // JAVA: new SmoothEllipsis(new TimeUpdater())
             ellipsis: Ellipsis::smooth_time(),
         }
     }
@@ -76,13 +75,12 @@ impl Display for LoadingDisplay {
         } else {
             "Generating".to_string()
         };
-        // JAVA: t.start() — replaced by the tick counter below.
     }
 
     fn tick(&mut self, g: &mut Game) {
         self.ticks += 1;
         if self.ticks == 2 {
-            // JAVA: the timer callback — World.initWorld(); Game.setMenu(null);
+            // one frame of "Loading..." has been drawn; now do the real work
             crate::core::world::init_world(g);
             g.clear_menu();
             return;

@@ -63,8 +63,7 @@ impl CraftingDisplay {
         let bounds = recipe_menu.get_bounds();
         let item_count_anchor =
             Point::new(bounds.left() + sprite_sheet::BOX_WIDTH, bounds.bottom());
-        // JAVA: itemCountMenu.createMenu().getBounds().getLeft() + 90 — probe an empty
-        // menu for its position.
+        // probe an empty menu for its resolved position to anchor the costs column
         let probe = Self::item_count_builder(item_count_anchor).create_menu(g);
         let costs_anchor = Point::new(probe.get_bounds().left() + 90, bounds.bottom());
 
@@ -106,7 +105,7 @@ impl CraftingDisplay {
             .create_menu(g);
 
         let product = self.selected_recipe().borrow().get_product(g);
-        let count = inventory.count(&product); // JAVA: getCurItemCount()
+        let count = inventory.count(&product);
         let mut item_count_menu = Self::item_count_builder(self.item_count_anchor)
             .set_entries(vec![handle(ItemListing::new(product, &count.to_string()))])
             .create_menu(g);
@@ -128,8 +127,7 @@ impl CraftingDisplay {
     /// Java `getCurItemCosts()`.
     fn get_cur_item_costs(&self, g: &Game, inventory: &Inventory) -> Vec<EntryHandle> {
         let mut cost_list = Vec::new();
-        // JAVA: iterates the costs HashMap's keySet (unspecified order); the port's cost
-        // list preserves the recipe's insertion order.
+        // costs are listed in the recipe's own insertion order
         let recipe = self.selected_recipe().borrow();
         for (item_name, amount) in recipe.get_costs() {
             let cost = registry::get(g, item_name);
@@ -160,7 +158,6 @@ impl Display for CraftingDisplay {
         let prev_sel = self.base.menus[0].get_selection();
         display_tick_default(&mut self.base, g);
         if prev_sel != self.base.menus[0].get_selection() {
-            // JAVA: refreshData() — reads player.getInventory().
             if let Some(mut player) = g.entities.take(self.player_eid) {
                 self.refresh_data(g, &player.player_mut().inventory);
                 g.entities.put_back(player);
@@ -173,8 +170,7 @@ impl Display for CraftingDisplay {
             // check the selected recipe
             let recipe = self.selected_recipe().clone();
             if recipe.borrow().get_can_craft() {
-                // JAVA: r.craft(player) — take the player out so the inventory can be
-                // borrowed alongside `g`.
+                // take the player out so the inventory can be borrowed alongside `g`
                 if let Some(mut player) = g.entities.take(self.player_eid) {
                     {
                         let inventory = &mut player.player_mut().inventory;

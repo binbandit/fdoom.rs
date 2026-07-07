@@ -30,7 +30,8 @@ pub fn arrow_tick(g: &mut Game, e: &mut Entity) {
         (level.w, level.h)
     };
 
-    // JAVA: note `>` not `>=` on the tile bounds (finite levels; infinite have no edge)
+    // deliberately `>` not `>=` on the tile bounds: an arrow on the last tile row/column
+    // is still in flight (finite levels only; infinite ones have no edge)
     if !g.level(lvl).is_infinite()
         && (e.c.x < 0 || e.c.x >> 4 > level_w || e.c.y < 0 || e.c.y >> 4 > level_h)
     {
@@ -165,7 +166,7 @@ pub fn zap_tick(g: &mut Game, e: &mut Entity) {
             .map(|h| h.is_mob() && !matches!(h.kind, EntityKind::NightWisp(_)))
             .unwrap_or(false);
         if hurt_it {
-            // JAVA (Spark): `mob.hurt(owner, 1)` — attack dir from the owner's position
+            // knockback direction comes from the zap's owner, not the zap itself
             let owner_pos = g.entities.get(owner).map(|o| (o.c.x, o.c.y));
             let hit = g
                 .with_entity(hit_id, |mob, g| {

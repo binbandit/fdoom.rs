@@ -85,20 +85,14 @@ impl Display for TitleDisplay {
     }
 
     fn init(&mut self, g: &mut Game) {
-        // JAVA: super.init(null) — the TitleScreen never has a parent.
+        // the title screen never has a parent display
         g.display.stack.clear();
         g.ready_to_render_gameplay = false;
 
-        // (Post-port cleanup: the Java splash-text list, its "r" reroll, and the unused
-        // logo fade counters are gone — none of them were ever rendered in this fork.)
-
-        // JAVA: World.levels = new Level[World.levels.length];
+        // drop any loaded world
         for level in g.levels.iter_mut() {
             *level = None;
         }
-
-        // JAVA: World.resetGame(false) only ran when the player was null or a
-        // RemotePlayer (after online play); the singleplayer player always exists here.
     }
 
     fn render(&mut self, screen: &mut Screen, g: &mut Game) {

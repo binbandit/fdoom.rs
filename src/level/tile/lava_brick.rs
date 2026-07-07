@@ -1,14 +1,13 @@
 //! Port of `fdoom.level.tile.LavaBrickTile`.
 
-use super::{TileDef, TileKind};
+use super::{TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::entity::behavior::{can_wool, mob_hurt_tile};
-use crate::entity::mob::player_behavior::pay_stamina;
 use crate::gfx::{Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 
 /// Java `LavaBrickTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -28,22 +27,11 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool {
-        ttype,
-        level: tool_level,
-        ..
-    } = &item.kind
-    {
-        let (ttype, tool_level) = (*ttype, *tool_level);
-        if ttype == ToolType::Pickaxe
-            && pay_stamina(player, 4 - tool_level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let lava = g.tiles.get("lava");
-            g.set_tile_default(lvl, xt, yt, &lava);
-            g.play_sound(Sound::MonsterHurt);
-            return true;
-        }
+    if tool_use(g, player, item, ToolType::Pickaxe, 4).is_some() {
+        let lava = g.tiles.get("lava");
+        g.set_tile_default(lvl, xt, yt, &lava);
+        g.play_sound(Sound::MonsterHurt);
+        return true;
     }
     false
 }

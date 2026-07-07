@@ -25,13 +25,13 @@ pub fn new(item: Item, x: i32, y: i32, random: &mut Rng) -> Entity {
     let mut c = EntityCommon::new(2, 2);
     c.x = x;
     c.y = y;
-    // JAVA constructor order: the accelerations draw from the RNG before lifeTime does.
+    // draw order matters: the accelerations pull from the RNG before life_time does
     let xa = random.next_gaussian() * 0.3;
     let ya = random.next_gaussian() * 0.2;
     let za = random.next_float() as f64 * 0.7 + 1.0;
     let data = ItemEntityData {
         item,
-        // JAVA: min 600 ticks, max 669 ticks
+        // 600..=669 ticks (10-11 seconds) before the drop despawns
         life_time: 60 * 10 + random.next_int_bound(70),
         xa,
         ya,

@@ -9,14 +9,10 @@ use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
 use crate::item::Item;
 
-// JAVA: hasRunTonight/hasSpawnedZombie were instance fields on the tile-class singleton,
-// shared by every grave stone tile on every level and never reset — the state leaked
-// across worlds (one grave crumbling stopped every other grave from ever crumbling).
-// FIX: the flag lives in the tile's per-position data byte instead (grave stones never
-// used their data value), so each grave tracks its own state, it is world-scoped, and it
-// round-trips through saves for free. For an unbroken grave the flag means "already
-// rolled the crumble chance tonight"; for a broken grave it means "already spawned its
-// night zombie".
+// Per-grave night state lives in the tile's per-position data byte (grave stones have
+// no other use for it), so each grave tracks its own state and it round-trips through
+// saves for free. For an unbroken grave the flag means "already rolled the crumble
+// chance tonight"; for a broken grave it means "already spawned its night zombie".
 const FLAG_SET: i32 = 1;
 
 /// Standing marker shapes (artgen `gravestone_cells`, all 2x2 true-color blocks on
@@ -86,8 +82,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
     if is_broken {
         if flag == 0 && g.get_time() == Time::Night {
             let mut new_mob = crate::entity::mob::zombie::new(g, 1);
-            // JAVA: set the mob's *pixel* coordinates to the *tile* coordinates, dumping
-            // the zombie near the map origin. FIX: spawn at the grave tile's center.
+            // pixel coordinates: the center of this grave's tile
             new_mob.c.x = xt * 16 + 8;
             new_mob.c.y = yt * 16 + 8;
             g.level_mut(lvl).add(new_mob, lvl);
@@ -115,10 +110,9 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
                 }
             } else if flag == 0 && !crate::core::events::grave_decay_suppressed(g) {
                 // Quiet week after a Hollow Night: no crumble roll at all (the guard
-                // above). Otherwise one crumble roll per grave per night. JAVA: a 50%
-                // coin flip; lowered to ~17% so a cemetery decays (and leaks zombies)
-                // over one or two in-game weeks instead of collapsing almost entirely
-                // on the first couple of nights.
+                // above). Otherwise one crumble roll per grave per night, at ~17% so a
+                // cemetery decays (and leaks zombies) over one or two in-game weeks
+                // instead of collapsing almost entirely on the first couple of nights.
                 if g.random.next_int_bound(6) == 0 {
                     let broken = g.tiles.get_id(44);
                     // set_tile_default resets the data byte, so the fresh broken grave
@@ -160,8 +154,7 @@ pub fn interact(
         return false;
     };
     if !broken {
-        // JAVA: the zombie was added without a position (spawned at 0,0). FIX: spawn it
-        // at the center of the grave tile being disturbed.
+        // disturbing a grave rouses its occupant at the tile's center
         let mut zombie = crate::entity::mob::zombie::new(g, 5);
         zombie.c.x = xt * 16 + 8;
         zombie.c.y = yt * 16 + 8;
@@ -188,8 +181,7 @@ pub fn hurt_by(
         return true;
     };
     if !broken {
-        // JAVA: the zombie was added without a position (spawned at 0,0). FIX: spawn it
-        // at the center of the grave tile being disturbed.
+        // smashing a grave rouses its occupant at the tile's center
         let mut zombie = crate::entity::mob::zombie::new(g, 1);
         zombie.c.x = x * 16 + 8;
         zombie.c.y = y * 16 + 8;

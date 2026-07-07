@@ -1,11 +1,11 @@
 //! Port of `fdoom.level.tile.WheatTile`.
 
-use super::{TileDef, TileKind};
+use super::{TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 
 /// Java `WheatTile` constructor — `super(name, (Sprite)null)`.
 pub fn make(name: &str) -> TileDef {
@@ -51,16 +51,11 @@ pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         return;
     }
 
+    // wheat next to water grows twice as fast
     let age = g.level(lvl).get_data(xt, yt);
-    if !if_water(g, lvl, xt, yt) {
-        if age < 50 {
-            g.level_mut(lvl).set_data(xt, yt, age + 1);
-        }
-    } else if if_water(g, lvl, xt, yt) {
-        // JAVA: redundant second IfWater check preserved.
-        if age < 50 {
-            g.level_mut(lvl).set_data(xt, yt, age + 2);
-        }
+    if age < 50 {
+        let step = if if_water(g, lvl, xt, yt) { 2 } else { 1 };
+        g.level_mut(lvl).set_data(xt, yt, age + step);
     }
 }
 
@@ -75,15 +70,10 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool { ttype, level, .. } = item.kind {
-        if ttype == ToolType::Shovel
-            && crate::entity::mob::player_behavior::pay_stamina(player, 4 - level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let dirt = g.tiles.get("dirt");
-            g.set_tile_default(lvl, xt, yt, &dirt);
-            return true;
-        }
+    if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
+        let dirt = g.tiles.get("dirt");
+        g.set_tile_default(lvl, xt, yt, &dirt);
+        return true;
     }
     false
 }
@@ -127,7 +117,6 @@ fn harvest(g: &mut Game, lvl: usize, x: i32, y: i32, entity: &mut Entity) {
         count = g.random.next_int_bound(2) + 1;
     }
 
-    // JAVA: dropItem(x, y, count, item) — exact count, no extra RNG draw.
     let wheat = crate::item::registry::get(g, "Wheat");
     for _ in 0..count {
         crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, wheat.clone());

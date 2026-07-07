@@ -1,28 +1,17 @@
-//! Port of `fdoom.level.LevelGen` — the procedural world generator.
+//! The classic finite-world generator (surface, mines, dungeon). Originally ported from
+//! the Java version (see tag v0.1.0) and kept bit-compatible with it: each
+//! `create_and_validate_*` seeds a fresh `Rng::new(world_seed)`, so identical seeds
+//! produce byte-identical maps (see `tests/level_gen_parity.rs`).
 //!
-//! Java holds a `static long worldSeed` (set from `WorldGenDisplay.getSeed()` at the top
-//! of `createAndValidateMap`) and a `static final Random random` that every
-//! `createAndValidateX(w, h)` re-seeds via `random.setSeed(worldSeed)` before generating.
-//! The port makes that explicit: the caller passes `world_seed` into
-//! [`create_and_validate_map`] (obtaining it exactly as Java does — the typed-in world
-//! seed, or `new Random().nextLong()` when the seed field is empty), and each
-//! `create_and_validate_*` constructs a fresh `Rng::new(world_seed)`, which is
-//! bit-identical to Java's `setSeed`. Identical seeds therefore produce byte-identical
-//! maps (see `tests/level_gen_parity.rs`).
-//!
-//! `fdoom.level.HistoryGen` and `fdoom.level.HistoryGenPattern` are referenced only by
-//! `LevelGen.createAndValidateTopMap`, so they are ported here as the private
-//! `history_gen` section below rather than as separate modules.
-
-// JAVA: the `Tiles.get(...).id & 0xff` byte-to-unsigned idiom is kept verbatim (a no-op
-// on the u8 ids here, exactly as `(byte) & 0xff` round-trips are in the Java bodies).
-#![allow(clippy::identity_op)]
+//! Several oddities in the math below are deliberate for that reason and flagged
+//! inline — "fixing" them would change every generated world. The one non-reproducible
+//! part is the surface's ruins/graveyard decoration (`history_gen`, at the bottom),
+//! which draws from the live game Rng rather than the world seed.
 
 use crate::level::tile::Tiles;
 use crate::rng::Rng;
 
-// JAVA: `private static int d = 0;` — unused field, omitted.
-/// Java `stairRadius`.
+/// Minimum spacing between generated stairwells, in tiles.
 const STAIR_RADIUS: i32 = 15;
 
 /// Java `LevelGen` instances are just noise maps (the `values` array); the static map
@@ -44,7 +33,8 @@ impl LevelGen {
             h,
         };
 
-        // JAVA: both loops bound by w (not h) — quirk preserved (levels are square).
+        // both loops deliberately bound by w, not h (levels are square; the bound is
+        // part of the seeded noise layout)
         let mut y = 0;
         while y < w {
             let mut x = 0;
@@ -58,7 +48,8 @@ impl LevelGen {
         }
 
         let mut step_size = feature_size;
-        // JAVA: `double scale = 2 / w;` — integer division, so scale is 0 for any w > 2.
+        // integer division on purpose: scale starts at 0 for any w > 2, so the first
+        // pass is a pure average and randomness only enters via the scale_mod growth
         let mut scale: f64 = (2 / w) as f64;
         let mut scale_mod: f64 = 1.0;
         loop {
@@ -72,8 +63,8 @@ impl LevelGen {
                     let c = lg.sample(x, y + step_size);
                     let d = lg.sample(x + step_size, y + step_size);
 
-                    // JAVA: (nextFloat()*2 - 1) * stepSize is float math; the widening to
-                    // double happens at the multiply with `scale`.
+                    // f32 math first, widened to f64 only at the multiply with `scale`;
+                    // the precision loss is part of the seeded noise shape
                     let e = (a + b + c + d) / 4.0
                         + ((random.next_float() * 2.0 - 1.0) * step_size as f32) as f64 * scale;
                     lg.set_sample(x + half_step, y + half_step, e);
@@ -112,7 +103,7 @@ impl LevelGen {
             scale *= scale_mod + 0.8;
             scale_mod *= 0.3;
             if step_size <= 1 {
-                break; // JAVA: do..while (stepSize > 1)
+                break;
             }
         }
         lg
@@ -133,10 +124,9 @@ impl LevelGen {
 /// `gen_type`/`theme` replace `Settings.get("Type")`/`Settings.get("Theme")`
 /// ("Island"/"Box"/"Mountain"/"Irregular" and "Normal"/"Forest"/"Desert"/"Plain"/"Hell").
 ///
-/// `history_random` replaces `HistoryGen`'s `private Random rand = new Random()`.
-// JAVA: HistoryGen constructed a fresh *time-seeded* Random per call, so Java surface
-// maps are not reproducible from the world seed alone. Per PORTING.md the port threads
-// one shared Rng (`g.random` in-game) through instead; distributions identical.
+/// `history_random` drives the ruins/graveyard decoration and is *not* derived from the
+/// world seed (in-game it is `g.random`), so two worlds with the same seed can differ
+/// in their ruins.
 #[allow(clippy::too_many_arguments)]
 pub fn create_and_validate_map(
     w: i32,
@@ -164,8 +154,6 @@ pub fn create_and_validate_map(
     }
 
     if level > -4 && level < 0 {
-        // JAVA: the fork had commented this out and reused the surface generator for
-        // the mines, leaving them without ore veins/caves; restored post-v0.1.0.
         return Some(create_and_validate_underground_map(
             w, h, -level, tiles, world_seed,
         ));
@@ -185,7 +173,7 @@ fn create_and_validate_top_map(
     theme: &str,
     history_random: &mut Rng,
 ) -> (Vec<u8>, Vec<u8>) {
-    let mut random = Rng::new(world_seed); // Java random.setSeed(worldSeed)
+    let mut random = Rng::new(world_seed);
     let mut attempt = 0;
     loop {
         let result = create_top_map(w, h, tiles, &mut random, gen_type, theme);
@@ -193,30 +181,30 @@ fn create_and_validate_top_map(
         let mut count = [0i32; 256];
 
         for i in 0..(w * h) as usize {
-            count[result.0[i] as usize] += 1; // Java `result[0][i] & 0xff`
+            count[result.0[i] as usize] += 1;
         }
 
         attempt += 1;
 
-        if count[(tiles.get("rock").id & 0xff) as usize] < 100 {
+        if count[(tiles.get("rock").id) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("sand").id & 0xff) as usize] < 100 {
+        if count[(tiles.get("sand").id) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("grass").id & 0xff) as usize] < 100 {
+        if count[(tiles.get("grass").id) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("tree").id & 0xff) as usize] < 100 {
+        if count[(tiles.get("tree").id) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("snow").id & 0xff) as usize] < 100 {
+        if count[(tiles.get("snow").id) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("Stairs Down").id & 0xff) as usize] < w / 21 {
+        if count[(tiles.get("Stairs Down").id) as usize] < w / 21 {
             continue; // size 128 = 6 stairs min
         }
-        if count[(tiles.get("Quick Sand").id & 0xff) as usize] < 1 {
+        if count[(tiles.get("Quick Sand").id) as usize] < 1 {
             continue;
         }
 
@@ -239,17 +227,16 @@ fn create_and_validate_top_map(
             let mut count = [0i32; 256];
 
             for i in 0..(w * h) as usize {
-                // JAVA: `count[humans[0][i] & 0xfff]++` — the mask is 0xfff, not 0xff (a
-                // sign-extended negative byte would overflow the 256-entry array; tile
-                // ids here never reach 128, so it behaves like & 0xff).
+                // the mask really is 0xfff, not 0xff: it keeps a sign-extended negative
+                // byte from indexing past the 256-entry array, and tile ids never reach
+                // 128, so in practice it behaves like & 0xff
                 count[((humans.0[i] as i8 as i32) & 0xfff) as usize] += 1;
             }
 
-            //TODO: perform check for graves... (JAVA comment)
-            if count[(tiles.get("fence").id & 0xff) as usize] < 15 {
+            if count[(tiles.get("fence").id) as usize] < 15 {
                 continue;
             }
-            if count[(tiles.get("grave stone").id & 0xff) as usize] < 9 {
+            if count[(tiles.get("grave stone").id) as usize] < 9 {
                 continue;
             }
 
@@ -258,8 +245,7 @@ fn create_and_validate_top_map(
     }
 }
 
-/// Java `createAndValidateUndergroundMap` — the cave/ore generator for depths -1..-3
-/// (disabled in the Java fork; restored here).
+/// The cave/ore generator for the mines (depths -1..-3).
 fn create_and_validate_underground_map(
     w: i32,
     h: i32,
@@ -276,17 +262,17 @@ fn create_and_validate_underground_map(
         for i in 0..(w * h) as usize {
             count[result.0[i] as usize] += 1;
         }
-        if count[(tiles.get("rock").id & 0xff) as usize] < 100 {
+        if count[(tiles.get("rock").id) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("dirt").id & 0xff) as usize] < 100 {
+        if count[(tiles.get("dirt").id) as usize] < 100 {
             continue;
         }
-        if count[((tiles.get("iron Ore").id & 0xff) as i32 + depth - 1) as usize] < 20 {
+        if count[((tiles.get("iron Ore").id) as i32 + depth - 1) as usize] < 20 {
             continue;
         }
 
-        if depth < 3 && count[(tiles.get("Stairs Down").id & 0xff) as usize] < w / 32 {
+        if depth < 3 && count[(tiles.get("Stairs Down").id) as usize] < w / 32 {
             continue; // size 128 = 4 stairs min
         }
 
@@ -301,7 +287,6 @@ fn create_and_validate_dungeon(
     world_seed: i64,
 ) -> (Vec<u8>, Vec<u8>) {
     let mut random = Rng::new(world_seed);
-    // JAVA: unused `int attempt = 0;` omitted.
     loop {
         let result = create_dungeon(w, h, tiles, &mut random);
 
@@ -310,10 +295,10 @@ fn create_and_validate_dungeon(
         for i in 0..(w * h) as usize {
             count[result.0[i] as usize] += 1;
         }
-        if count[(tiles.get("Obsidian").id & 0xff) as usize] < 100 {
+        if count[(tiles.get("Obsidian").id) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("Obsidian Wall").id & 0xff) as usize] < 100 {
+        if count[(tiles.get("Obsidian Wall").id) as usize] < 100 {
             continue;
         }
 
@@ -415,7 +400,7 @@ fn create_top_map(
                         map[i] = tiles.get("grass").id;
                     }
                 }
-                _ => {} // JAVA: switch has no default; unknown types leave map[i] == 0.
+                _ => {} // unrecognized gen type: tiles stay id 0 (grass)
             }
         }
     }
@@ -764,8 +749,9 @@ fn create_underground_map(
             let nval = (nnoise1.values[i] - nnoise2.values[i]).abs();
             let nval = (nval - nnoise3.values[i]).abs() * 3.0 - 2.0;
 
-            // JAVA: wval reuses nval in its second step (wnoise1/wnoise2 are computed
-            // then discarded) — quirk preserved.
+            // wval's first step is computed and discarded — its second step deliberately
+            // reuses nval. The wnoise1/wnoise2 maps must still be constructed above so
+            // the RNG stream (and thus seed parity) stays aligned.
             let _wval = (wnoise1.values[i] - wnoise2.values[i]).abs();
             let wval = (nval - wnoise3.values[i]).abs() * 3.0 - 2.0;
 
@@ -778,10 +764,10 @@ fn create_underground_map(
                 yd = -yd;
             }
             let dist = if xd >= yd { xd } else { yd };
-            let dist = dist.powf(8.0); // Java Math.pow(dist, 8)
+            let dist = dist.powf(8.0);
             let val = val + 1.0 - dist * 20.0;
 
-            // JAVA: `(depth) / 2 * 3` is integer math.
+            // integer division first is deliberate: depth / 2 * 3 = 0, 3, 3 for depths 1..=3
             if val > -1.0 && wval < -1.0 + (depth / 2 * 3) as f64 {
                 if depth == 3 {
                     map[i] = tiles.get("lava").id;
@@ -808,7 +794,7 @@ fn create_underground_map(
                 if xx >= r && yy >= r && xx < w - r && yy < h - r {
                     let idx = (xx + yy * w) as usize;
                     if map[idx] == tiles.get("rock").id {
-                        map[idx] = ((tiles.get("iron Ore").id & 0xff) as i32 + depth - 1) as u8;
+                        map[idx] = ((tiles.get("iron Ore").id) as i32 + depth - 1) as u8;
                     }
                 }
             }
@@ -827,8 +813,9 @@ fn create_underground_map(
 
     if depth > 2 {
         let r = 1;
-        // JAVA: xx/yy are fixed at 60,60 and never change; the same 5x5 dungeon-entrance
-        // stamp is drawn w*h/380 * 10 times over itself.
+        // The dungeon entrance always lands at (60, 60): xx/yy never change, so the
+        // loops below just redraw the same 5x5 stamp over itself. Kept as-is — the
+        // fixed position is load-bearing for existing worlds.
         let xx = 60;
         let yy = 60;
         for _ in 0..(w * h / 380) {
@@ -901,19 +888,16 @@ fn create_underground_map(
     (map, data)
 }
 
-/// Port of `fdoom.level.HistoryGen` and `fdoom.level.HistoryGenPattern` (only referenced
-/// from `LevelGen.createAndValidateTopMap`, so they live here rather than as their own
-/// modules).
+/// "Human history" decoration for the surface map: stamps ruins (currently only
+/// graveyards) onto suitable terrain clusters.
 mod history_gen {
     use crate::level::tile::Tiles;
     use crate::rng::Rng;
 
-    /* ---------------- HistoryGenPattern ---------------- */
-
-    // JAVA: patterns store tile ids as bytes; O = -1 is "transparent". Note the quirks:
-    // HistoryGenPattern resolves `Tiles.get("farm")` (the tile is named "Farmland") and
-    // HistoryGen resolves `Tiles.get("flowers")` (named "Flower") — both fall back to
-    // Grass (id 0) with a console warning, exactly as in Java.
+    // Patterns store tile ids as signed bytes; -1 ("O") is transparent. Note the name
+    // quirk: `Tiles.get("farm")` doesn't resolve (the tile is registered as "Farmland")
+    // and falls back to Grass (id 0) with a console warning — kept, since the active
+    // patterns don't use it.
     struct Patterns {
         #[allow(dead_code)]
         hut1: Vec<Vec<i8>>,
@@ -926,11 +910,11 @@ mod history_gen {
         let d = tiles.get("dirt").id as i8; // Dirt
         let w = tiles.get_id(32).id as i8; // Wooden Wall
         let f = tiles.get("fence").id as i8; // Fence
-        let a = tiles.get("farm").id as i8; // Farm land (JAVA: falls back to Grass)
+        let a = tiles.get("farm").id as i8; // farmland ("farm" falls back to Grass; see above)
         let s = tiles.get_id(33).id as i8; // Stone wall
         let p = tiles.get_id(30).id as i8; // Stone floor
         let gr = tiles.get("Grave stone").id as i8; // Grave stone
-        let _ = (o, g, a, s, p); // JAVA: constants unused by the active patterns
+        let _ = (o, g, a, s, p); // unused by the active patterns
 
         Patterns {
             hut1: vec![vec![w, w, w], vec![w, d, w]],
@@ -957,10 +941,8 @@ mod history_gen {
 
     /* ---------------- HistoryGen ---------------- */
 
-    /// Java `HistoryGen.addHistoryToMap(originalMap, w, h)`.
-    // JAVA: HistoryGen's `rand` is a fresh time-seeded `new Random()` per instance; the
-    // port takes it as a parameter (one shared Rng) — see create_and_validate_map.
-    #[allow(clippy::manual_memcpy)] // JAVA: element-wise copy loop kept verbatim
+    /// Stamp the surface map with ruins; returns the decorated (tiles, data) copy.
+    /// `rand` is the live game Rng, not seed-derived (see `create_and_validate_map`).
     pub fn add_history_to_map(
         original_map: &(Vec<u8>, Vec<u8>),
         w: i32,
@@ -968,22 +950,16 @@ mod history_gen {
         tiles: &Tiles,
         rand: &mut Rng,
     ) -> (Vec<u8>, Vec<u8>) {
-        let mut map = vec![0u8; (w * h) as usize];
-        let mut data = vec![0u8; (w * h) as usize];
-        for i in 0..(w * h) as usize {
-            map[i] = original_map.0[i];
-            data[i] = original_map.1[i];
-        }
+        let mut map = original_map.0.clone();
+        let data = original_map.1.clone();
 
         let forest_ids: [i8; 3] = [
             tiles.get("tree").id as i8,
             tiles.get("grass").id as i8,
             tiles.get("dirt").id as i8,
         ];
-        // JAVA: freeSpaceIds/plainsIds exist too (with the "flowers"->Grass fallback
-        // quirk) but are unused by addHistory.
 
-        // JAVA: buildings/sceneryForest both contain only graveyard1.
+        // the graveyard is the only pattern actually placed (hut1 is kept but unused)
         let patterns = make_patterns(tiles);
         let scenery_forest: Vec<&Vec<Vec<i8>>> = vec![&patterns.graveyard1];
 
@@ -1071,8 +1047,8 @@ mod history_gen {
                 }
             }
 
-            // check the result
-            // JAVA: integer division — share is 0.0 unless the entire area matches.
+            // integer division is deliberate: share is 0.0 unless *every* tile in the
+            // area matched, so any threshold in (0, 1] means "all tiles must match"
             let share = (tiles_ok / (radius * radius)) as f64;
             if share >= threshold {
                 return position;
@@ -1113,7 +1089,7 @@ mod history_gen {
                     p[ya as usize].len() as i32 - (xa + 1)
                 };
                 if p[yp as usize][xp as usize] <= 0 {
-                    // JAVA: `<= 0` also skips Grass (id 0), not just O = -1.
+                    // `<= 0` skips Grass cells (id 0) as well as transparent (-1)
                     continue;
                 }
                 if x + xa < 0 || x + xa >= w || y + ya < 0 || y + ya >= h {

@@ -158,9 +158,7 @@ impl Level {
         if x < 0 || y < 0 || x >= self.w || y >= self.h {
             return 0;
         }
-        // JAVA: `data[x + y * w] & 0xff` (bytes are signed in Java; kept for fidelity)
-        #[allow(clippy::identity_op)]
-        (self.data[(x + y * self.w) as usize] as i32 & 0xff)
+        (self.data[(x + y * self.w) as usize]) as i32
     }
 
     /// Java `setData(x, y, val)`.
@@ -462,7 +460,6 @@ pub fn clear_entities(g: &mut Game, lvl: usize) {
 
 /// Java `level.removeAllEnemies()`.
 pub fn remove_all_enemies(g: &mut Game, lvl: usize) {
-    // JAVA: spared the AirWizard boss outside creative mode; that mob is removed.
     let ids: Vec<i32> = g
         .entities
         .entities_on_level(lvl)
@@ -470,7 +467,6 @@ pub fn remove_all_enemies(g: &mut Game, lvl: usize) {
         .map(|e| e.c.eid)
         .collect();
     for eid in ids {
-        // Java calls e.remove(), which queues level removal
         if let Some(e) = g.entities.get_mut(eid) {
             e.c.removed = true;
         }
@@ -568,7 +564,8 @@ pub fn tick_level(g: &mut Game, lvl: usize, full_tick: bool) {
                             px - span / 2 + level.random.next_int_bound(span),
                             py - span / 2 + level.random.next_int_bound(span),
                         ),
-                        // JAVA: yt also uses nextInt(w) — preserved quirk
+                        // both axes deliberately roll against w: levels are square,
+                        // and swapping a draw to h would shift the RNG stream
                         None => (
                             level.random.next_int_bound(w),
                             level.random.next_int_bound(w),
@@ -937,8 +934,7 @@ fn try_spawn_pass(g: &mut Game, lvl: usize) {
                 g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
             }
 
-            // JAVA: also always adds a GlowWorm — at its raw default (0,0) position.
-            // FIX: place it beside the mob it escorts instead of at the world origin.
+            // every passive spawn also brings a glow worm escort, placed beside it
             let e = crate::entity::mob::glow_worm::new(g);
             g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
 

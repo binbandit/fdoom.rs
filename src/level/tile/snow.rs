@@ -1,14 +1,14 @@
 //! Port of `fdoom.level.tile.SnowTile`.
 
 use super::dispatch;
-use super::{ConnectorSprite, TileDef, TileKind};
+use super::{ConnectorSprite, TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::sprite::Px;
 use crate::gfx::{Screen, Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 
 /// Java static `steppedOn` sprite.
 fn stepped_on_sprite() -> Sprite {
@@ -31,8 +31,6 @@ fn stepped_on_sprite() -> Sprite {
 /// Java `SnowTile` constructor.
 pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::Snow);
-    // JAVA: the ConnectorSprite is constructed with GrassTile.class as owner, but its
-    // connectsTo is overridden (see connects_to below).
     def.csprite = Some(ConnectorSprite::simple(
         Sprite::new(
             11,
@@ -83,8 +81,7 @@ pub fn stepped_on(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32, e:
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     let stepped_on = g.level(lvl).get_data(x, y) > 0;
 
-    // JAVA: mutates the shared static sprite.full before rendering; here we render a
-    // modified copy of the def instead.
+    // the def is shared, so render a modified copy rather than mutating it in place
     let mut def = def.clone();
     if let Some(cs) = def.csprite.as_mut() {
         if stepped_on {
@@ -106,11 +103,6 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     dispatch::csprite_render(g, screen, &def, lvl, x, y, None);
 }
 
-/// Java `tick` — entirely commented out in this fork.
-pub fn tick(_g: &mut Game, _def: &TileDef, _lvl: usize, _xt: i32, _yt: i32) {
-    // JAVA: "TODO revise this method." — the snow-spreading logic is commented out.
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn interact(
     g: &mut Game,
@@ -122,25 +114,18 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool { ttype, level, .. } = item.kind {
-        if ttype == ToolType::Shovel
-            && crate::entity::mob::player_behavior::pay_stamina(player, 4 - level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let grass = g.tiles.get("grass");
-            g.set_tile_default(lvl, xt, yt, &grass);
-            g.play_sound(Sound::MonsterHurt);
-            if g.random.next_int_bound(5) == 0 {
-                // JAVA: dropItem(x, y, count, item) — exactly 2 seeds.
-                let seeds = crate::item::registry::get(g, "seeds");
-                for _ in 0..2 {
-                    crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, seeds.clone());
-                }
+    if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
+        let grass = g.tiles.get("grass");
+        g.set_tile_default(lvl, xt, yt, &grass);
+        g.play_sound(Sound::MonsterHurt);
+        if g.random.next_int_bound(5) == 0 {
+            let seeds = crate::item::registry::get(g, "seeds");
+            for _ in 0..2 {
+                crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, seeds.clone());
             }
-            // JAVA: returned false unless seeds dropped, swallowing the successful shovel
-            // (no use feedback despite the tile changing). FIX: report success like sand.
-            return true;
         }
+        // success even when no seeds drop — the snow was still cleared
+        return true;
     }
     false
 }

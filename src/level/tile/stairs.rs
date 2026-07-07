@@ -17,8 +17,8 @@ pub fn make(name: &str, leads_up: bool) -> TileDef {
     def
 }
 
-/// Java `StairsTile.getDirtColor(depth)`.
-// JAVA: differs from DirtTile.dCol at depth -4 (59 instead of 203).
+/// The dirt shade behind the steps. Deliberately differs from `dirt::d_col` at the
+/// dungeon depth (-4): 59, a cooler tint, instead of 203.
 fn get_dirt_color(depth: i32) -> i32 {
     match depth {
         0 => 321,

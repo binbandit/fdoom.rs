@@ -25,11 +25,10 @@ thread_local! {
 pub fn get_seed(g: &mut Game) -> i64 {
     let seed_str = WORLD_SEED.with(|s| s.borrow().clone());
     if seed_str.is_empty() {
-        // JAVA: new Random().nextLong() — incidental randomness, so g.random (PORTING.md).
+        // an empty field means a random seed (incidental randomness, so g.random)
         g.random.next_long()
     } else {
-        // JAVA: Long.parseLong(seedStr) threw NumberFormatException past 19 digits; we
-        // fall back to 0 instead of crashing.
+        // a typed seed past i64 range falls back to 0 instead of crashing
         seed_str.parse().unwrap_or(0)
     }
 }
@@ -86,14 +85,10 @@ impl WorldGenDisplay {
             "",
         )));
 
-        // (The Java "Trouble with world name?" help entry is gone: text rows now capture
-        // typing, and menu navigation while typing uses the physical arrow keys.)
-
-        // JAVA: worldSeed = new InputEntry("World Seed", "[0-9]+", 20) { isValid() → true }
         WORLD_SEED.with(|s| s.borrow_mut().clear());
         let mut world_seed = InputEntry::new("World Seed", Some(input_entry::digit_char), 20);
         world_seed.set_validation(Validation::Always);
-        // Mirrors the Java static: getSeed() reads whatever is typed here.
+        // get_seed() reads whatever is typed here
         world_seed.set_change_listener(Box::new(|text: &str| {
             WORLD_SEED.with(|s| *s.borrow_mut() = text.to_string());
         }));
@@ -107,8 +102,7 @@ impl WorldGenDisplay {
                     }
                     let name = name_field.borrow().get_user_input();
                     super::world_select::set_world_name(g, &name, false);
-                    // Java's LevelGen read `WorldGenDisplay.getSeed()` at generation
-                    // time; the Rust world gen reads `g.world_seed`, so capture it here.
+                    // world gen reads g.world_seed, so capture the typed seed now
                     g.world_seed = get_seed(g);
                     g.set_menu(LoadingDisplay::new());
                 }),
@@ -149,6 +143,5 @@ impl Display for WorldGenDisplay {
         &mut self.base
     }
 
-    // JAVA: init forces the parent to a TitleDisplay when not opened from one; with the
-    // explicit display stack, exiting simply returns to whatever opened this screen.
+    // no init override: exiting returns to whatever display opened this screen
 }

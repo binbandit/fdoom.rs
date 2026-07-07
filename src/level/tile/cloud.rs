@@ -49,13 +49,12 @@ pub fn interact(
     _attack_dir: Direction,
 ) -> bool {
     if let ItemKind::Tool { ttype, .. } = item.kind {
-        // JAVA: forgot the payDurability call every other shovelable tile makes, so
-        // shoveling cloud was free. FIX: charge durability like sand/snow/grass do.
+        // Not `tool_use`: shoveling cloud costs a flat 5 stamina regardless of the
+        // shovel's level.
         if ttype == ToolType::Shovel
             && crate::entity::mob::player_behavior::pay_stamina(player, 5)
             && item.pay_durability(g.is_mode("creative"))
         {
-            // JAVA: "would allow you to shovel cloud, I think."
             let infinite_fall = g.tiles.get("Infinite Fall");
             g.set_tile_default(lvl, xt, yt, &infinite_fall);
             let cloud = crate::item::registry::get(g, "cloud");

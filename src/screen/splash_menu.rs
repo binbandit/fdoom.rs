@@ -39,7 +39,7 @@ impl Display for SplashMenu {
     }
 
     fn init(&mut self, g: &mut Game) {
-        // JAVA: super.init(null) — can't have a parent for a splash screen.
+        // a splash screen never has a parent display
         g.display.stack.clear();
     }
 

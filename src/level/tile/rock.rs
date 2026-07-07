@@ -14,25 +14,21 @@
 //! Data layout: bit 7 = rubble flag, low 7 bits = accumulated damage (decays on tick).
 
 use super::fossick::{self, RockCharacter};
-use super::{ConnectorSprite, TileDef, TileKind, dirt, dispatch};
+use super::{ConnectorSprite, TileDef, TileKind, dirt, dispatch, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
-use crate::entity::mob::player_behavior::pay_stamina;
 use crate::entity::particle::{new_smash_particle, new_text_particle};
 use crate::gfx::{Screen, Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 use crate::level::drop_items_counted;
 use crate::level::infinite_gen;
 
-// JAVA: `RockTile.coallvl` was instance state on the singleton tile — set to 1 on the
-// first pickaxe interact (or creative break) and never reset, so whether *any* rock ever
-// dropped coal depended on process-global history that leaked across worlds and saves.
-// FIX: the intent ("rocks mined with a pickaxe drop coal, rocks smashed by mobs or
-// explosions just crumble to stone") is derived per break: `hurt_dmg_inner` takes a
+// Coal eligibility is decided per break, never stored: `hurt_dmg_inner` takes a
 // `drops_coal` flag — true from the pickaxe interact (and creative breaks), false from
-// mob damage and the generic `hurt_dmg` dispatch entry (explosions). No global state.
+// mob damage and the generic `hurt_dmg` dispatch entry (explosions). Rock mined with a
+// pickaxe can drop coal; rock smashed or blown up just crumbles to stone.
 
 /// Java `RockTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -136,7 +132,6 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
 }
 
 pub fn may_pass(_g: &Game, _def: &TileDef, _lvl: usize, _x: i32, _y: i32, _e: &Entity) -> bool {
-    // JAVA: a commented-out debug branch let creative-mode arrows break rock.
     false
 }
 
@@ -151,7 +146,7 @@ pub fn hurt_by(
     _dmg: i32,
     _attack_dir: Direction,
 ) -> bool {
-    // Mob smashing: stone only, no coal (see the coallvl note above).
+    // Mob smashing: stone only, no coal (see the drops_coal note above).
     hurt_dmg_inner(g, def, lvl, x, y, 1, false);
     true
 }
@@ -167,22 +162,11 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool {
-        ttype,
-        level: tool_level,
-        ..
-    } = &item.kind
-    {
-        let (ttype, tool_level) = (*ttype, *tool_level);
-        if ttype == ToolType::Pickaxe
-            && pay_stamina(player, 4 - tool_level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let dmg = g.random.next_int_bound(10) + tool_level * 5 + 10;
-            // Pickaxe mining: eligible for coal drops.
-            hurt_dmg_inner(g, def, lvl, xt, yt, dmg, true);
-            return true;
-        }
+    if let Some(tool_level) = tool_use(g, player, item, ToolType::Pickaxe, 4) {
+        let dmg = g.random.next_int_bound(10) + tool_level * 5 + 10;
+        // Pickaxe mining: eligible for coal drops.
+        hurt_dmg_inner(g, def, lvl, xt, yt, dmg, true);
+        return true;
     }
     false
 }
@@ -210,9 +194,8 @@ fn hurt_dmg_inner(
         fossick::rock_character(g.world_seed, x, y)
     };
     let highland = !rubble && is_highland(g, lvl, x, y);
-    // JAVA: rock health was a flat 50; the fossicking overhaul modulates it by the
-    // per-position character (cracked ~40% faster, dense slower), doubles it for
-    // highland summit rock, and makes cave-in rubble quick to clear.
+    // Health varies with the per-position character (cracked ~40% faster, dense
+    // slower), doubles for highland summit rock, and cave-in rubble is quick to clear.
     let rock_health = if rubble {
         fossick::RUBBLE_HEALTH
     } else if highland {
@@ -231,7 +214,7 @@ fn hurt_dmg_inner(
         damage = rock_health;
         drops_coal = !rubble;
     }
-    g.play_sound(Sound::MonsterHurt); // JAVA: the SmashParticle constructor plays this.
+    g.play_sound(Sound::MonsterHurt);
     g.level_mut(lvl)
         .add(new_smash_particle(x * 16, y * 16), lvl);
     let text = new_text_particle(
@@ -243,8 +226,9 @@ fn hurt_dmg_inner(
     );
     g.level_mut(lvl).add(text, lvl);
     if damage >= rock_health {
-        // JAVA: unused `int count = random.nextInt(1) + 0;` — consumes a random value.
-        let _count = g.random.next_int_bound(1);
+        // deliberately burn one RNG draw: dropping it would shift every later
+        // incidental roll and change seeded outcomes
+        let _ = g.random.next_int_bound(1);
         // dense rock shatters into an extra stone, highland rock into two
         let bonus = if highland {
             2

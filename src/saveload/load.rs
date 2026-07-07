@@ -236,7 +236,6 @@ pub fn load_prefs(g: &mut Game) {
     let test_file = format!("{}Unlocks{}", l.location, EXTENSION);
     if Path::new(&test_file_old).exists() && !Path::new(&test_file).exists() {
         let _ = std::fs::rename(&test_file_old, &test_file);
-        // JAVA: new LegacyLoad(testFile) → updateUnlocks.
         l.legacy_update_unlocks(g, &test_file);
     } else if !Path::new(&test_file).exists() {
         if let Err(ex) = std::fs::File::create(&test_file) {
@@ -324,8 +323,8 @@ impl Load {
         }
 
         if filename.contains("Level") {
-            // JAVA: filename.substring(0, filename.lastIndexOf("/") + 7) + "data" + ext —
-            // keeps "Level" plus the level number after the last slash.
+            // keep "LevelN" (7 chars past the last slash), then append "data": the
+            // companion tile-data file sits beside the tile file
             let cut = filename.rfind('/').map(|i| i + 7).unwrap_or(filename.len());
             let datafile = format!("{}data{}", &filename[..cut], EXTENSION);
             match load_from_file_str(&datafile, true) {
@@ -347,7 +346,6 @@ impl Load {
             Ok(total) => self.data.extend(java_split(&total, ',')),
             Err(ex) => eprintln!("{ex}"),
         }
-        // JAVA: LegacyLoad.loadFromFile progresses the loading bar by 13.
         g.loading_percentage = (g.loading_percentage + 13.0).min(100.0);
 
         let mut i = 0;
@@ -458,10 +456,9 @@ impl Load {
         let subdata: Vec<String> = if pref_ver < Version::new("2.0.3-dev1") {
             self.data.clone()
         } else {
-            // JAVA: MultiplayerDisplay.savedIP — multiplayer display is stubbed; discarded.
+            // discard the reserved multiplayer fields (IP/UUID/username slots)
             let _saved_ip = self.data.remove(0);
             if pref_ver > Version::new("2.0.3-dev3") {
-                // JAVA: MultiplayerDisplay.savedUUID / savedUsername.
                 let _saved_uuid = self.data.remove(0);
                 let _saved_username = self.data.remove(0);
             }
@@ -550,14 +547,15 @@ impl Load {
                         && tilename.eq_ignore_ascii_case("LAPIS")
                         && *self.wv() < Version::new("2.0.3-dev6")
                     {
-                        // JAVA: Math.random() — incidental randomness, uses g.random here.
+                        // incidental randomness, so g.random (not seed-derived)
                         if g.random.next_double() < 0.8 {
                             // don't replace *all* the lapis
                             tilename = "Gem Ore".to_string();
                         }
                     }
                     tiles[tile_arr_idx] = g.tiles.get(&tilename).id;
-                    // JAVA: Byte.parseByte — values above 127 threw in Java too.
+                    // legacy saves store data as a signed byte; values above 127 have
+                    // never been valid in this format
                     tdata[tile_arr_idx] = self.extradata[tileidx].parse::<i8>().unwrap() as u8;
                 }
             }
@@ -676,13 +674,12 @@ impl Load {
         if !player.c.removed {
             crate::entity::behavior::remove_entity(g, &mut player);
         }
-        // JAVA: the level.add(player) happens here; in this port the player entity is
-        // moved into the level queue at the end of this function, after the remaining
-        // fields are set (Java kept mutating its shared reference — same final state).
+        // The player entity is queued onto the level at the END of this function, after
+        // the remaining fields are set — adding it earlier would freeze a half-loaded
+        // player in the level queue.
 
         if *self.wv() < Version::new("2.0.4-dev8") {
             let modedata = data.remove(0);
-            // JAVA: only load if you're loading the main player — always true here.
             self.load_mode(g, &modedata);
         }
 
@@ -714,13 +711,11 @@ impl Load {
 
         player.player_mut().skinon = parse_bool(&data.remove(0));
 
-        // JAVA: `if(!Game.isValidServer() || player != Game.player)` — always true here.
         let cur = g.current_level;
         if g.levels[cur].is_some() {
             g.level_mut(cur).add(player, cur);
         } else {
             if g.debug {
-                // JAVA: Network.onlinePrefix() + "game level to add player ... is null."
                 println!("game level to add player Player to is null.");
             }
             g.entities.put_back(player);
@@ -880,29 +875,20 @@ pub fn load_entity(
     // this gets the text before "[", which is the entity name.
     let entity_name = &entity_data[..bracket_open];
 
-    // JAVA: a CLIENT WARNING debug print for "Player" — isValidClient() is false here.
-
     let x: i32 = info[0].parse().unwrap();
     let y: i32 = info[1].parse().unwrap();
 
     let mut eid = -1;
     if !is_local_save {
         eid = info.remove(2).parse().unwrap();
-        // JAVA: the multiplayer entity-sync path — Network.getEntity(eid) replacement of
-        // stale entities, and the RemotePlayer shouldTrack/dummy handling. The network
-        // layer is stubbed (isValidClient() is false, no remote entities exist).
     }
 
     let new_entity: Option<Entity> = if entity_name == "RemotePlayer" {
         if is_local_save {
             eprintln!("remote player found in local save file.");
-            return None; // don't load them; in fact, they shouldn't be here.
         }
-        // JAVA: constructs a RemotePlayer from username/ip/port — multiplayer stub.
-        return None;
+        return None; // a relic of old multiplayer saves; never loaded
     } else if entity_name == "Zap" && !is_local_save {
-        // adapted from the Java Spark path (multiplayer-only, like the rest of the
-        // !is_local_save branches)
         let wisp_id: i32 = info[2].parse().unwrap();
         let zap_owner = g
             .entities
@@ -911,8 +897,8 @@ pub fn load_entity(
             .map(|e| (e.c.x, e.c.y));
         match zap_owner {
             Some((ox, oy)) => {
-                // JAVA: new Spark((AirWizard)sparkOwner, x, y) — x and y land in the
-                // (double xa, double ya) constructor parameters; preserved quirk.
+                // quirk kept from the original wire format: the stored x/y land in the
+                // (xa, ya) velocity parameters, not the position
                 let mut rnd = g.random.clone();
                 let e = crate::entity::projectile::new_zap(
                     wisp_id, ox, oy, x as f64, y as f64, &mut rnd,
@@ -927,8 +913,8 @@ pub fn load_entity(
         }
     } else {
         let mut mob_lvl = 1;
-        // JAVA: Class.forName("fdoom.entity.mob."+entityName) EnemyMob check, guarded by
-        // !Crafter.names.contains(entityName).
+        // enemy mobs carry a level in their save record; crafter names are excluded
+        // (a "Furnace" is furniture, not a mob)
         let is_crafter_name = crate::entity::furniture::crafter::CrafterType::VALUES
             .iter()
             .any(|t| t.name() == entity_name);
@@ -965,7 +951,6 @@ pub fn load_entity(
     let mut new_entity = new_entity?;
 
     if new_entity.is_mob() {
-        // JAVA: `&& !(newEntity instanceof RemotePlayer)` — no RemotePlayers here.
         new_entity.mob_mut().unwrap().health = info[2].parse().unwrap();
     } else if new_entity.is_chest() {
         let is_death_chest = matches!(new_entity.kind, EntityKind::DeathChest(_));
@@ -1024,7 +1009,6 @@ pub fn load_entity(
         let mob_name = info[2].rsplit('.').next().unwrap_or(&info[2]).to_string();
         let mob = get_entity(g, &mob_name, info[3].parse().unwrap());
         if let Some(mob) = mob {
-            // JAVA: `(MobAi) getEntity(...)` — the cast is implicit in Spawner::new here.
             let mut rnd = g.random.clone();
             new_entity = crate::entity::furniture::spawner::new(mob, &mut rnd);
             g.random = rnd;
@@ -1051,10 +1035,9 @@ pub fn load_entity(
     }
 
     if !is_local_save {
-        // JAVA: these branches only run for entities received over the network.
+        // transient-entity payloads (see write_entity): only present in non-local data
         if matches!(new_entity.kind, EntityKind::Arrow(_)) {
             let owner_id: i32 = info[2].parse().unwrap();
-            // JAVA: (Mob)Network.getEntity(ownerID) — arena lookup here.
             let owner_is_mob = g
                 .entities
                 .get(owner_id)
@@ -1101,7 +1084,6 @@ pub fn load_entity(
         g.level_mut(cur_level)
             .add_at(new_entity, x, y, false, cur_level);
     }
-    // JAVA: else prints for RemotePlayers on null levels — multiplayer stub.
 
     Some(eid)
 }
@@ -1176,8 +1158,7 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
             furniture::lantern::LanternType::Norm,
         )),
         "Arrow" => {
-            // JAVA: new Arrow(new Skeleton(0), 0, 0, Direction.NONE, 0) — the throwaway
-            // Skeleton owner maps to owner eid -1 here.
+            // owner eid -1 = "no owner" (the real owner is patched in by the caller)
             Some(crate::entity::projectile::new_arrow(
                 -1,
                 0,
@@ -1193,7 +1174,6 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
             g.random = rnd;
             Some(e)
         }
-        // JAVA: case "Spark" is commented out.
         "FireParticle" => Some(crate::entity::particle::new_fire_particle(0, 0)),
         "SmashParticle" => Some(crate::entity::particle::new_smash_particle(0, 0)),
         "TextParticle" => {

@@ -180,7 +180,7 @@ pub fn new(g: &Game, previous: Option<&PlayerData>) -> Entity {
         attack_item: None,
         prev_item: None,
         attack_time: 0,
-        attack_dir: Direction::Down, // JAVA: attackDir = dir (dir starts as DOWN)
+        attack_dir: Direction::Down, // matches the initial facing direction
         on_stair_delay: 0,
         hunger: MAX_HUNGER,
         stamina: MAX_STAMINA,

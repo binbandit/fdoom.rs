@@ -1,13 +1,13 @@
 //! Port of `fdoom.level.tile.SnowTreeTile`.
 
 use super::dispatch;
-use super::{TileDef, TileKind};
+use super::{TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 
 // Java static `col`/`col1`/`col2` (assigned in the constructor).
 const COL: i32 = color::get4(10, 30, 151, -1);
@@ -103,15 +103,10 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool { ttype, level, .. } = item.kind {
-        if ttype == ToolType::Axe
-            && crate::entity::mob::player_behavior::pay_stamina(player, 4 - level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let dmg = g.random.next_int_bound(10) + level * 5 + 10;
-            hurt_dmg(g, def, lvl, xt, yt, dmg);
-            return true;
-        }
+    if let Some(tool_level) = tool_use(g, player, item, ToolType::Axe, 4) {
+        let dmg = g.random.next_int_bound(10) + tool_level * 5 + 10;
+        hurt_dmg(g, def, lvl, xt, yt, dmg);
+        return true;
     }
     false
 }
@@ -130,7 +125,6 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
         damage = tree_health;
     }
 
-    // JAVA: SmashParticle's constructor plays Sound.monsterHurt.
     g.play_sound(Sound::MonsterHurt);
     let smash = crate::entity::particle::new_smash_particle(x * 16, y * 16);
     g.level_mut(lvl).add(smash, lvl);

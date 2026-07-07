@@ -40,7 +40,7 @@ impl Display for LevelTransitionDisplay {
     }
 
     fn tick(&mut self, g: &mut Game) {
-        self.time += 1; // JAVA: "Ticks up 2 times per tick"
+        self.time += 1;
         if self.time == DURATION / 2 {
             // When time equals 30, it will change the level
             crate::core::world::change_level(g, self.dir);
@@ -52,7 +52,7 @@ impl Display for LevelTransitionDisplay {
     }
 
     fn render(&mut self, screen: &mut Screen, _g: &mut Game) {
-        // JAVA: loop bounds are fixed 200x150 regardless of the actual screen size.
+        // fixed 200x150 sweep — comfortably covers the whole screen in 8px squares
         for x in 0..200 {
             for y in 0..150 {
                 let dd = (y + x % 2 * 2 + x / 3) - self.time * 2; // Used as part of the positioning.

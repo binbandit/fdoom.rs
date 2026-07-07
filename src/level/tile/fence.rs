@@ -1,8 +1,4 @@
-//! Port of `fdoom.level.tile.FenceTile`.
-//!
-//! JAVA: the Java class declares eight static sprites (`su`, `sd`, `sr`, `sl`, `sul`,
-//! `sdl`, `sur`, `sdr`) and a `col` local that are only referenced from commented-out
-//! rendering code; they are omitted here along with that dead code.
+//! Fence: a solid post that visually joins up with its neighbors.
 
 use super::dispatch;
 use super::{TileDef, TileKind};
@@ -29,11 +25,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let ur = g.tile_at(lvl, x + 1, y - 1).id == def.id;
     let dr = g.tile_at(lvl, x + 1, y + 1).id == def.id;
 
-    // JAVA: every branch rendered the same 1x1 sprite at the raw tile coordinates
-    // (x, y) instead of pixel coordinates, and the dirt ground tile was drawn *after*
-    // the fence sprites, overdrawing them — fences were invisible. FIX: draw the ground
-    // first, then one 8x8 fence sprite per connected quadrant at pixel coordinates
-    // (x << 4, y << 4), and always draw a center post so an isolated fence is visible.
+    // ground first, then one 8x8 fence sprite per connected quadrant
     let dirt = g.tiles.get("dirt");
     dispatch::render(g, screen, &dirt, lvl, x, y);
 

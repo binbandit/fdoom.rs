@@ -1,13 +1,12 @@
 //! Port of `fdoom.level.tile.SandTile`.
 
-use super::{ConnectorSprite, TileDef, TileKind, dispatch};
+use super::{ConnectorSprite, TileDef, TileKind, dispatch, tool_use};
 use crate::core::game::Game;
 use crate::entity::Direction;
 use crate::entity::Entity;
-use crate::entity::mob::player_behavior::pay_stamina;
 use crate::gfx::sprite::Px;
 use crate::gfx::{Screen, Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 use crate::level::drop_item;
 
 /// Java `SandTile.steppedOn` (the static footprint sprite).
@@ -90,23 +89,12 @@ pub fn interact(
     {
         return true;
     }
-    if let ItemKind::Tool {
-        ttype,
-        level: tool_level,
-        ..
-    } = &item.kind
-    {
-        let (ttype, tool_level) = (*ttype, *tool_level);
-        if ttype == ToolType::Shovel
-            && pay_stamina(player, 4 - tool_level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let dirt = g.tiles.get("dirt");
-            g.set_tile_default(lvl, xt, yt, &dirt);
-            let sand = crate::item::registry::get(g, "sand");
-            drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, sand);
-            return true;
-        }
+    if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
+        let dirt = g.tiles.get("dirt");
+        g.set_tile_default(lvl, xt, yt, &dirt);
+        let sand = crate::item::registry::get(g, "sand");
+        drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, sand);
+        return true;
     }
     false
 }

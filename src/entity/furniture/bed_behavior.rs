@@ -20,12 +20,11 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
             pd.spawny = py >> 4;
         }
 
-        // JAVA: sleepingPlayers.put(player, this) — we record the bed's level and eid.
+        // record which bed (level, eid) the player is sleeping in
         let bed_lvl = e.c.level.unwrap_or(g.current_level);
         g.bed_state
             .sleeping_players
             .insert(player.c.eid, (bed_lvl, e.c.eid));
-        // JAVA: the isConnectedClient() branch is skipped (always false in this build)
         if g.debug {
             println!("player got in bed: {}", player.c.eid);
         }
@@ -41,7 +40,6 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
 
 /// Java `Bed.getPlayersAwake()`.
 pub fn get_players_awake(g: &Game) -> i32 {
-    // JAVA: the isValidServer() branch is unreachable in this build
     g.bed_state.players_awake
 }
 
@@ -87,8 +85,8 @@ pub fn in_bed(g: &Game, player_eid: i32) -> bool {
 /// Java `Bed.getBedLevel(player)`.
 pub fn get_bed_level(g: &Game, player_eid: i32) -> Option<usize> {
     let (stored_lvl, bed_eid) = *g.bed_state.sleeping_players.get(&player_eid)?;
-    // JAVA: bed.getLevel() — the live bed entity's level, falling back to the level
-    // recorded when the player went to sleep.
+    // prefer the live bed entity's level; if the bed is gone, fall back to the level
+    // recorded when the player went to sleep
     match g.entities.get(bed_eid) {
         Some(bed) => bed.c.level,
         None => Some(stored_lvl),
@@ -108,9 +106,8 @@ pub fn remove_players(g: &mut Game) {
 /// Re-adds a sleeping player to its bed's level (the `bed.getLevel().add(player)` part
 /// shared by `restorePlayer`/`restorePlayers`).
 fn add_player_to_bed_level(g: &mut Game, player_eid: i32, stored_lvl: usize, bed_eid: i32) {
-    // JAVA: `if(bed.getLevel() == null) Game.levels[Game.currentLevel].add(player)` —
-    // we look the bed up by eid; if it is gone from the arena, fall back to the level
-    // recorded at sleep time.
+    // prefer the live bed entity's level; if the bed is gone from the arena, fall back
+    // to the level recorded at sleep time
     let lvl = match g.entities.get(bed_eid) {
         Some(bed) => bed.c.level.unwrap_or(g.current_level),
         None => stored_lvl,
@@ -140,7 +137,6 @@ pub fn restore_players(g: &mut Game) {
         .map(|(&p, &b)| (p, b))
         .collect();
     for (player_eid, (stored_lvl, bed_eid)) in sleeping {
-        // JAVA: the RemotePlayer disconnected-thread check is skipped (singleplayer build)
         add_player_to_bed_level(g, player_eid, stored_lvl, bed_eid);
     }
 

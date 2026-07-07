@@ -51,10 +51,10 @@ impl MapMenu {
         let (mw, mh, ox, oy) = Self::map_window(g, maplevel);
         let mut pixels = vec![0i32; (mw * mh) as usize];
 
-        // JAVA: every Tiles.get(name) below was called once per pixel; the ids are
-        // constant, so they're hoisted (identical pixels; avoids re-logging the invalid
-        // names — "Stone Bricks", "treeSapling", "cactusSapling", "reed", "tussock" and
-        // "campfire" don't exist and fall back to tile 0, exactly as in Java).
+        // Hoisted tile-id lookups (they're constant per frame). Note some legacy names —
+        // "treeSapling", "cactusSapling", "reed", "tussock", "campfire" — are not
+        // registered tiles: they log once and fall back to tile 0, and their map colors
+        // are effectively dead. Kept so the palette table below matches the old map.
         let water = g.tiles.get("water").id;
         let deep_water = g.tiles.get("Deep Water").id;
         let dug_pit = g.tiles.get("Dug Pit").id;
@@ -107,8 +107,8 @@ impl MapMenu {
                     ),
                 };
                 if let Some(check_value) = tile_here.filter(|_| seen || creative) {
-                    // JAVA: a run of independent ifs — later matches overwrite earlier
-                    // ones (Color.get(d) values are raw rgbBytes; preserved quirk).
+                    // a run of independent ifs, deliberately: later matches overwrite
+                    // earlier ones
                     if check_value == water {
                         pixels[i] = 0x000080;
                     }
@@ -204,7 +204,7 @@ impl MapMenu {
                         pixels[i] = color::get_byte(30);
                     }
                     if check_value == campfire {
-                        // JAVA: "TODO need to fix this once i add the campfire."
+                        // dead branch: "campfire" is not a tile name (see the note above)
                         pixels[i] = color::get_byte(410);
                     }
                     if check_value == snow {
@@ -261,7 +261,7 @@ impl Display for MapMenu {
     }
 
     fn init(&mut self, g: &mut Game) {
-        // JAVA: super.init(null) — will just go back to the game after...
+        // no parent display: closing the map goes straight back to the game
         g.display.stack.clear();
         self.img_pixels = vec![None; g.levels.len()];
         self.current_level = g.current_level;
@@ -282,7 +282,7 @@ impl Display for MapMenu {
             let (w, h, _, _) = Self::map_window(g, self.current_level);
             let mut x = (screen::W - w) / 2;
             let mut y = (screen::H - h) / 2;
-            // JAVA: SpriteSheet.spriteSize (== boxWidth == 8).
+            // snap to the 8px sprite grid
             x -= x % sprite_sheet::BOX_WIDTH;
             y -= y % sprite_sheet::BOX_WIDTH;
             font::render_frame(

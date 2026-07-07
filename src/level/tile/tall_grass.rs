@@ -32,7 +32,7 @@ pub fn make(name: &str, on_tile: &str, kind: i32) -> TileDef {
     let _ = on_tile;
     let mut def = TileDef::new(name, TileKind::TallGrass { kind });
     def.sprite = Some(small());
-    // JAVA: connect flags are copied from onType (GrassTile: connectsToGrass only).
+    // connects like the grass it stands on
     def.connects_to_grass = true;
     def.may_spawn = true;
     def.flammable = true; // every stage, reeds included — dry standing fuel
@@ -44,7 +44,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let TileKind::TallGrass { kind } = def.kind else {
         return;
     };
-    // JAVA: onType.render — onType is always Tiles.get("grass").
+    // draw the grass ground first, then the tuft over it
     let on_type = g.tiles.get("grass");
     dispatch::render(g, screen, &on_type, lvl, x, y);
     match kind {
@@ -61,8 +61,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
     let TileKind::TallGrass { kind } = def.kind else {
         return;
     };
-    // JAVA: nextInt(10)==4 grew a stage every few seconds; slowed so a stage takes a
-    // few in-game days (see the odds math in the commit message).
+    // slow growth: ~1-in-2000 per random tick, so a stage takes a few in-game days
     if kind < 2 && g.random.next_int_bound(2000) == 4 {
         let next = match kind {
             0 => g.tiles.get_id(40),
@@ -101,7 +100,6 @@ pub fn hurt_by(
             crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, fibers.clone());
         }
     } else if kind == 2 {
-        // JAVA: dropItem(x, y, count, item) — exactly 2 grass fibers.
         for _ in 0..2 {
             crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, fibers.clone());
         }

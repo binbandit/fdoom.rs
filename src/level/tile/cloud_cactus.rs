@@ -6,7 +6,7 @@ use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 
 /// Java `CloudCactusTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -17,8 +17,8 @@ pub fn make(name: &str) -> TileDef {
 
 #[allow(clippy::too_many_arguments)]
 pub fn may_pass(_g: &Game, _def: &TileDef, _lvl: usize, _x: i32, _y: i32, _e: &Entity) -> bool {
-    // JAVA: only the (removed) AirWizard could pass; flying kinds are now handled
-    // globally in `dispatch::may_pass`.
+    // solid to everything on foot; flying kinds are exempted globally in
+    // `dispatch::may_pass`
     false
 }
 
@@ -48,14 +48,9 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool { ttype, level, .. } = item.kind {
-        if ttype == ToolType::Pickaxe
-            && crate::entity::mob::player_behavior::pay_stamina(player, 6 - level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            hurt_dmg(g, def, lvl, xt, yt, 1);
-            return true;
-        }
+    if super::tool_use(g, player, item, ToolType::Pickaxe, 6).is_some() {
+        hurt_dmg(g, def, lvl, xt, yt, 1);
+        return true;
     }
     false
 }
@@ -68,7 +63,6 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
         dmg = health;
         damage = health;
     }
-    // JAVA: SmashParticle's constructor plays Sound.monsterHurt.
     g.play_sound(Sound::MonsterHurt);
     let smash = crate::entity::particle::new_smash_particle(x * 16, y * 16);
     g.level_mut(lvl).add(smash, lvl);
@@ -90,8 +84,7 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
 
 pub fn bumped_into(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, e: &mut Entity) {
     let _ = lvl;
-    // JAVA: ((Mob)entity).hurt(this, x, y, 1 + Settings.getIdx("diff")) — the non-Mob
-    // check is inside mob_hurt_tile.
+    // spike damage scales with difficulty; mob_hurt_tile ignores non-mobs
     let dmg = 1 + g.settings.get_idx("diff");
     crate::entity::behavior::mob_hurt_tile(g, e, def, xt, yt, dmg);
 }

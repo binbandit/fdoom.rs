@@ -56,7 +56,36 @@ pub mod wool;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::core::game::Game;
+use crate::entity::Entity;
+use crate::entity::mob::player_behavior::pay_stamina;
 use crate::gfx::Sprite;
+use crate::item::{Item, ItemKind, ToolType};
+
+/// The common gate for tool-driven tile interactions (dig, chop, mine).
+///
+/// Succeeds when `item` is the requested kind of tool and the player pays the stamina
+/// cost (`base_cost` less the tool's level) plus one point of tool durability. Returns
+/// the tool's level so callers can scale their effect with it; the caller then applies
+/// the tile's own result — swap the tile, drop items, play a sound.
+///
+/// The charge order is deliberate: stamina is spent even when the durability check then
+/// fails, exactly like the hand-written per-tile interacts this helper replaced.
+pub fn tool_use(
+    g: &Game,
+    player: &mut Entity,
+    item: &mut Item,
+    tool: ToolType,
+    base_cost: i32,
+) -> Option<i32> {
+    let ItemKind::Tool { ttype, level, .. } = item.kind else {
+        return None;
+    };
+    let paid = ttype == tool
+        && pay_stamina(player, base_cost - level)
+        && item.pay_durability(g.is_mode("creative"));
+    paid.then_some(level)
+}
 
 /// Java `Tile.Material`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -483,7 +512,7 @@ impl Tiles {
         if let Some(t) = self.list.borrow()[torch_id as usize].clone() {
             return t;
         }
-        // JAVA: TorchTile is only supported on certain tiles; others log and use Dirt's.
+        // Base tiles without torch support log a warning and reuse Dirt's torch config.
         let mut def = dispatch::make_torch_tile(&on);
         def.id = torch_id as u8;
         let def = Rc::new(def);

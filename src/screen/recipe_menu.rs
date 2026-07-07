@@ -19,9 +19,7 @@ fn get_and_sort_recipes(
     recipes: &mut [Rc<RefCell<Recipe>>],
     inventory: &Inventory,
 ) -> Vec<EntryHandle> {
-    // JAVA: the sort comparator calls r.checkCanCraft(player) per comparison; the
-    // inventory doesn't change during the sort, so checking once up front gives the
-    // identical order (both sorts are stable) and identical final canCraft flags.
+    // refresh every recipe's canCraft flag once up front; the sort below only reads it
     for r in recipes.iter() {
         r.borrow_mut().check_can_craft(g, inventory);
     }
@@ -33,7 +31,6 @@ fn get_and_sort_recipes(
         } else if craft1 {
             Ordering::Less
         } else {
-            // JAVA: if(craft2) return 1; return 0; — craft2 is always true here.
             Ordering::Greater
         }
     });

@@ -1,12 +1,11 @@
 //! Port of `fdoom.level.tile.FarmTile`.
 
-use super::{TileDef, TileKind};
+use super::{TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::entity::Direction;
 use crate::entity::Entity;
-use crate::entity::mob::player_behavior::pay_stamina;
 use crate::gfx::{Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 
 /// Java `FarmTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -34,21 +33,10 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool {
-        ttype,
-        level: tool_level,
-        ..
-    } = &item.kind
-    {
-        let (ttype, tool_level) = (*ttype, *tool_level);
-        if ttype == ToolType::Shovel
-            && pay_stamina(player, 4 - tool_level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let dirt = g.tiles.get("dirt");
-            g.set_tile_default(lvl, xt, yt, &dirt);
-            return true;
-        }
+    if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
+        let dirt = g.tiles.get("dirt");
+        g.set_tile_default(lvl, xt, yt, &dirt);
+        return true;
     }
     false
 }

@@ -6,7 +6,7 @@ use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 
 /// Java `WoolTile.WoolColor` — (name, col) in ordinal order.
 const WOOL_COLORS: [(&str, i32); 6] = [
@@ -28,8 +28,7 @@ pub fn make() -> TileDef {
 #[allow(clippy::too_many_arguments)]
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     let data = g.level(lvl).get_data(x, y);
-    // FIX: out-of-range data (bad save data) falls back to uncolored wool instead of
-    // panicking (Java threw ArrayIndexOutOfBoundsException).
+    // out-of-range data (bad save data) falls back to uncolored wool instead of panicking
     let color = WOOL_COLORS.get(data as usize).unwrap_or(&WOOL_COLORS[0]).1;
     if let Some(sprite) = &def.sprite {
         sprite.render_color(screen, x * 16, y * 16, color);
@@ -47,18 +46,13 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool { ttype, level, .. } = item.kind {
-        if ttype == ToolType::Shovel
-            && crate::entity::mob::player_behavior::pay_stamina(player, 3 - level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let hole = g.tiles.get("hole");
-            g.set_tile_default(lvl, xt, yt, &hole);
-            let wool = crate::item::registry::get(g, "Wool");
-            crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, wool);
-            g.play_sound(Sound::MonsterHurt);
-            return true;
-        }
+    if super::tool_use(g, player, item, ToolType::Shovel, 3).is_some() {
+        let hole = g.tiles.get("hole");
+        g.set_tile_default(lvl, xt, yt, &hole);
+        let wool = crate::item::registry::get(g, "Wool");
+        crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, wool);
+        g.play_sound(Sound::MonsterHurt);
+        return true;
     }
     false
 }
@@ -76,8 +70,7 @@ pub fn get_data_str(_def: &TileDef, data: &str) -> i32 {
             return i as i32;
         }
     }
-    // JAVA: Enum.valueOf threw IllegalArgumentException on an unknown constant, crashing
-    // on a corrupted save. FIX: log and fall back to uncolored wool (ordinal 0).
+    // an unknown color (corrupted save) falls back to uncolored wool instead of crashing
     println!("WoolTile.getData: unknown wool color {data:?}, defaulting to NONE");
     0
 }

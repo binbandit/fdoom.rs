@@ -10,7 +10,6 @@ use super::rel_pos::RelPos;
 
 /// Java `ItemListMenu.getBuilder()`.
 pub fn get_builder() -> MenuBuilder {
-    // JAVA: new Point((Renderer.WIDTH - 8) / 2, (Renderer.HEIGHT - 8) / 2)
     MenuBuilder::new(true, 0, RelPos::Left, Vec::new())
         .set_positioning(
             Point::new((screen::W - 8) / 2, (screen::H - 8) / 2),

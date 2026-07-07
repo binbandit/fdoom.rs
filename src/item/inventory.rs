@@ -53,7 +53,7 @@ impl Inventory {
     /// Java `remove(idx)` — includes the Player-subclass creative behavior.
     pub fn remove(&mut self, idx: i32) -> Item {
         if self.player_inv && self.creative {
-            // JAVA: mutates the stored stack's count down to 1 first
+            // creative slots are bottomless: hand out a single item and keep the slot
             if self.items[idx as usize].is_stackable() {
                 self.items[idx as usize].set_count(1);
             }

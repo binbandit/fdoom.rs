@@ -8,7 +8,6 @@ use crate::gfx::{Screen, color, font};
 /// Java `DeathChest.tick()` — expiry countdown + red flash color.
 pub fn tick(g: &mut Game, e: &mut Entity) {
     super::behavior::tick(g, e);
-    // JAVA: //name = "Death Chest:"; // add the current
 
     let inv_empty = e
         .chest()
@@ -47,7 +46,7 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
 
     if time == 0 {
         // remove the death chest when the time expires, spilling all the contents.
-        super::chest_behavior::die(g, e); // JAVA: die() (virtual → Chest.die)
+        super::chest_behavior::die(g, e);
     }
 }
 
@@ -70,7 +69,6 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
 /// Java `DeathChest.touchedBy(other)` — a player walking into it retrieves the items.
 pub fn touched_by(g: &mut Game, e: &mut Entity, by: &mut Entity) {
     if by.is_player() {
-        // JAVA: the !Game.ISONLINE branch (this build is always offline)
         let inv = e.chest().map(|c| c.inventory.clone()).unwrap_or_default();
         by.player_mut().inventory.add_all(&inv);
         behavior::remove_entity(g, e);

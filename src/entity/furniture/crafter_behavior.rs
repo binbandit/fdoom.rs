@@ -10,7 +10,6 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
         return false;
     };
     let crafter_type = c.crafter_type;
-    // JAVA: Game.setMenu(new CraftingDisplay(type.recipes, type.name(), player));
     let recipes = match crafter_type {
         CrafterType::Workbench => g.recipes.workbench.clone(),
         CrafterType::Oven => g.recipes.oven.clone(),

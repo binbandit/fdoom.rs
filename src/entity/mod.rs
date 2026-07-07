@@ -400,7 +400,7 @@ impl EntityArena {
     fn generate_unique_entity_id(&self, random: &mut Rng) -> i32 {
         loop {
             let eid = random.next_int();
-            // JAVA: ids must be positive; 0 is reserved for the main player.
+            // ids must be strictly positive: 0 is reserved for the main player
             if eid > 0 && !self.map.contains_key(&eid) {
                 return eid;
             }

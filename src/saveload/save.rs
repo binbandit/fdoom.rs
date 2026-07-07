@@ -25,7 +25,8 @@ impl Save {
     fn new_at(world_folder: PathBuf, debug: bool) -> Save {
         let mut world_folder = world_folder;
 
-        // JAVA: worldFolder.getParent().equals("saves") — only true for a relative gameDir.
+        // Lowercase legacy world folders. The parent == "saves" check only matches a
+        // relative game dir, so absolute paths skip the rename — a long-standing quirk.
         if world_folder
             .parent()
             .map(|p| p.as_os_str() == "saves")
@@ -71,15 +72,11 @@ impl Save {
 
         self.data.clear();
 
-        // Java LoadingDisplay.progress(7) + clamp.
+        // advance the save-progress bar (the platform render loop draws the frame)
         g.loading_percentage = (g.loading_percentage + 7.0).min(100.0);
         if g.loading_percentage > 100.0 {
             g.loading_percentage = 100.0;
         }
-
-        // JAVA: Renderer.render() — "AH HA!!! HERE'S AN IMPORTANT STATEMENT!!!!". The
-        // renderer lives outside `Game` in this port; the save-progress frame is drawn by
-        // the platform render loop instead.
     }
 
     /// Java `writeGame(filename)`.
@@ -100,8 +97,8 @@ impl Save {
         self.data.push(g.settings.get("sound").to_display());
         self.data.push(g.settings.get("autosave").to_display());
         self.data.push(g.settings.get("fps").to_display());
-        // JAVA: MultiplayerDisplay.savedIP / savedUUID / savedUsername — the multiplayer
-        // display is a stub in this build, so these statics are always "".
+        // three reserved slots (historically multiplayer IP/UUID/username); kept empty
+        // so the prefs file layout stays stable
         self.data.push(String::new());
         self.data.push(String::new());
         self.data.push(String::new());
@@ -131,7 +128,8 @@ impl Save {
             if g.level(l).is_infinite() {
                 continue; // chunked layers persist via the chunks/ directory
             }
-            // JAVA: writes the "size" *setting* for w and h, not the level's actual size.
+            // Writes the "size" *setting* for w and h, not the level's actual size —
+            // wire-format quirk the loader expects; don't "fix" without migrating saves.
             let world_size = g.settings.get("size").to_display();
             self.data.push(world_size.clone());
             self.data.push(world_size);
@@ -242,8 +240,8 @@ pub fn save_world_named(g: &mut Game, world_name: &str) {
     }
     save.write_entities(g, "Entities");
 
-    // JAVA: WorldSelectDisplay.refreshWorldNames() — the world-select display re-reads the
-    // saves directory when opened in this port.
+    // (no world-list refresh needed: the world-select display re-reads the saves
+    // directory every time it opens)
 
     g.notify_all("World Saved!");
     g.as_tick = 0;
@@ -293,7 +291,8 @@ pub fn write_to_file(
         out.push_str(value);
         if is_world_save {
             out.push(',');
-            // JAVA: the Level5 files get one extra trailing comma.
+            // wire-format quirk: Level5 files carry one extra trailing comma, and the
+            // loader counts on it
             if filename.contains("Level5") && i == savedata.len() - 1 {
                 out.push(',');
             }
@@ -381,8 +380,7 @@ fn entity_class_name(e: &Entity) -> &'static str {
         EntityKind::Fireflies(_) => "Fireflies",
         EntityKind::Arrow(_) => "Arrow",
         EntityKind::Zap(_) => "Zap",
-        // JAVA: FireParticle/SmashParticle are separate classes; both map to the merged
-        // Particle kind here. Particles are never written to local saves.
+        // one merged kind covers fire + smash particles; never written to local saves
         EntityKind::Particle(_) => "Particle",
         EntityKind::TextParticle(_) => "TextParticle",
         EntityKind::Furniture(_) => "Furniture",
@@ -403,9 +401,7 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
     let mut name = entity_class_name(e).to_string();
     let mut extradata = String::new();
 
-    // don't even write ItemEntities or particle effects (JAVA: same skip list, with the
-    // wisp's Zap standing in for the old AirWizard Spark)
-
+    // transient entities — drops, projectiles, particles, ambience — are never saved
     if is_local_save
         && matches!(
             e.kind,
@@ -417,7 +413,6 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
                 | EntityKind::Fireflies(_)
         )
     {
-        // JAVA: RemotePlayer is also skipped here; no such entity exists in this build.
         return String::new();
     }
 
@@ -425,8 +420,6 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
         extradata.push_str(&format!(":{}", e.c.eid));
     }
 
-    // JAVA: `!isLocalSave && e instanceof RemotePlayer` writes rp.getData() — multiplayer
-    // stub, unreachable. The "else" is so that RemotePlayer doesn't get the health thing.
     if let Some(m) = e.mob() {
         extradata.push_str(&format!(":{}", m.health));
         if let Some(em) = e.enemy_mob() {
@@ -482,7 +475,8 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
     }
 
     if !is_local_save {
-        // JAVA: these are only written when *sending* a world (multiplayer), not saving it.
+        // transient-entity payloads: only written for a non-local (in-memory) snapshot,
+        // never into a save file
         if let EntityKind::ItemEntity(ie) = &e.kind {
             extradata.push_str(&format!(":{}", crate::entity::item_entity::get_data(ie)));
         }
@@ -495,8 +489,6 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
             extradata.push_str(&format!(":{}", z.owner));
         }
         if let EntityKind::TextParticle(tp) = &e.kind {
-            // JAVA: TextParticle.getData() is msg + ":" + style.getColor(); FontStyle does
-            // not expose its color in this port and this branch is multiplayer-only.
             extradata.push_str(&format!(":{}", tp.msg));
         }
     }

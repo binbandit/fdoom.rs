@@ -11,10 +11,9 @@
 //! Together these replace pre-placed stairwells on infinite worlds: you descend by
 //! digging, exactly like the user asked — "dig deep enough and you get down a level".
 
-use super::{TileDef, TileKind, dispatch};
+use super::{TileDef, TileKind, dispatch, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
-use crate::entity::mob::player_behavior::pay_stamina;
 use crate::entity::{Direction, Entity, EntityKind};
 use crate::gfx::{Screen, color};
 use crate::item::{Item, ItemKind, ToolType};
@@ -99,19 +98,13 @@ pub fn dug_pit_interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    let ItemKind::Tool {
-        ttype,
-        level: tool_level,
-        ..
-    } = &item.kind
-    else {
+    let ItemKind::Tool { ttype, .. } = item.kind else {
         return false;
     };
-    let (ttype, tool_level) = (*ttype, *tool_level);
     let stage = g.level(lvl).get_data(xt, yt);
 
     if ttype == ToolType::Shovel && stage < MAX_STAGE {
-        if pay_stamina(player, 4 - tool_level) && item.pay_durability(g.is_mode("creative")) {
+        if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
             g.level_mut(lvl).set_data(xt, yt, stage + 1);
             let dirt = crate::item::registry::get(g, "dirt");
             drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
@@ -130,8 +123,7 @@ pub fn dug_pit_interact(
     }
     if ttype == ToolType::Pickaxe
         && stage >= MAX_STAGE
-        && pay_stamina(player, 4 - tool_level)
-        && item.pay_durability(g.is_mode("creative"))
+        && tool_use(g, player, item, ToolType::Pickaxe, 4).is_some()
     {
         open_chasm(g, lvl, xt, yt);
         let stone = crate::item::registry::get(g, "Stone");

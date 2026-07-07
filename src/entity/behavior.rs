@@ -113,7 +113,7 @@ pub fn die(g: &mut Game, e: &mut Entity) {
         EntityKind::StoneGolem(_) => super::mob::stone_golem::die(g, e),
         EntityKind::NightWisp(_) => super::mob::night_wisp::die(g, e),
         EntityKind::Ghost(_) => super::mob::ghost::die(g, e),
-        // JAVA: Chest.die spills the inventory
+        // a dying chest spills its inventory
         EntityKind::Chest(_) | EntityKind::DeathChest(_) | EntityKind::DungeonChest(_) => {
             super::furniture::chest_behavior::die(g, e)
         }
@@ -171,10 +171,10 @@ pub fn get_light_radius(e: &Entity) -> i32 {
         EntityKind::Lantern(l) => l.lantern_type.light(),
         // lit campfire — through the normal furniture-emitter path, so occlusion applies
         EntityKind::Campfire(cf) if cf.fuel > 0 => super::furniture::campfire::LIGHT_RADIUS,
-        EntityKind::GlowWorm(_) => 2, // JAVA: GlowWorm.getLightRadius()
+        EntityKind::GlowWorm(_) => 2,
         EntityKind::NightWisp(_) => 4, // a drifting lantern of the night
         EntityKind::Fireflies(_) => 2, // a faint swarm-glow, like the glow worm
-        EntityKind::Ghost(_) => 1,    // a cold gleam; night-only, so it never glares
+        EntityKind::Ghost(_) => 1,     // a cold gleam; night-only, so it never glares
         _ => 0,
     }
 }
@@ -272,8 +272,8 @@ pub fn entity_move2(g: &mut Game, e: &mut Entity, xa: i32, ya: i32) -> bool {
             if *other_id == e.c.eid {
                 continue; // touching yourself doesn't count
             }
-            // JAVA: if the other is a Player (and we are not), *we* get touchedBy(player);
-            // otherwise the other gets touchedBy(us).
+            // Asymmetric on purpose: when the other party is a player (and we are not),
+            // *we* receive touched_by(player); otherwise the other receives touched_by(us).
             let other_is_player = g
                 .entities
                 .get(*other_id)
@@ -371,7 +371,7 @@ pub fn entity_interact(
     attack_dir: Direction,
 ) -> bool {
     match &this_e.kind {
-        // JAVA: Spawner and Tnt override Entity.interact
+        // only Spawner and Tnt have their own interact handling
         EntityKind::Spawner(_) => {
             return super::furniture::spawner_behavior::interact(
                 g, this_e, player, item, attack_dir,
@@ -389,7 +389,7 @@ pub fn entity_interact(
     {
         return true;
     }
-    // JAVA Entity.interact: if item != null, return item.interact(player, this, attackDir)
+    // the default interact just forwards to the held item, if any
     if let Some(it) = item {
         return crate::item::interact::item_interact_entity(g, it, player, this_e, attack_dir);
     }

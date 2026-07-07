@@ -93,7 +93,7 @@ pub fn tick_drops(g: &mut Game, menu: &mut Menu, holder_eid: i32, allow_drop_one
     let (hx, hy, hlvl, drop);
     {
         let Some(holder) = g.entities.get_mut(holder_eid) else {
-            return; // JAVA: `if(entry == null) return;` (take-out reentrancy; see PORTING.md)
+            return; // holder may be taken out of the arena mid-tick (see PORTING.md)
         };
         let holder_is_player = holder.is_player();
         hx = holder.c.x;
@@ -108,12 +108,11 @@ pub fn tick_drops(g: &mut Game, menu: &mut Menu, holder_eid: i32, allow_drop_one
             // just drop one from the stack
             d.set_count(1);
             inv_item.set_count(inv_item.count() - 1);
-            // JAVA: the entry shared the inventory's Item object; refresh the clone.
+            // the menu entry holds its own clone of the item; refresh it
             updated_entry_item = Some(inv_item.clone());
         } else {
             // drop the whole item.
             if !creative || !holder_is_player {
-                // JAVA: removeSelectedEntry() — inv.remove(getSelection()) + the menu.
                 inv.remove(sel);
                 remove_entry = true;
             }
@@ -129,7 +128,6 @@ pub fn tick_drops(g: &mut Game, menu: &mut Menu, holder_eid: i32, allow_drop_one
     }
 
     if let Some(lvl) = hlvl {
-        // JAVA: the isValidClient dropItem packet is dead — holder.getLevel().dropItem.
         level::drop_item(g, lvl, hx, hy, drop);
     }
 }

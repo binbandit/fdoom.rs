@@ -40,7 +40,7 @@ pub fn get_sparse_color(_def: &TileDef, tile: &TileDef, orig_col: i32) -> i32 {
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     let sparse = color::get4(3, 222, 211, dirt::d_col(g.level(lvl).depth));
     let full = def.csprite.as_ref().map(|cs| cs.full.color).unwrap_or(0);
-    // JAVA: `sides` aliases `sparse` (two-sprite ConnectorSprite), so the side color
-    // follows the sparse recolor.
+    // two-sprite ConnectorSprite: sides share the sparse sprite, so the side color
+    // must follow the sparse recolor
     dispatch::csprite_render(g, screen, def, lvl, x, y, Some((sparse, sparse, full)));
 }

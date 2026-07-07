@@ -62,7 +62,7 @@ impl Display for OptionsDisplay {
         settings_widgets::sync(g, &self.settings);
         let language = g.settings.get("language").as_str().to_string();
         g.localization.change_language(&language);
-        crate::saveload::save::save_prefs(g); // JAVA: new Save()
+        crate::saveload::save::save_prefs(g);
         g.max_fps = g.settings.get("fps").as_int();
     }
 }

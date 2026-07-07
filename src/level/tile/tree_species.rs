@@ -8,14 +8,13 @@
 //! knot-fill] — the same six roles the broadleaf samples — so adjacent trees merge
 //! into one connected woodland roof exactly like `tree.rs` does.
 
-use super::{TileDef, TileKind, TreeSpecies, dispatch};
+use super::{TileDef, TileKind, TreeSpecies, dispatch, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
-use crate::entity::mob::player_behavior::pay_stamina;
 use crate::entity::particle::{new_smash_particle, new_text_particle};
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 use crate::level::{drop_item, drop_items_counted};
 
 /// Per-species config: base ground tile, health, canopy palette, dead-look darken.
@@ -187,21 +186,10 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool {
-        ttype,
-        level: tool_level,
-        ..
-    } = &item.kind
-    {
-        let (ttype, tool_level) = (*ttype, *tool_level);
-        if ttype == ToolType::Axe
-            && pay_stamina(player, 4 - tool_level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let dmg = g.random.next_int_bound(10) + tool_level * 5 + 10;
-            hurt_dmg(g, def, lvl, xt, yt, dmg);
-            return true;
-        }
+    if let Some(tool_level) = tool_use(g, player, item, ToolType::Axe, 4) {
+        let dmg = g.random.next_int_bound(10) + tool_level * 5 + 10;
+        hurt_dmg(g, def, lvl, xt, yt, dmg);
+        return true;
     }
     false
 }
@@ -228,7 +216,7 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
         damage = inf.health;
     }
 
-    g.play_sound(Sound::MonsterHurt); // JAVA convention: SmashParticle plays this
+    g.play_sound(Sound::MonsterHurt);
     g.level_mut(lvl)
         .add(new_smash_particle(x * 16, y * 16), lvl);
     let text = new_text_particle(

@@ -1,13 +1,12 @@
 //! Port of `fdoom.level.tile.DirtTile`.
 
-use super::{TileDef, TileKind};
+use super::{TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
-use crate::entity::mob::player_behavior::pay_stamina;
 use crate::gfx::{Screen, Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 use crate::level::drop_item;
 
 /// Java `DirtTile.dCol(depth)` — the readable dirt color for a level depth.
@@ -53,34 +52,20 @@ pub fn interact(
     {
         return true;
     }
-    if let ItemKind::Tool {
-        ttype,
-        level: tool_level,
-        ..
-    } = &item.kind
-    {
-        let (ttype, tool_level) = (*ttype, *tool_level);
-        if ttype == ToolType::Shovel
-            && pay_stamina(player, 4 - tool_level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            // multi-level terrain: shoveling starts a pit you can keep digging deeper
-            let pit = g.tiles.get("Dug Pit");
-            g.set_tile_default(lvl, xt, yt, &pit);
-            let dirt = crate::item::registry::get(g, "dirt");
-            drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
-            g.play_sound(Sound::MonsterHurt);
-            return true;
-        }
-        if ttype == ToolType::Hoe
-            && pay_stamina(player, 4 - tool_level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let farmland = g.tiles.get("farmland");
-            g.set_tile_default(lvl, xt, yt, &farmland);
-            g.play_sound(Sound::MonsterHurt);
-            return true;
-        }
+    if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
+        // multi-level terrain: shoveling starts a pit you can keep digging deeper
+        let pit = g.tiles.get("Dug Pit");
+        g.set_tile_default(lvl, xt, yt, &pit);
+        let dirt = crate::item::registry::get(g, "dirt");
+        drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
+        g.play_sound(Sound::MonsterHurt);
+        return true;
+    }
+    if tool_use(g, player, item, ToolType::Hoe, 4).is_some() {
+        let farmland = g.tiles.get("farmland");
+        g.set_tile_default(lvl, xt, yt, &farmland);
+        g.play_sound(Sound::MonsterHurt);
+        return true;
     }
     false
 }

@@ -16,9 +16,9 @@ pub fn make(name: &str, on_type: &str, grows_to: &str) -> TileDef {
         },
     );
     def.sprite = Some(Sprite::new1x1(11, 3, color::get4(20, 40, 50, -1)));
-    // JAVA: the connects-to flags are copied from the onType tile; resolved statically
-    // here because make() runs while the registry is being built (onType is only ever
-    // "Grass" or "Sand").
+    // Mirror the connects-to flags of the ground the sapling stands on; resolved
+    // statically because make() runs while the registry is still being built (on_type
+    // is only ever "Grass" or "Sand").
     match on_type.to_uppercase().as_str() {
         "GRASS" => def.connects_to_grass = true,
         "SAND" => def.connects_to_sand = true,

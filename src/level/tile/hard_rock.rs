@@ -13,7 +13,6 @@ use crate::item::{Item, ItemKind, ToolType};
 pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::HardRock);
     def.blocks_light = true; // solid stone occludes emitter light
-    // JAVA: Color.get(001, ...) — leading-zero (octal) literal 001 == 1.
     def.csprite = Some(ConnectorSprite::new(
         Sprite::new(4, 0, 3, 3, color::get4(1, 334, 445, 321), 3),
         Sprite::new(7, 0, 2, 2, color::get4(1, 334, 445, 321), 3),
@@ -64,16 +63,14 @@ pub fn interact(
         if g.is_mode("creative") {
             return true;
         }
+        // only the top-tier (gem, level 4) pickaxe can chip hard rock
         if ttype == ToolType::Pickaxe && level == 4 {
-            if crate::entity::mob::player_behavior::pay_stamina(player, 4 - level)
-                && item.pay_durability(g.is_mode("creative"))
-            {
+            if super::tool_use(g, player, item, ToolType::Pickaxe, 4).is_some() {
                 let dmg = g.random.next_int_bound(10) + level * 5 + 10;
                 hurt_dmg(g, def, lvl, xt, yt, dmg);
                 return true;
             }
         } else {
-            // JAVA: Game.notifications.add
             g.notifications.push("Gem Pickaxe Required.".to_string());
         }
     }
@@ -88,7 +85,6 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
         dmg = hr_health;
         damage = hr_health;
     }
-    // JAVA: SmashParticle's constructor plays Sound.monsterHurt.
     g.play_sound(Sound::MonsterHurt);
     let smash = crate::entity::particle::new_smash_particle(x * 16, y * 16);
     g.level_mut(lvl).add(smash, lvl);

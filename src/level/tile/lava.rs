@@ -1,6 +1,4 @@
 //! Port of `fdoom.level.tile.LavaTile`.
-//!
-//! JAVA: the unused `private Random wRandom = new Random();` field is dropped.
 
 use super::{ConnectorSprite, TileDef, TileKind, dirt, dispatch};
 use crate::core::game::Game;
@@ -39,8 +37,8 @@ pub fn get_sparse_color(_def: &TileDef, tile: &TileDef, orig_col: i32) -> i32 {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    // JAVA: `(tickCount + (x / 2 - y) * 4311) / 10` is int math; the `* 54687121l`
-    // promotes to long.
+    // Churn animation seed. The i32 math (truncating / 10) before widening to i64 is
+    // load-bearing: it quantizes the phase so the surface roils in steps.
     let int_part = g
         .tile_tick_count
         .wrapping_add((x / 2 - y).wrapping_mul(4311))
@@ -55,8 +53,8 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     cs.full = Sprite::random_dots(seed, cs.full.color);
     let full = cs.full.color;
     let sparse = color::get4(3, 500, 211, dirt::d_col(g.level(lvl).depth));
-    // JAVA: `sides` aliases `sparse` (two-sprite ConnectorSprite), so the side color
-    // follows the sparse recolor.
+    // two-sprite ConnectorSprite: sides share the sparse sprite, so the side color
+    // must follow the sparse recolor
     dispatch::csprite_render(g, screen, &tmp, lvl, x, y, Some((sparse, sparse, full)));
 }
 

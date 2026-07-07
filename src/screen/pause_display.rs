@@ -26,17 +26,13 @@ impl PauseDisplay {
             })),
         ];
 
-        // JAVA: if(!Game.isValidClient()) — always true.
         entries.push(handle(SelectEntry::new("Save Game", |g: &mut Game| {
             g.clear_menu();
-            // isValidServer() is always false, so this is the singleplayer branch.
             let world_name = super::world_select::get_world_name(g);
             crate::saveload::save::save_world_named(g, &world_name);
-            // JAVA: SaveTest.backupGame(...) — TODO(port:saveload): backups pending.
         })));
 
         entries.push(handle(SelectEntry::new("Main Menu", |g: &mut Game| {
-            // JAVA: MyUtils.fromNetworkStatus(offline, client, server) — always offline.
             let mut items: Vec<EntryHandle> = StringEntry::use_lines(&[
                 "Are you sure you want to".to_string(),
                 "Exit the Game?".to_string(),
@@ -83,7 +79,7 @@ impl Display for PauseDisplay {
     }
 
     fn init(&mut self, g: &mut Game) {
-        // JAVA: super.init(null) — ignore; pause menus always lead back to the game.
+        // no parent display: closing the pause menu goes straight back to the game
         g.display.stack.clear();
     }
 

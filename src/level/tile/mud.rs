@@ -2,13 +2,12 @@
 //! pits in marshes. Walkable but boggy — entities wade at reduced speed, like shallow
 //! quicksand without the sinking. Shovels dig it like dirt (yields dirt).
 
-use super::{TileDef, TileKind};
+use super::{TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
-use crate::entity::mob::player_behavior::pay_stamina;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 use crate::level::drop_item;
 
 pub fn make(name: &str) -> TileDef {
@@ -36,24 +35,13 @@ pub fn interact(
     if super::fossick::try_pan(g, lvl, xt, yt, player, item) {
         return true;
     }
-    if let ItemKind::Tool {
-        ttype,
-        level: tool_level,
-        ..
-    } = &item.kind
-    {
-        let (ttype, tool_level) = (*ttype, *tool_level);
-        if ttype == ToolType::Shovel
-            && pay_stamina(player, 4 - tool_level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let pit = g.tiles.get("Dug Pit");
-            g.set_tile_default(lvl, xt, yt, &pit);
-            let dirt = crate::item::registry::get(g, "dirt");
-            drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
-            g.play_sound(Sound::MonsterHurt);
-            return true;
-        }
+    if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
+        let pit = g.tiles.get("Dug Pit");
+        g.set_tile_default(lvl, xt, yt, &pit);
+        let dirt = crate::item::registry::get(g, "dirt");
+        drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
+        g.play_sound(Sound::MonsterHurt);
+        return true;
     }
     false
 }

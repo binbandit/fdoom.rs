@@ -1,13 +1,13 @@
 //! Port of `fdoom.level.tile.FloorTile`.
 
 use super::Material;
-use super::{TileDef, TileKind};
+use super::{TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 
 /// Java `FloorTile` constructor.
 pub fn make(material: Material) -> TileDef {
@@ -42,21 +42,16 @@ pub fn interact(
     let TileKind::Floor { material } = def.kind else {
         return false;
     };
-    if let ItemKind::Tool { ttype, level, .. } = item.kind {
-        if ttype == ToolType::Pickaxe
-            && crate::entity::mob::player_behavior::pay_stamina(player, 4 - level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let hole = g.tiles.get("hole");
-            g.set_tile_default(lvl, xt, yt, &hole);
-            let drop = match material {
-                Material::Wood => crate::item::registry::get(g, "Plank"),
-                _ => crate::item::registry::get(g, &format!("{} Brick", material.name())),
-            };
-            crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, drop);
-            g.play_sound(Sound::MonsterHurt);
-            return true;
-        }
+    if tool_use(g, player, item, ToolType::Pickaxe, 4).is_some() {
+        let hole = g.tiles.get("hole");
+        g.set_tile_default(lvl, xt, yt, &hole);
+        let drop = match material {
+            Material::Wood => crate::item::registry::get(g, "Plank"),
+            _ => crate::item::registry::get(g, &format!("{} Brick", material.name())),
+        };
+        crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, drop);
+        g.play_sound(Sound::MonsterHurt);
+        return true;
     }
     false
 }

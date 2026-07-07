@@ -204,8 +204,8 @@ impl Item {
         }
     }
 
-    /// Java `StackableItem.stacksWith(other)` — other is stackable and names match
-    /// (JAVA: the class is deliberately not compared).
+    /// Whether `other` can merge into this stack: it is stackable and the names match.
+    /// Deliberately name-based — the item kind is not compared.
     pub fn stacks_with(&self, other: &Item) -> bool {
         other.is_stackable() && other.name == self.name
     }

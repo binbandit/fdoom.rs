@@ -97,7 +97,7 @@ pub fn hurt_by(
         dmg = c_health;
         damage = c_health;
     }
-    g.play_sound(Sound::MonsterHurt); // JAVA: the SmashParticle constructor plays this.
+    g.play_sound(Sound::MonsterHurt);
     g.level_mut(lvl)
         .add(new_smash_particle(x * 16, y * 16), lvl);
     let text = new_text_particle(

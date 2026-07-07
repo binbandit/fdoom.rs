@@ -1,8 +1,6 @@
-//! Behavior of `fdoom.entity.mob.Player` — tick/attack/render/hurt/death.
-//!
-//! The data + constructor live in `player.rs`. Every `isValidClient()`/`isValidServer()`/
-//! `ISONLINE` branch from Java is dead in this build (see PORTING.md "Multiplayer"); the
-//! singleplayer paths are ported and the dead branches noted with `// JAVA:` comments.
+//! Player behavior — tick/attack/render/hurt/death. The data + constructor live in
+//! `player.rs`. This build is singleplayer-only: the multiplayer client/server branches
+//! of the original were never ported (see PORTING.md "Multiplayer").
 
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
@@ -55,25 +53,23 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
     // the Player constructor read Game.isMode("creative") live; see inventory.rs).
     e.player_mut().inventory.creative = g.is_mode("creative");
 
-    // JAVA: `if(Game.getMenu() != null && !Game.ISONLINE) return;` — don't tick the player
-    // when a menu is open (Updater still ticks the player entity then).
+    // don't tick the player while a menu is open (the Updater still ticks the entity)
     if g.menu_open() {
         return;
     }
 
-    // JAVA: super.tick() — ticks Mob.java. Returns false if the player was removed (died).
+    // shared mob tick; returns false if the player was removed (died)
     if !mob_tick_base(g, e) {
         return;
     }
 
-    // JAVA: `if(!Game.isValidClient())` — always true offline.
     {
         let paused = g.paused;
         e.player_mut().tick_multiplier(paused);
     }
 
     if !e.player().potioneffects.is_empty() && !bed_behavior::in_bed(g, e.c.eid) {
-        // JAVA: iterates over a snapshot array of the key set.
+        // snapshot the keys: apply_potion mutates the map mid-iteration
         let keys: Vec<PotionType> = e.player().potioneffects.keys().copied().collect();
         for potion_type in keys {
             let time = e
@@ -120,7 +116,6 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
     {
         if e.player().on_stair_delay <= 0 {
             // when the delay time has passed...
-            // JAVA: World.scheduleLevelChange (its isValidServer guard is always false).
             g.pending_level_change = if on_tile.id == stairs_up_id || on_tile.id == ladder_id {
                 1
             } else {
@@ -129,8 +124,8 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             e.player_mut().on_stair_delay = 10; // resets delay, since the level has now been changed.
             return; // SKIPS the rest of the tick() method.
         }
-        // JAVA: resets the delay if on a stairs tile but the delay is greater than 0;
-        // prevents a level change until you get off the tile for 10+ ticks.
+        // Keep re-arming the delay while standing on the tile: no second level change
+        // can happen until the player has been off stairs for 10+ ticks.
         e.player_mut().on_stair_delay = 10;
     } else if e.player().on_stair_delay > 0 {
         e.player_mut().on_stair_delay -= 1;
@@ -204,8 +199,7 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
                 // if the hunger is recharging health...
                 pd.stam_hunger_ticks -= 2 + diff_idx; // penalize the hunger
                 if pd.hunger == 0 {
-                    // JAVA: "further penalty if at full hunger" (the check is hunger == 0)
-                    pd.stam_hunger_ticks -= diff_idx;
+                    pd.stam_hunger_ticks -= diff_idx; // starving: extra penalty
                 }
             }
 
@@ -251,8 +245,8 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
                 e.player_mut().hunger_starve_delay -= 1;
             }
             if e.player().hunger_starve_delay == 0 {
-                // JAVA: hurt(this, 1, Direction.NONE) — Mob.hurt with a self source goes
-                // straight to doHurt (the creative insta-kill check requires mob != this).
+                // self-inflicted starvation damage bypasses the hurt() entry point
+                // (whose creative insta-kill check requires a distinct attacker)
                 do_hurt(g, e, 1, Direction::None); // do 1 damage to the player
             }
         }
@@ -304,8 +298,6 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
                 };
             let xd = (xa as f64 * spd) as i32;
             let yd = (ya as f64 * spd) as i32;
-            // JAVA: the newDir + Game.client.move packet is connected-client-only; dead offline.
-            // THIS is where the player moves; part of Mob.java
             let moved = mob_move(g, e, xd, yd, true);
             if moved {
                 e.player_mut().step_count += 1;
@@ -320,8 +312,7 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             if e.player().stamina > 0 {
                 e.player_mut().stamina -= 1; // take away stamina
             } else {
-                // JAVA: hurt(this, 1, Direction.NONE) — if no stamina, take damage.
-                do_hurt(g, e, 1, Direction::None);
+                do_hurt(g, e, 1, Direction::None); // out of breath: take damage
             }
         }
 
@@ -343,13 +334,10 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
                 }
                 drop
             };
-            // JAVA: the isValidClient dropItem packet is dead — level.dropItem(x, y, drop).
             level::drop_item(g, lvl, e.c.x, e.c.y, drop);
         }
 
         // this only allows attacks or pickups when such action is possible.
-        // JAVA: `(activeItem == null || !activeItem.used_pending)` — used_pending is a
-        // network-sync flag, always false offline.
         let mut attack_clicked = g.input.get_key("attack").clicked;
         // Post-port: SHIFT-attack throws a held spear. The plain "attack" binding never
         // fires while SHIFT is held (modifier matching zeroes it), so check the shifted
@@ -386,12 +374,10 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
                     pd.active_item = Some(registry::new_power_glove()); // and replace it with a power glove.
                 }
                 attack(g, e); // attack (with the power glove)
-                // JAVA: `if(!Game.ISONLINE)` — always true offline.
                 resolve_held_item(g, e);
             } else {
                 attack(g, e);
             }
-            // JAVA: the ISONLINE used_pending marking is skipped — offline.
         }
 
         if g.input.get_key("menu").clicked && e.player().active_item.is_some() {
@@ -416,7 +402,6 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             g.set_menu(crate::screen::pause_display::PauseDisplay::new(g));
         }
         if g.input.get_key("craft").clicked && !player_use(g, e) {
-            // JAVA: new CraftingDisplay(Recipes.craftRecipes, "Crafting", this, true)
             g.set_menu(
                 crate::screen::crafting_display::CraftingDisplay::with_personal(
                     g,
@@ -437,10 +422,9 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             g.set_menu(display);
         }
 
-        // JAVA: `!(this instanceof RemotePlayer) && !Game.isValidClient()` — both always true.
         if g.input.get_key("save").clicked && !g.saving {
-            // FIX: saving right here panicked — this code runs inside the player's own
-            // take-out tick, and `write_player` needs the player present in the arena
+            // Don't save right here: this code runs inside the player's own take-out
+            // tick, and `write_player` needs the player present in the arena
             // (`g.player()`). Defer the save to `Game::tick` (same deferred shape the
             // pause-menu Save Game action gets for free by running from the display).
             g.saving = true;
@@ -457,7 +441,6 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             let keys: Vec<PotionType> = e.player().potioneffects.keys().copied().collect();
             for potion_type in keys {
                 item_interact::apply_potion(g, e, potion_type, false);
-                // JAVA: isConnectedClient sendPotionEffect skipped — offline.
             }
         }
 
@@ -469,7 +452,6 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             }
         }
     }
-    // JAVA: isConnectedClient sendPlayerUpdate skipped — offline.
 }
 
 /// Java `Player.resolveHeldItem()` — removes a held item and places it back into the
@@ -533,8 +515,8 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
             pd.attack_dir = dir; // make the attack direction equal the current direction
             pd.attack_item = pd.active_item.clone(); // make attackItem equal activeItem
         }
-        // JAVA: activeItem.interactOn(Tiles.get("rock"), level, 0, 0, this, attackDir) —
-        // a dummy rock tile at 0,0; reflexive items ignore the tile entirely.
+        // self-targeted items (potions, food) get a dummy interaction at tile (0,0);
+        // they ignore the tile entirely
         let mut item = e
             .player_mut()
             .active_item
@@ -553,8 +535,6 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
         return;
     }
 
-    // JAVA: the isConnectedClient branch (the server executes the full method) is dead offline.
-
     e.player_mut().attack_dir = dir; // make the attack direction equal the current direction
     let attack_dir = dir;
     {
@@ -568,7 +548,6 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
         _ => None,
     };
     if let Some((ttype, tool_level, dur)) = tool {
-        // JAVA: `stamina - 1 >= 0` — preserved verbatim.
         #[allow(clippy::int_plus_one)]
         if e.player().stamina - 1 >= 0 && dur > 0 {
             match ttype {
@@ -710,9 +689,7 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
             t.x >= 0 && t.y >= 0 && t.x < l.w && t.y < l.h
         };
         if in_bounds {
-            // if the target coordinates are a valid tile...
-            // JAVA: getEntitiesInTiles(t.x, t.y, t.x, t.y, false, ItemEntity.class) — all
-            // entities on the target tile EXCEPT item entities.
+            // all entities on the target tile EXCEPT item entities
             let tile_entities: Vec<i32> = level::get_entities_in_tiles(g, lvl, t.x, t.y, t.x, t.y)
                 .into_iter()
                 .filter(|id| {
@@ -738,15 +715,13 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
                             done = true;
                         }
                     }
-                    // JAVA: activeItem aliasing — only restore ours if an interaction
-                    // didn't replace the held item.
+                    // only restore the taken item if the interaction didn't already
+                    // put a replacement in the player's hand
                     if e.player().active_item.is_none() {
                         e.player_mut().active_item = Some(item);
                     }
                 }
             }
-
-            // JAVA: the isValidServer RemotePlayer sendTileUpdate is skipped — offline.
 
             if e.player()
                 .active_item
@@ -806,7 +781,6 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
                 Some(ItemKind::Tool { .. })
             )
         {
-            // ((ToolItem)activeItem).payDurability()
             if let Some(item) = e.player_mut().active_item.as_mut() {
                 item.pay_durability(creative);
             }
@@ -814,8 +788,7 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
     }
 }
 
-/// One durability point for firing a ranged tool (bow/crossbow/slingshot) — the shape
-/// the Java bow branch used inline.
+/// One durability point for firing a ranged tool (bow/crossbow/slingshot).
 fn pay_ranged_durability(e: &mut Entity, creative: bool) {
     if !creative {
         if let Some(item) = e.player_mut().active_item.as_mut() {
@@ -935,7 +908,7 @@ pub fn go_fishing(g: &mut Game, player: &mut Entity, x: i32, y: i32, xt: i32, yt
 
     if g.random.next_double() >= fishing_catch_chance(presence, raining) {
         if g.random.next_int_bound(370) == 42 {
-            // JAVA: easter-egg console message, preserved verbatim.
+            // long-standing easter-egg console message
             println!(
                 "FISHNORRIS got away... just kidding, FISHNORRIS din't get away from you, you got away from FISHNORRIS..."
             );
@@ -945,7 +918,7 @@ pub fn go_fishing(g: &mut Game, player: &mut Entity, x: i32, y: i32, xt: i32, yt
 
     let roll = g.random.next_int_bound(100);
     let name = match cast {
-        // mostly fish, the odd slime, rarely someone's lost armor (the Java trio)
+        // mostly fish, the odd slime, rarely someone's lost armor (the classic trio)
         CastWater::Regular => match roll {
             0..=64 => "Raw Fish",
             65..=93 => "Slime",
@@ -1015,8 +988,8 @@ fn interact_area(g: &mut Game, e: &mut Entity, area: &Rectangle, attack_dir: Dir
             break;
         }
     }
-    // JAVA: activeItem aliasing — a successful furniture take() has already replaced the
-    // player's held item; only restore ours if nothing claimed the slot.
+    // a successful furniture take() has already put the furniture item in the player's
+    // hand; only restore the taken item if nothing claimed the slot
     if e.player().active_item.is_none() {
         e.player_mut().active_item = item;
     }
@@ -1043,8 +1016,8 @@ fn hurt_area(g: &mut Game, e: &mut Entity, area: &Rectangle, attack_dir: Directi
             g.with_entity(id, |other, g| mob_hurt_by_mob(g, e, other, dmg, attack_dir));
         }
         if is_furniture {
-            // JAVA: e.interact(this, null, attackDir) — with a null item this is a no-op
-            // (Entity.interact only forwards to item.interact).
+            // an itemless interact is effectively a no-op for plain furniture, but
+            // Spawner/Tnt route it to their `use` handling
             let mut no_item: Option<Item> = None;
             g.with_entity(id, |other, g| {
                 entity_interact(g, other, e, &mut no_item, attack_dir)
@@ -1054,10 +1027,7 @@ fn hurt_area(g: &mut Game, e: &mut Entity, area: &Rectangle, attack_dir: Directi
     max_dmg > 0
 }
 
-/// Java `getAttackDamage(e)` — calculates how much damage the player will do.
-///
-/// JAVA: the Entity parameter was only used for the `instanceof Mob` check inside
-/// `ToolItem.getAttackDamageBonus`, and this is only ever called with a Mob target.
+/// How much damage the player's swing does (the target is always a mob).
 fn get_attack_damage(g: &mut Game, e: &mut Entity) -> i32 {
     let mut dmg = g.random.next_int_bound(2) + 1;
     let creative = g.is_mode("creative");
@@ -1070,8 +1040,8 @@ fn get_attack_damage(g: &mut Game, e: &mut Entity) -> i32 {
     dmg
 }
 
-/// Java `ToolItem.getAttackDamageBonus(e)` — implemented Player-side since it needs
-/// `g.random`; pays durability first, exactly like Java. The target is always a Mob.
+/// The held tool's damage bonus against mobs. Pays one durability up front — a broken
+/// tool contributes nothing.
 fn get_attack_damage_bonus(g: &mut Game, item: &mut Item, creative: bool) -> i32 {
     if !item.pay_durability(creative) {
         return 0;
@@ -1080,8 +1050,7 @@ fn get_attack_damage_bonus(g: &mut Game, item: &mut Item, creative: bool) -> i32
     let ItemKind::Tool { ttype, level, .. } = item.kind else {
         return 0;
     };
-    // Tiers run Crude(0)..Gem(5) since the post-port Crude tier shifted the Java
-    // Wood..Gem levels up by one; bonus ranges below are for those endpoints.
+    // Tiers run Crude(0)..Gem(5); the bonus ranges below are for those endpoints.
     match ttype {
         // crude axe bonus: 2-5; gem axe bonus: 12-15.
         ToolType::Axe => (level + 1) * 2 + g.random.next_int_bound(4),
@@ -1175,8 +1144,8 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         e.c.col = color::WHITE;
     }
 
-    // gets the correct sprite to render.
-    // JAVA: spriteSet[dir.getDir()] — the player's dir is never NONE, so getDir() >= 0.
+    // gets the correct sprite to render (the player's dir is never NONE, so
+    // get_dir() is always a valid index)
     let dir_idx = e.player().mob.dir.get_dir() as usize;
     let cur_sprite = &sprite_set[dir_idx][((e.player().mob.walk_dist >> 3) & 1) as usize];
 
@@ -1221,7 +1190,6 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         if let ItemKind::Furniture { furniture, .. } = &mut item.kind {
             furniture.c.x = ex;
             furniture.c.y = yo - 4;
-            // JAVA: furniture.render(screen) — virtual dispatch on the furniture kind.
             crate::entity::behavior::entity_render(g, screen, furniture);
         }
     }
@@ -1232,7 +1200,6 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
 pub fn pickup_item(g: &mut Game, player: &mut Entity, item_entity: &mut Entity) {
     g.play_sound(Sound::Pickup);
     remove_entity(g, item_entity);
-    // JAVA: addScore(1) — its isValidClient guard is dead offline.
     let score_mode = g.is_mode("score");
     player.player_mut().add_score(1, score_mode);
     if g.is_mode("creative") {
@@ -1261,11 +1228,9 @@ pub fn pickup_item(g: &mut Game, player: &mut Entity, item_entity: &mut Entity) 
     }
 }
 
-/// Java `findStartPos(level)` / `findStartPos(level, spawnSeed)` — finds a starting
-/// position for the player.
-///
-/// JAVA: the seeded variant did `random.setSeed(spawnSeed)` on the entity's own Random;
-/// here a local `Rng` stands in for the freshly-reseeded instance.
+/// Finds a starting position for the player. With `spawn_seed` the pick is
+/// deterministic (a fresh local `Rng` seeded from it); without, it draws from the
+/// incidental `g.random`.
 pub fn find_start_pos(g: &mut Game, player: &mut Entity, lvl: usize, spawn_seed: Option<i64>) {
     if g.level(lvl).is_infinite() {
         let (sx, sy) = crate::level::infinite_gen::find_surface_spawn(g.world_seed, &g.tiles);
@@ -1330,7 +1295,6 @@ pub fn find_start_pos(g: &mut Game, player: &mut Entity, lvl: usize, spawn_seed:
 }
 
 /// Java `Player.respawn(level)` — finds a location where the player can respawn.
-/// (JAVA: always returned true.)
 pub fn respawn(g: &mut Game, player: &mut Entity, lvl: usize) {
     let (spawnx, spawny) = {
         let pd = player.player();
@@ -1361,7 +1325,6 @@ pub fn pay_stamina(player: &mut Entity, cost: i32) -> bool {
 
     let cost = cost.max(0); // error correction
     pd.stamina -= pd.stamina.min(cost); // subtract the cost from the current stamina
-    // JAVA: the isValidServer sendStaminaChange is skipped — offline.
     true // success
 }
 
@@ -1393,8 +1356,7 @@ pub fn die(g: &mut Game, e: &mut Entity) {
         pd.reset_multiplier();
     }
 
-    // make death chest. JAVA: `new DeathChest(this)` — the constructor copies the
-    // player's position and inventory.
+    // make a death chest holding everything the player carried
     let mut dc = death_chest::new(g);
     dc.c.x = e.c.x;
     dc.c.y = e.c.y;
@@ -1412,17 +1374,14 @@ pub fn die(g: &mut Game, e: &mut Entity) {
 
     g.play_sound(Sound::PlayerDeath);
 
-    // JAVA: `if(!Game.ISONLINE)` — always true; World.levels[Game.currentLevel].add(dc).
     let cur = g.current_level;
     g.level_mut(cur).add(dc, cur);
 
-    // JAVA: super.die() — Mob.die → Entity.die → remove().
     remove_entity(g, e);
 }
 
 /// Java `Player.hurt(Tnt tnt, int dmg)` — TNT damage also drains stamina.
 pub fn hurt_by_tnt(g: &mut Game, player: &mut Entity, tnt: &Entity, dmg: i32) {
-    // JAVA: super.hurt(tnt, dmg) — Mob.hurt(Tnt) → doHurt(dmg, getAttackDir(tnt, this)).
     let attack_dir = get_attack_dir(tnt, player);
     do_hurt(g, player, dmg, attack_dir);
     pay_stamina(player, dmg * 2);
@@ -1451,10 +1410,6 @@ pub fn do_hurt(g: &mut Game, player: &mut Entity, damage: i32, attack_dir: Direc
         return;
     }
 
-    // JAVA: the isValidServer RemotePlayer broadcast is dead, and
-    // `fullPlayer = !(isValidClient && this != Game.player)` is always true offline
-    // (the !fullPlayer branches played Sound.monsterHurt instead; skipped).
-
     let mut health_dam = 0;
     let mut armor_dam = 0;
     g.play_sound(Sound::PlayerHurt);
@@ -1474,7 +1429,7 @@ pub fn do_hurt(g: &mut Game, player: &mut Entity, damage: i32, attack_dir: Direc
                 pd.armor_damage_buffer += damage;
                 armor_dam += damage;
 
-                // JAVA: `>= curArmor.level+1` — preserved verbatim.
+                // every (level + 1) buffered points of damage, one leaks through
                 #[allow(clippy::int_plus_one)]
                 while pd.armor_damage_buffer >= armor_level + 1 {
                     pd.armor_damage_buffer -= armor_level + 1;
@@ -1507,7 +1462,6 @@ pub fn do_hurt(g: &mut Game, player: &mut Entity, damage: i32, attack_dir: Direc
     }
 
     if health_dam > 0 {
-        // JAVA: `if(healthDam > 0 || !fullPlayer)` — fullPlayer is always true offline.
         if let Some(lvl) = player.c.level {
             let p = new_text_particle(
                 &damage.to_string(),
@@ -1524,9 +1478,8 @@ pub fn do_hurt(g: &mut Game, player: &mut Entity, damage: i32, attack_dir: Direc
     player.player_mut().mob.hurt_time = PLAYER_HURT_TIME;
 }
 
-/// JAVA: the Player constructor calls `Items.fillCreativeInv(inventory)` in creative mode;
-/// the constructor lives in player.rs (which can't reach the registry mutably), so the
-/// world-init code calls this right after creating the player instead.
+/// Fill the creative inventory. The player constructor (player.rs) can't reach the item
+/// registry, so world-init code calls this right after creating the player.
 pub fn maybe_fill_creative_inv(g: &mut Game) {
     if !g.is_mode("creative") {
         return;

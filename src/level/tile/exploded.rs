@@ -9,7 +9,7 @@ use crate::gfx::{Sprite, color};
 /// Java `ExplodedTile` constructor.
 pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::Exploded);
-    // JAVA: the sparse sprite's color is the literal 0 (not a Color.get value).
+    // the sparse color really is the raw word 0, not a color::get value — deliberate
     def.csprite = Some(ConnectorSprite::simple(
         Sprite::new(14, 0, 3, 3, 0, 3),
         Sprite::dots(color::get4(555, 555, 555, 550)),

@@ -237,9 +237,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         TileKind::Farm => farm::tick(g, def, lvl, xt, yt),
         TileKind::Wheat => wheat::tick(g, def, lvl, xt, yt),
         TileKind::HardRock => hard_rock::tick(g, def, lvl, xt, yt),
-        TileKind::InfiniteFall => infinite_fall::tick(g, def, lvl, xt, yt),
         TileKind::Wall { .. } => wall::tick(g, def, lvl, xt, yt),
-        TileKind::Snow => snow::tick(g, def, lvl, xt, yt),
         TileKind::SnowTree => snow_tree::tick(g, def, lvl, xt, yt),
         TileKind::TallGrass { .. } => tall_grass::tick(g, def, lvl, xt, yt),
         TileKind::TidalFlat => tidal::tick(g, lvl, xt, yt),
@@ -389,7 +387,6 @@ pub fn bumped_into(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, e:
     match &def.kind {
         TileKind::Cactus | TileKind::FruitingCactus => cactus::bumped_into(g, def, lvl, xt, yt, e),
         TileKind::LavaBrick => lava_brick::bumped_into(g, def, lvl, xt, yt, e),
-        TileKind::Ore { .. } => ore::bumped_into(g, def, lvl, xt, yt, e),
         TileKind::CloudCactus => cloud_cactus::bumped_into(g, def, lvl, xt, yt, e),
         _ => {}
     }

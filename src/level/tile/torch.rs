@@ -22,7 +22,7 @@ pub fn make(on: &TileDef) -> TileDef {
         3,
         color::get4(320, 500, 520, -1),
     ));
-    // JAVA: connectsToSnow is not copied.
+    // every connects-to flag except snow is mirrored from the base tile (deliberate)
     def.connects_to_sand = on.connects_to_sand;
     def.connects_to_grass = on.connects_to_grass;
     def.connects_to_water = on.connects_to_water;

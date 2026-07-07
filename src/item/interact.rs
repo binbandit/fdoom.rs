@@ -19,14 +19,14 @@ pub fn item_interact_entity(
 ) -> bool {
     let _ = attack_dir;
     if matches!(item.kind, ItemKind::PowerGlove) {
-        // JAVA PowerGloveItem.interact: if used on a piece of furniture, take it.
+        // the power glove picks up furniture; nothing else responds to it
         if entity.is_furniture() {
-            furniture_take(g, entity, player); // JAVA: f.take(player) (virtual)
+            furniture_take(g, entity, player);
             return true;
         }
         return false; // we were not given a furniture entity.
     }
-    false // JAVA: Item.interact default
+    false // no other item interacts with entities directly
 }
 
 /// The virtual `Furniture.take(player)` dispatch (DeathChest/DungeonChest override it).
@@ -77,7 +77,7 @@ pub fn item_interact_on_tile(
             if ttype == ToolType::FishingRod && fishable {
                 let creative = g.is_mode("creative");
                 if item.pay_durability(creative) {
-                    // JAVA: player.goFishing(player.x - 5, player.y - 5)
+                    // the catch drops slightly off-center by the player
                     let (x, y) = (player.c.x - 5, player.c.y - 5);
                     crate::entity::mob::player_behavior::go_fishing(g, player, x, y, xt, yt);
                     return true;
@@ -107,7 +107,6 @@ pub fn item_interact_on_tile(
             }
 
             let mut note = String::new();
-            // JAVA: the WALL and DOOR branches are identical
             if model.contains("WALL") || model.contains("DOOR") {
                 note = format!(
                     "Can only be placed on {}!",
@@ -240,9 +239,8 @@ pub fn item_interact_on_tile(
             book,
             has_title_page,
         } => {
-            // JAVA: Game.setMenu(new BookDisplay(book, hasTitlePage)) — book == null (None)
-            // shows the default blank book. Java's `book` held the BookData.loadBook-
-            // processed text; the registry stores the raw asset text, so process it here.
+            // A None book shows the default blank book. The registry stores the raw
+            // asset text, so split it into pages here.
             let text = book.map(|b| {
                 b.lines()
                     .collect::<Vec<_>>()
@@ -278,7 +276,7 @@ pub fn item_interact_on_tile(
                 let to_place = (**furniture).clone();
                 g.level_mut(lvl).add(to_place, lvl); // adds the furniture to the world
                 if creative {
-                    // JAVA: furniture = furniture.clone() — a fresh instance.
+                    // in creative the held item is refreshed with a brand-new instance
                     let fresh = furniture_clone(g, furniture);
                     **furniture = fresh;
                 } else {
@@ -306,30 +304,27 @@ fn furniture_clone(g: &mut Game, f: &Entity) -> Entity {
         EntityKind::Bed(_) => furniture::bed::new(),
         // fire wave: a fresh clone is fully fueled and lit
         EntityKind::Campfire(_) => furniture::campfire::new(),
-        EntityKind::Crafter(c) => furniture::crafter::new(c.crafter_type), // JAVA: Crafter.clone()
+        EntityKind::Crafter(c) => furniture::crafter::new(c.crafter_type),
         EntityKind::Lantern(l) => furniture::lantern::new(l.lantern_type),
         EntityKind::Tnt(_) => furniture::tnt::new(),
         EntityKind::Spawner(s) => {
-            // JAVA: Spawner.clone() → new Spawner(mob)
             let mob = (*s.mob).clone();
             let mut rnd = g.random.clone();
             let spawner = furniture::spawner::new(mob, &mut rnd);
             g.random = rnd;
             spawner
         }
-        // JAVA: the Furniture fallback `new Furniture(name, sprite)`.
+        // plain furniture has no per-instance state; a clone is a fresh instance
         _ => f.clone(),
     }
 }
 
-/// Java `BucketItem.editBucket(player, newFill)` — buckets are stackable, but only one
-/// should be changed at a time. JAVA: it returned the item to assign to
-/// `player.activeItem`; here `item` *is* the active item, so it is mutated in place.
+/// Change one bucket's fill. Buckets are stackable, but only one should be changed at
+/// a time; `item` is the player's active item and is mutated in place.
 fn edit_bucket(item: &mut Item, player: &mut Entity, new_fill: Fill) {
     let count = item.count();
     if count == 0 {
-        // this honestly should never happen... (JAVA: returned null → active item cleared;
-        // a count of 0 makes the item depleted, with the same effect)
+        // shouldn't happen; a count of 0 already marks the item depleted
         return;
     }
     if count == 1 {
@@ -349,7 +344,7 @@ fn edit_bucket(item: &mut Item, player: &mut Entity, new_fill: Fill) {
 pub fn apply_potion_time(g: &mut Game, player: &mut Entity, ptype: PotionType, time: i32) -> bool {
     let result = apply_potion(g, player, ptype, time > 0);
     if result {
-        player.player_mut().potioneffects.insert(ptype, time); // JAVA: player.addPotionEffect(type, time)
+        player.player_mut().potioneffects.insert(ptype, time);
     }
     result
 }
@@ -388,7 +383,7 @@ fn toggle_effect(g: &mut Game, player: &mut Entity, ptype: PotionType, add_effec
     match ptype {
         PotionType::Speed => {
             let pd = player.player_mut();
-            // JAVA: player.moveSpeed += addEffect ? 1 : (moveSpeed > 1 ? -1 : 0)
+            // never drop below the base speed of 1 when the effect wears off
             pd.move_speed += if add_effect {
                 1.0
             } else if pd.move_speed > 1.0 {

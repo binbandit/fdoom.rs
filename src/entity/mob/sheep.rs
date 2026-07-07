@@ -25,10 +25,9 @@ pub fn new(g: &Game) -> Entity {
     Entity::new(c, EntityKind::Sheep(SheepData { passive }))
 }
 
-// JAVA: Sheep.java only overrides die(); it has no tick/touchedBy/interact overrides
-// (no wool-cutting mechanic exists in this fork).
+// Sheep have no special behavior beyond their death drops — there is no
+// wool-cutting mechanic.
 
-/// Java `Sheep.tick()` — no override; `MobAi.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
     crate::entity::behavior::mobai_tick_base(g, e);
 }

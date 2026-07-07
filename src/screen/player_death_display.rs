@@ -35,18 +35,14 @@ impl PlayerDeathDisplay {
             handle(BlankEntry::new()),
         ];
 
-        // JAVA: !Settings.get("mode").equals("hardcore") — a case-sensitive check against
-        // the canonical "Hardcore" value; ported as the intended mode comparison.
+        // hardcore death is final: no Respawn option
         if !g.is_mode("hardcore") {
             entries.push(handle(SelectEntry::new("Respawn", |g: &mut Game| {
                 crate::core::world::reset_game(g, true);
-                // JAVA: if(!Game.isValidClient()) — always true.
                 g.clear_menu(); // sets the menu to nothing
             })));
         }
 
-        // JAVA: if hardcore || !Game.isValidClient() — always true. (JAVA: "Quit";
-        // renamed so the choice vs. "Respawn" is unambiguous.)
         entries.push(handle(SelectEntry::new("Main Menu", |g: &mut Game| {
             g.set_menu(TitleDisplay::new(g))
         })));

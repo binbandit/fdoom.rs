@@ -13,7 +13,7 @@ pub fn glowworm_col() -> i32 {
     color::get4(-1, -1, 222, 550)
 }
 
-// JAVA: a single 1x1 standing frame, duplicated.
+// one 1x1 frame, duplicated to satisfy the two-frame animation shape
 static STANDING: LazyLock<Vec<Sprite>> = LazyLock::new(|| {
     let list = compile_sprite_list(26, 19, 1, 1, 0, 1);
     vec![list[0].clone(), list[0].clone()]

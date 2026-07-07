@@ -1,13 +1,12 @@
 //! Port of `fdoom.level.tile.FlowerTile`.
 
 use super::dispatch;
-use super::{TileDef, TileKind};
+use super::{TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::entity::Direction;
 use crate::entity::Entity;
-use crate::entity::mob::player_behavior::pay_stamina;
 use crate::gfx::{Screen, Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 use crate::level::{drop_item, drop_items_counted};
 
 /// Java `FlowerTile.flowersprite`.
@@ -54,25 +53,14 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    if let ItemKind::Tool {
-        ttype,
-        level: tool_level,
-        ..
-    } = &item.kind
-    {
-        let (ttype, tool_level) = (*ttype, *tool_level);
-        if ttype == ToolType::Shovel
-            && pay_stamina(player, 2 - tool_level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let flower = crate::item::registry::get(g, "Flower");
-            drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, flower);
-            let rose = crate::item::registry::get(g, "Rose");
-            drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, rose);
-            let grass = g.tiles.get("grass");
-            g.set_tile_default(lvl, xt, yt, &grass);
-            return true;
-        }
+    if tool_use(g, player, item, ToolType::Shovel, 2).is_some() {
+        let flower = crate::item::registry::get(g, "Flower");
+        drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, flower);
+        let rose = crate::item::registry::get(g, "Rose");
+        drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, rose);
+        let grass = g.tiles.get("grass");
+        g.set_tile_default(lvl, xt, yt, &grass);
+        return true;
     }
     false
 }

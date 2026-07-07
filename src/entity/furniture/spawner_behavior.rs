@@ -21,7 +21,7 @@ fn init_mob(e: &mut Entity, m: Entity) {
     };
     if let EntityKind::Spawner(s) = &mut e.kind {
         *s.mob = m;
-        s.furniture.sprite.color = col; // JAVA: sprite.color = col = mob.col
+        s.furniture.sprite.color = col; // the spawner is tinted like its mob
         s.lvl = lvl;
         s.max_mob_level = max_lvl;
     }
@@ -113,7 +113,7 @@ fn try_spawn(g: &mut Game, e: &mut Entity) {
     };
     let is_enemy = template.is_enemy_mob();
     let template_lvl = template.enemy_mob().map(|em| em.lvl).unwrap_or(1);
-    // JAVA: reflection failure printed an error and returned — unreachable kinds bail here.
+    // non-mob templates can't be instantiated; bail with a log
     let Some(mut newmob) = new_mob_instance(g, &template, template_lvl) else {
         println!("Spawner ERROR: could not spawn mob; error initializing mob instance:");
         return;
@@ -166,8 +166,7 @@ pub fn interact(
             ..
         } = it.kind
         {
-            // JAVA: //if(tool.type != ToolType.Pickaxe && !Game.isMode("creative")) return false;
-
+            // any tool damages a spawner; a pickaxe just does it much faster
             g.play_sound(Sound::MonsterHurt);
 
             let health = match &e.kind {
@@ -212,7 +211,7 @@ pub fn interact(
             }
             if health <= 0 {
                 if let Some(lvl) = e.c.level {
-                    g.level_mut(lvl).remove(e.c.eid); // JAVA: level.remove(this)
+                    g.level_mut(lvl).remove(e.c.eid);
                 }
                 g.play_sound(Sound::PlayerDeath);
                 let score_mode = g.is_mode("score");
@@ -224,7 +223,7 @@ pub fn interact(
 
         if matches!(it.kind, ItemKind::PowerGlove) && g.is_mode("creative") {
             if let Some(lvl) = e.c.level {
-                g.level_mut(lvl).remove(e.c.eid); // JAVA: level.remove(this)
+                g.level_mut(lvl).remove(e.c.eid);
             }
             let pd = player.player_mut();
             let active_is_glove = pd
@@ -232,8 +231,7 @@ pub fn interact(
                 .as_ref()
                 .is_some_and(|a| matches!(a.kind, ItemKind::PowerGlove));
             if !active_is_glove {
-                // JAVA: getInventory().add(0, player.activeItem) — a null activeItem is
-                // simply not added here.
+                // stash the current active item (if any) before the glove takes over
                 if let Some(active) = pd.active_item.take() {
                     pd.inventory.add_at(0, active);
                 }
@@ -244,7 +242,7 @@ pub fn interact(
 
         false
     } else {
-        // JAVA: if(item == null) return use(player);
+        // empty-handed interact falls through to `use`
         use_furniture(g, e, player)
     }
 }

@@ -37,8 +37,8 @@ pub fn get_sparse_color(_def: &TileDef, tile: &TileDef, orig_col: i32) -> i32 {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    // JAVA: `(tickCount + (x / 2 - y) * 4311) / 10` is int math; the `* 54687121l`
-    // promotes to long.
+    // Ripple animation seed. The i32 math (truncating / 10) before widening to i64 is
+    // load-bearing: it quantizes the phase so the surface shimmers in steps.
     let int_part = g
         .tile_tick_count
         .wrapping_add((x / 2 - y).wrapping_mul(4311))
@@ -53,8 +53,8 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     cs.full = Sprite::random_dots(seed, cs.full.color);
     let full = cs.full.color;
     let sparse = color::get4(3, 105, 211, dirt::d_col(g.level(lvl).depth));
-    // JAVA: `sides` aliases `sparse` (two-sprite ConnectorSprite), so the side color
-    // follows the sparse recolor.
+    // two-sprite ConnectorSprite: sides share the sparse sprite, so the side color
+    // must follow the sparse recolor
     dispatch::csprite_render(g, screen, &tmp, lvl, x, y, Some((sparse, sparse, full)));
 }
 
@@ -72,8 +72,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         g.set_tile_default(lvl, xn, yn, def);
     }
     if g.tile_at(lvl, xn, yn).same_tile(&g.tiles.get("lava")) {
-        // JAVA: "Stone Bricks" is not a registered tile name; Tiles.get logs an error and
-        // falls back to tile 0 (grass).
+        // water spreading into lava quenches it to a stone-brick floor
         let t = g.tiles.get("Stone Bricks");
         g.set_tile_default(lvl, xn, yn, &t);
     }

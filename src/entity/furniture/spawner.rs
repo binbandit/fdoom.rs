@@ -48,7 +48,7 @@ pub fn max_mob_level(mob: &Entity) -> i32 {
     match &mob.kind {
         EntityKind::Zombie(m) => m.enemy.lvlcols.len() as i32,
         EntityKind::Snake(m) => m.enemy.lvlcols.len() as i32,
-        EntityKind::Knight(_) => 5, // JAVA: Knight overrides getMaxLevel() to 5
+        EntityKind::Knight(_) => 5, // knights cap higher than their color table
         EntityKind::MarshLurker(m) => m.enemy.lvlcols.len() as i32,
         EntityKind::FeralHound(m) => m.enemy.lvlcols.len() as i32,
         EntityKind::StoneGolem(m) => m.enemy.lvlcols.len() as i32,

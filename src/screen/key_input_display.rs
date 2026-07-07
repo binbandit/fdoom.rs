@@ -130,7 +130,6 @@ impl Display for KeyInputDisplay {
 
     fn render(&mut self, screen: &mut Screen, g: &mut Game) {
         if self.base.selection == 0 {
-            // JAVA: "not necessary ... but it's probably more efficient anyway"
             screen.clear(0);
         }
 

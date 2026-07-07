@@ -1,7 +1,5 @@
-//! Port of `fdoom.entity.furniture.Tnt`.
-//!
-//! Java used a 300ms swing Timer to restore exploded tiles; the port counts it in game
-//! ticks via `explode_ticks_left` (18 ticks at 60/s = 300ms).
+//! Tnt: a placeable bomb with a fuse, a blast, and a brief "exploding" tile overlay
+//! that is restored shortly after the bang (see `explode_ticks_left`).
 
 use crate::entity::{Entity, EntityKind};
 use crate::gfx::{Sprite, color};
@@ -21,9 +19,9 @@ pub struct TntData {
     pub furniture: FurnitureData,
     pub ftik: i32,
     pub fuse_lit: bool,
-    /// JAVA: Java removed the Tnt at explosion and restored the tiles from a 300ms swing
-    /// Timer (`explodeTimer`/`levelSave`). The port instead keeps the (exploded, invisible)
-    /// entity alive for this countdown, restoring the tiles and removing it when it hits 0.
+    /// After the blast the (invisible, already-exploded) entity stays alive for this
+    /// countdown — 18 ticks, ~300ms — then restores the "exploding" overlay tiles and
+    /// removes itself. Some(n) = counting down; None = not yet exploded.
     pub explode_ticks_left: Option<i32>,
 }
 

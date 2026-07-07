@@ -36,7 +36,7 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
                     // remove activeItem
                     if let Some(active) = pd.active_item.as_mut() {
                         if let Some(count) = active.count_mut() {
-                            *count -= 1; // JAVA: key.count--
+                            *count -= 1;
                         }
                     }
                 } else {
@@ -51,8 +51,8 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
             e.c.col = open_col(); // set to the unlocked color
 
             if let Some(lvl) = e.c.level {
-                // JAVA: new SmashParticle(x * 16, y * 16) — x/y are already entity pixels;
-                // the *16 quirk is preserved. (The Java SmashParticle ctor plays this sound.)
+                // The *16 is a long-standing quirk: x/y are already pixel coordinates,
+                // so the smash particle lands far off-screen. Kept as-is.
                 g.play_sound(Sound::MonsterHurt);
                 let smash = particle::new_smash_particle(e.c.x * 16, e.c.y * 16);
                 g.level_mut(lvl).add(smash, lvl);
@@ -62,10 +62,7 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
 
                 g.level_mut(lvl).chest_count -= 1;
                 if g.level(lvl).chest_count == 0 {
-                    // if this was the last chest...
-                    // JAVA: level.dropItem(x, y, 5, Items.get("Gold Apple"))
-                    // (Java also spawned the second-form AirWizard boss on the surface
-                    // here; that mob was removed in the roster overhaul.)
+                    // the last chest on the level: bonus loot
                     let gold_apple = registry::get(g, "Gold Apple");
                     for _ in 0..5 {
                         crate::level::drop_item(g, lvl, e.c.x, e.c.y, gold_apple.clone());
@@ -98,7 +95,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     if let EntityKind::DungeonChest(d) = &mut e.kind {
         d.chest.furniture.sprite.color = col;
     }
-    e.c.col = col; // JAVA: sprite.color = col = isLocked?lockCol:openCol
+    e.c.col = col;
     super::behavior::render(g, screen, e);
 }
 
@@ -106,7 +103,6 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
 pub fn touched_by(g: &mut Game, e: &mut Entity, by: &mut Entity) {
     let is_locked = matches!(&e.kind, EntityKind::DungeonChest(d) if d.is_locked);
     if !is_locked {
-        // JAVA: super.touchedBy(entity) — Furniture.touchedBy
         if by.is_player() {
             super::behavior::try_push(g, e, by);
         }

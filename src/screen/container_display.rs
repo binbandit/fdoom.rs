@@ -43,9 +43,7 @@ impl ContainerDisplay {
 
     /// Java `onSelectionChange(oldSel, newSel)`.
     fn on_selection_change(&mut self, old_sel: i32, new_sel: i32) {
-        self.base.selection = new_sel; // JAVA: super.onSelectionChange
-        // JAVA: "this also serves as a protection against access to menus[0] when such
-        // may not exist" (it always does in this port).
+        self.base.selection = new_sel;
         if old_sel == new_sel {
             return;
         }
@@ -100,9 +98,9 @@ impl Display for ContainerDisplay {
     }
 
     fn tick(&mut self, g: &mut Game) {
-        // JAVA: super.tick(input) — the default tick, plus the onSelectionChange override
-        // when the left/right keys switch menus, plus InventoryMenu.tick's drop handling
-        // (which only ran when Display.tick reached menus[selection].tick).
+        // Default tick, plus the selection-change handling when left/right switches
+        // menus, plus the inventory drop handling — which must not run on the exit key
+        // (the exit press already consumed the input).
         let prev_sel = self.base.selection;
         let exit_clicked = self.base.can_exit && g.input.get_key("exit").clicked;
         display_tick_default(&mut self.base, g);
@@ -116,7 +114,7 @@ impl Display for ContainerDisplay {
             } else {
                 self.player_eid
             };
-            // JAVA: dropOne is disabled inside a ContainerDisplay.
+            // drop-one is disabled inside a container: that key moves items instead
             inventory_menu::tick_drops(g, &mut self.base.menus[sel as usize], holder_eid, false);
         }
 
@@ -139,8 +137,6 @@ impl Display for ContainerDisplay {
             // switch inventories
             let to_sel = self.base.menus[other_idx].get_selection();
             let from_sel = self.base.menus[selection].get_selection();
-
-            // JAVA: the isValidClient removeFromChest/addToChest branches are dead — offline.
 
             let creative = g.is_mode("creative");
             let attack_clicked = g.input.get_key("attack").clicked;

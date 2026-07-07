@@ -33,8 +33,7 @@ impl Display for PlayerInvDisplay {
     }
 
     fn tick(&mut self, g: &mut Game) {
-        // JAVA: super.tick(input) — including InventoryMenu.tick's drop handling, which
-        // only ran when Display.tick reached menus[0].tick (i.e. not on the exit key).
+        // drop handling must not run on the exit key press (the press closes the menu)
         let exit_clicked = self.base.can_exit && g.input.get_key("exit").clicked;
         display_tick_default(&mut self.base, g);
         if !exit_clicked {

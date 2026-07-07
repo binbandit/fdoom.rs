@@ -1,13 +1,13 @@
 //! Port of `fdoom.level.tile.WallTile`.
 
 use super::Material;
-use super::{ConnectorSprite, TileDef, TileKind};
+use super::{ConnectorSprite, TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
-use crate::item::{Item, ItemKind, ToolType};
+use crate::item::{Item, ToolType};
 
 /// Java `Material.ordinal()`.
 fn ordinal(material: Material) -> i32 {
@@ -68,15 +68,11 @@ pub fn hurt_by(
     dmg: i32,
     _attack_dir: Direction,
 ) -> bool {
-    let TileKind::Wall { material } = def.kind else {
+    let TileKind::Wall { .. } = def.kind else {
         return false;
     };
-    // (The Java "beat the Air Wizard first" lock on deep obsidian walls is gone with
-    // the sandbox pivot — walls obey their material rules everywhere.)
-    let _ = material;
-    // JAVA: `random.nextInt(6) / 6 * dmg / 2` — integer division made this always 0,
-    // so bare-hand/mob hits never damaged walls. FIX: multiply before dividing so the
-    // intended random scaling (0..dmg/2, averaging ~dmg/5) actually applies.
+    // random scaling: 0..dmg/2, averaging ~dmg/5 (multiply before dividing, or the
+    // integer math truncates everything to zero)
     let d = dmg * g.random.next_int_bound(6) / 6 / 2;
     hurt_dmg(g, def, lvl, x, y, d);
     true
@@ -93,19 +89,13 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
-    let TileKind::Wall { material } = def.kind else {
+    let TileKind::Wall { .. } = def.kind else {
         return false;
     };
-    let _ = material;
-    if let ItemKind::Tool { ttype, level, .. } = item.kind {
-        if ttype == ToolType::Pickaxe
-            && crate::entity::mob::player_behavior::pay_stamina(player, 4 - level)
-            && item.pay_durability(g.is_mode("creative"))
-        {
-            let dmg = g.random.next_int_bound(10) + level * 5 + 10;
-            hurt_dmg(g, def, lvl, xt, yt, dmg);
-            return true;
-        }
+    if let Some(tool_level) = tool_use(g, player, item, ToolType::Pickaxe, 4) {
+        let dmg = g.random.next_int_bound(10) + tool_level * 5 + 10;
+        hurt_dmg(g, def, lvl, xt, yt, dmg);
+        return true;
     }
     false
 }
@@ -122,7 +112,6 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
         damage = sbw_health;
     }
 
-    // JAVA: SmashParticle's constructor plays Sound.monsterHurt.
     g.play_sound(Sound::MonsterHurt);
     let smash = crate::entity::particle::new_smash_particle(x * 16, y * 16);
     g.level_mut(lvl).add(smash, lvl);
@@ -167,8 +156,7 @@ pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {
 
 /// Java `WallTile.getName(data)`.
 pub fn get_name(def: &TileDef, data: i32) -> String {
-    // JAVA: `Material.values[data]` — an out-of-range data value threw
-    // ArrayIndexOutOfBoundsException. FIX: fall back to the def's own name.
+    // out-of-range data (bad save) falls back to the def's own name instead of panicking
     match Material::VALUES.get(data as usize) {
         Some(material) => format!("{} Wall", material.name()),
         None => def.name.clone(),
