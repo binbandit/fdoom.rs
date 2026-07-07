@@ -5,7 +5,6 @@ pub mod book_display;
 pub mod container_display;
 pub mod crafting_display;
 pub mod display;
-pub mod end_game_display;
 pub mod entry;
 pub mod info_display;
 pub mod inventory_menu;

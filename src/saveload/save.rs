@@ -85,19 +85,7 @@ impl Save {
     /// Java `writeGame(filename)`.
     fn write_game(&mut self, g: &mut Game, filename: &str) {
         self.data.push(crate::core::game::version().to_string());
-        self.data.push(format!(
-            "{}{}",
-            g.settings.get_idx("mode"),
-            if g.is_mode("score") {
-                format!(
-                    ";{};{}",
-                    g.score_time,
-                    g.settings.get("scoretime").to_display()
-                )
-            } else {
-                String::new()
-            }
-        ));
+        self.data.push(g.settings.get_idx("mode").to_string());
         self.data.push(g.tick_count.to_string());
         self.data.push(g.game_time.to_string());
         self.data.push(g.settings.get_idx("diff").to_string());
@@ -128,17 +116,6 @@ impl Save {
 
         if g.settings.get("unlockedskin").as_bool() {
             self.data.push("AirSkin".to_string());
-        }
-
-        if g.settings.scoretime_visible(10)
-            && crate::core::io::settings::LOCKED_SCORETIMES.contains(&10)
-        {
-            self.data.push("10_ScoreTime".to_string());
-        }
-        if g.settings.scoretime_visible(120)
-            && crate::core::io::settings::LOCKED_SCORETIMES.contains(&120)
-        {
-            self.data.push("120_ScoreTime".to_string());
         }
 
         let file = format!("{}Unlocks{}", self.location, EXTENSION);

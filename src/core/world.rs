@@ -144,34 +144,6 @@ pub fn populate_from_parent(g: &mut Game, lvl: usize, parent: Option<usize>) {
     if depth < 0 {
         generate_spawner_structures(g, lvl);
     }
-
-    check_air_wizard(g, lvl, true);
-}
-
-/// Java `Level.checkAirWizard`.
-pub fn check_air_wizard(g: &mut Game, lvl: usize, check: bool) {
-    if g.level(lvl).depth == 1 && !g.air_wizard_beaten {
-        let mut found = false;
-        if check {
-            found = g
-                .level(lvl)
-                .entities_to_add
-                .iter()
-                .any(|e| matches!(e.kind, crate::entity::EntityKind::AirWizard(_)))
-                || g.entities
-                    .entities_on_level(lvl)
-                    .any(|e| matches!(e.kind, crate::entity::EntityKind::AirWizard(_)));
-        }
-
-        if !found {
-            let aw = crate::entity::mob::air_wizard::new(g, false);
-            let (w, h) = {
-                let l = g.level(lvl);
-                (l.w, l.h)
-            };
-            g.level_mut(lvl).add_at(aw, w / 2, h / 2, true, lvl);
-        }
-    }
 }
 
 /// Java `Level.checkChestCount(check)`.
@@ -466,7 +438,9 @@ pub fn init_world(g: &mut Game) {
     g.change_time_of_day(crate::core::updater::Time::Morning);
     g.game_over = false;
 
-    g.levels = (0..6).map(|_| None).collect();
+    g.levels = (0..crate::level::IDX_TO_DEPTH.len())
+        .map(|_| None)
+        .collect();
     // clear all non-player entities from the arena (Java replaced the levels array)
     let ids: Vec<i32> = g
         .entities
@@ -480,8 +454,6 @@ pub fn init_world(g: &mut Game) {
     if let Some(p) = g.entities.get_mut(g.player_id) {
         p.c.level = None;
     }
-
-    g.score_time = g.settings.get("scoretime").as_int() * 60 * crate::core::updater::NORM_SPEED;
 
     g.loading_percentage = 0.0;
 

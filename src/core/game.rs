@@ -26,7 +26,9 @@ pub const NAME: &str = "Fossickers Doom";
 
 /// Java `Game.VERSION`.
 pub fn version() -> Version {
-    Version::new("2.6")
+    // 3.0: the sandbox pivot (sky level/Air Wizard/Score mode removed; worlds have five
+    // layers). Worlds saved before 3.0 are refused on load.
+    Version::new("3.0")
 }
 
 pub struct Game {
@@ -57,7 +59,6 @@ pub struct Game {
     time: i32,
     pub game_time: i32,
     pub past_day1: bool,
-    pub score_time: i32,
     pub note_tick: i32,
     pub as_tick: i32,
     pub saving: bool,
@@ -144,13 +145,14 @@ impl Game {
             time: 0,
             game_time: 0,
             past_day1: true,
-            score_time: 0,
             note_tick: 0,
             as_tick: 0,
             saving: false,
             save_cooldown: 0,
             tile_tick_count: 0,
-            levels: (0..6).map(|_| None).collect(),
+            levels: (0..crate::level::IDX_TO_DEPTH.len())
+                .map(|_| None)
+                .collect(),
             tiles: Tiles::new(),
             player_dead_time: 0,
             pending_level_change: 0,
@@ -307,16 +309,6 @@ impl Game {
             self.set_time(self.tick_count + 1);
         }
 
-        // SCORE MODE ONLY
-        if self.is_mode("score") && !self.paused {
-            if self.score_time <= 0 {
-                // GAME OVER
-                self.game_over = true;
-                crate::screen::end_game_display::open(self);
-            }
-            self.score_time -= 1;
-        }
-
         // This is the general action statement thing! Regulates menus, mostly.
         if !self.has_focus && self.has_gui {
             self.input.release_all();
@@ -412,14 +404,6 @@ impl Game {
                     if self.input.get_key("survival").clicked {
                         self.settings.set("mode", "survival");
                     }
-                    if self.input.get_key("shift-t").clicked {
-                        self.settings.set("mode", "score");
-                    }
-
-                    if self.is_mode("score") && self.input.get_key("ctrl-t").clicked {
-                        self.score_time = updater::NORM_SPEED * 5; // 5 seconds
-                    }
-
                     if self.input.get_key("shift-0").clicked {
                         self.gamespeed = 1.0;
                     }

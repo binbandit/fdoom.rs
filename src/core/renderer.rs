@@ -277,67 +277,6 @@ impl Renderer {
             font::draw_paragraph(&notes, screen, &mut style, 0);
         }
 
-        // SCORE MODE ONLY:
-        if g.is_mode("score") {
-            let seconds = (g.score_time as f64 / updater::NORM_SPEED as f64).ceil() as i32;
-            let minutes = seconds / 60;
-            let hours = minutes / 60;
-            let minutes = minutes % 60;
-            let seconds = seconds % 60;
-
-            let time_col = if g.score_time >= 18000 {
-                color::get(0, 555)
-            } else if g.score_time >= 3600 {
-                color::get(330, 555)
-            } else {
-                color::get(400, 555)
-            };
-
-            font::draw(
-                &format!(
-                    "Time left {}{}m {}s",
-                    if hours > 0 {
-                        format!("{hours}h ")
-                    } else {
-                        String::new()
-                    },
-                    minutes,
-                    seconds
-                ),
-                screen,
-                screen::W / 2 - 9 * 8,
-                2,
-                time_col,
-            );
-
-            let score_mode = g.is_mode("score");
-            let score_string = format!("Current score: {}", g.player().player().get_score());
-            font::draw(
-                &score_string,
-                screen,
-                screen::W - font::text_width(&score_string) - 2,
-                3 + 8,
-                color::WHITE,
-            );
-
-            let mult = g.player().player().get_multiplier(score_mode);
-            if mult > 1 {
-                let mult_color = if mult < crate::entity::mob::player::MAX_MULTIPLIER {
-                    color::get(-1, 540)
-                } else {
-                    color::RED
-                };
-                let mult_str = format!("X{mult}");
-                font::draw(
-                    &mult_str,
-                    screen,
-                    screen::W - font::text_width(&mult_str) - 2,
-                    4 + 2 * 8,
-                    mult_color,
-                );
-            }
-        }
-
         // TOOL DURABILITY STATUS
         if let Some(item) = &g.player().player().active_item {
             if let ItemKind::Tool { ttype, level, dur } = &item.kind {

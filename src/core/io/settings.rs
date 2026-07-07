@@ -8,16 +8,12 @@ use std::collections::HashMap;
 
 use crate::screen::entry::array_entry::Value;
 
-/// The score-mode time options hidden until unlocked in-game (persisted via Unlocks).
-pub const LOCKED_SCORETIMES: [i32; 2] = [10, 120];
-
 /// Every setting: (key, display label). Options and defaults live in `options_of` /
 /// `default_of` below — one place to touch when adding a setting.
-pub const KEYS: [(&str, &str); 13] = [
+pub const KEYS: [(&str, &str); 12] = [
     ("fps", "Max FPS"),
     ("diff", "Difficulty"),
     ("mode", "Game Mode"),
-    ("scoretime", "Time (Score Mode)"),
     ("sound", "Sound"),
     ("autosave", "Autosave"),
     ("size", "World Size"),
@@ -35,9 +31,6 @@ fn sv(s: &str) -> Value {
 
 pub struct Settings {
     values: HashMap<String, Value>,
-    /// Score-time options unlocked by finishing score mode (persisted in the Unlocks
-    /// file; formerly hidden entry options in the Java design).
-    pub unlocked_scoretimes: Vec<i32>,
     /// Languages present in the assets (fixed at startup).
     languages: Vec<String>,
 }
@@ -46,7 +39,6 @@ impl Settings {
     pub fn new(languages: Vec<String>) -> Settings {
         let mut s = Settings {
             values: HashMap::new(),
-            unlocked_scoretimes: Vec::new(),
             languages,
         };
         for (key, _) in KEYS {
@@ -61,8 +53,7 @@ impl Settings {
         match option.to_lowercase().as_str() {
             "fps" => (10..=300).map(Value::Int).collect(),
             "diff" => vec![sv("Easy"), sv("Normal"), sv("Hard")],
-            "mode" => vec![sv("Survival"), sv("Creative"), sv("Hardcore"), sv("Score")],
-            "scoretime" => [10, 20, 40, 60, 120].map(Value::Int).to_vec(),
+            "mode" => vec![sv("Survival"), sv("Creative"), sv("Hardcore")],
             "sound" | "autosave" | "unlockedskin" | "skinon" => {
                 vec![Value::Bool(true), Value::Bool(false)]
             }
@@ -86,9 +77,8 @@ impl Settings {
             "fps" => Value::Int(60),
             "diff" => sv("Normal"),
             "mode" => sv("Survival"),
-            "scoretime" => Value::Int(20),
-            "sound" | "autosave" => Value::Bool(true),
-            "unlockedskin" | "skinon" => Value::Bool(false),
+            "sound" | "autosave" | "unlockedskin" => Value::Bool(true),
+            "skinon" => Value::Bool(false),
             "size" => Value::Int(128),
             "theme" => sv("Normal"),
             "type" => sv("Island"),
@@ -142,18 +132,6 @@ impl Settings {
         if idx >= 0 && (idx as usize) < options.len() {
             self.values
                 .insert(option.to_lowercase(), options[idx as usize].clone());
-        }
-    }
-
-    /// Whether a score-time option is selectable (locked ones need unlocking).
-    pub fn scoretime_visible(&self, minutes: i32) -> bool {
-        !LOCKED_SCORETIMES.contains(&minutes) || self.unlocked_scoretimes.contains(&minutes)
-    }
-
-    /// Unlock a score-time option (formerly `entry.setValueVisibility(v, true)`).
-    pub fn unlock_scoretime(&mut self, minutes: i32) {
-        if !self.unlocked_scoretimes.contains(&minutes) {
-            self.unlocked_scoretimes.push(minutes);
         }
     }
 }

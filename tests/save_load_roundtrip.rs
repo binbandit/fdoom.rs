@@ -33,8 +33,6 @@ fn prefs_roundtrip() {
     g1.settings.set("autosave", true);
     g1.settings.set("fps", 90);
     g1.settings.set("unlockedskin", true);
-    g1.settings.unlock_scoretime(10);
-    g1.settings.unlock_scoretime(120);
     g1.input.set_key("UP", "K", g1.debug);
 
     save::save_prefs(&mut g1);
@@ -43,7 +41,7 @@ fn prefs_roundtrip() {
     let prefs =
         std::fs::read_to_string(dir.join(format!("Preferences{}", save::EXTENSION))).unwrap();
     assert!(
-        prefs.starts_with("2.6.0,false,true,90,,,,english,"),
+        prefs.starts_with("3.0.0,false,true,90,,,,english,"),
         "unexpected Preferences prefix: {prefs}"
     );
     assert!(
@@ -55,7 +53,7 @@ fn prefs_roundtrip() {
         "world-save files end with a comma: {prefs}"
     );
     let unlocks = std::fs::read_to_string(dir.join(format!("Unlocks{}", save::EXTENSION))).unwrap();
-    assert_eq!(unlocks, "AirSkin,10_ScoreTime,120_ScoreTime,");
+    assert_eq!(unlocks, "AirSkin,");
 
     let mut g2 = new_game(&dir);
     load::load_prefs(&mut g2);
@@ -65,8 +63,6 @@ fn prefs_roundtrip() {
     assert_eq!(g2.settings.get("fps").as_int(), 90);
     assert_eq!(g2.input.get_mapping("UP"), "K");
     assert!(g2.settings.get("unlockedskin").as_bool());
-    assert!(g2.settings.scoretime_visible(10));
-    assert!(g2.settings.scoretime_visible(120));
 }
 
 #[test]
@@ -127,7 +123,7 @@ fn world_roundtrip() {
     // ten locked dungeon chests, so the load-side checkChestCount is satisfied
     for _ in 0..10 {
         let dc = fdoom::entity::furniture::dungeon_chest::new(&mut g1);
-        g1.level_mut(5).add_at(dc, 80, 80, false, 5);
+        g1.level_mut(4).add_at(dc, 80, 80, false, 4);
     }
 
     // player state
@@ -169,7 +165,7 @@ fn world_roundtrip() {
     for f in [
         "Game",
         "Level0",
-        "Level5",
+        "Level4",
         "Level0data",
         "Player",
         "Inventory",
@@ -184,13 +180,7 @@ fn world_roundtrip() {
     // Java writer format checks.
     let game_file =
         std::fs::read_to_string(world_dir.join(format!("Game{}", save::EXTENSION))).unwrap();
-    assert_eq!(game_file, "2.6.0,0,3600,70000,1,true,");
-    let lvl5 =
-        std::fs::read_to_string(world_dir.join(format!("Level5{}", save::EXTENSION))).unwrap();
-    assert!(
-        lvl5.ends_with(",,"),
-        "Level5 files get an extra trailing comma"
-    );
+    assert_eq!(game_file, "3.0.0,0,3600,70000,1,true,");
     let player_file =
         std::fs::read_to_string(world_dir.join(format!("Player{}", save::EXTENSION))).unwrap();
     assert_eq!(
@@ -212,17 +202,17 @@ fn world_roundtrip() {
     assert_eq!(g2.settings.get_idx("mode"), 0);
 
     // levels
-    for i in 0..6 {
+    for i in 0..5 {
         let (l1, l2) = (g1.level(i), g2.level(i));
         assert_eq!(l1.depth, l2.depth, "depth differs on level {i}");
         assert_eq!((l1.w, l1.h), (l2.w, l2.h), "size differs on level {i}");
         assert_eq!(l1.tiles, l2.tiles, "tiles differ on level {i}");
         assert_eq!(l1.data, l2.data, "tile data differs on level {i}");
     }
-    assert_eq!(g2.level(5).chest_count, 10); // locked DungeonChests counted on load
+    assert_eq!(g2.level(4).chest_count, 10); // locked DungeonChests counted on load
 
     // drain the entity queues into the arena (Java drained them on the next Level.tick)
-    for i in 0..6 {
+    for i in 0..5 {
         fdoom::level::tick_level(&mut g2, i, false);
     }
 
@@ -303,7 +293,7 @@ fn world_roundtrip() {
 
     let dungeon_chests = g2
         .entities
-        .entities_on_level(5)
+        .entities_on_level(4)
         .filter(|e| matches!(e.kind, EntityKind::DungeonChest(_)))
         .count();
     assert_eq!(dungeon_chests, 10);

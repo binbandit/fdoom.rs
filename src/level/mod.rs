@@ -19,11 +19,11 @@ use crate::rng::Rng;
 
 use tile::TileDef;
 
-const LEVEL_NAMES: [&str; 6] = ["Sky", "Surface", "Iron", "Gold", "Lava", "Dungeon"];
+const LEVEL_NAMES: [&str; 5] = ["Surface", "Iron", "Gold", "Lava", "Dungeon"];
 
 /// Java `Level.getLevelName(depth)`.
 pub fn get_level_name(depth: i32) -> &'static str {
-    LEVEL_NAMES[(-depth + 1) as usize]
+    LEVEL_NAMES[(-depth) as usize]
 }
 
 /// Java `Level.getDepthString(depth)`.
@@ -41,10 +41,11 @@ pub fn get_depth_string(depth: i32) -> String {
 /// Java `Level.MOB_SPAWN_FACTOR`.
 pub const MOB_SPAWN_FACTOR: i32 = 100;
 
-/// Java `World.idxToDepth`.
-pub const IDX_TO_DEPTH: [i32; 6] = [-3, -2, -1, 0, 1, -4];
+/// Level slots: three mines, the surface, and the dungeon. (The Java game had a sixth
+/// sky level with the Air Wizard boss; removed in the sandbox pivot.)
+pub const IDX_TO_DEPTH: [i32; 5] = [-3, -2, -1, 0, -4];
 pub const MIN_LEVEL_DEPTH: i32 = -4;
-pub const MAX_LEVEL_DEPTH: i32 = 1;
+pub const MAX_LEVEL_DEPTH: i32 = 0;
 
 /// Java `World.lvlIdx(depth)`.
 pub fn lvl_idx(depth: i32) -> usize {
@@ -55,7 +56,7 @@ pub fn lvl_idx(depth: i32) -> usize {
         return lvl_idx(MAX_LEVEL_DEPTH);
     }
     if depth == -4 {
-        return 5;
+        return 4;
     }
     (depth + 3) as usize
 }
@@ -126,9 +127,6 @@ impl Level {
     /// Java `updateMobCap()`.
     pub fn update_mob_cap(&mut self, diff_idx: i32) {
         self.max_mob_count = 150 + 150 * diff_idx;
-        if self.depth == 1 {
-            self.max_mob_count /= 2;
-        }
         if self.depth == 0 || self.depth == -4 {
             self.max_mob_count = self.max_mob_count * 2 / 3;
         }

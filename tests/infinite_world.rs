@@ -23,8 +23,7 @@ fn infinite_world_boots_and_walks() {
 
     assert!(g.level(3).is_infinite(), "surface should be chunked");
     assert!(g.level(0).is_infinite(), "deep mine should be chunked");
-    assert!(!g.level(4).is_infinite(), "sky stays finite");
-    assert!(!g.level(5).is_infinite(), "dungeon stays finite");
+    assert!(!g.level(4).is_infinite(), "dungeon stays finite");
 
     // chunks streamed in around the spawn
     let loaded = g.level(3).chunks.as_ref().unwrap().len();

@@ -120,7 +120,7 @@ fn soak_walk_all_levels() {
     tick_and_recover(&mut g);
 
     let start_level = g.current_level;
-    for step in 0..6 {
+    for step in 0..5 {
         world::change_level(&mut g, -1);
         for _ in 0..200 {
             tick_and_recover(&mut g);
@@ -129,7 +129,7 @@ fn soak_walk_all_levels() {
     }
     assert_eq!(
         g.current_level, start_level,
-        "six -1 level changes should wrap back to the start level"
+        "five -1 level changes should wrap back to the start level"
     );
 }
 

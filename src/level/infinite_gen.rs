@@ -481,13 +481,12 @@ pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) ->
     chunk
 }
 
-/// Rare surface towers with stairs UP to the (finite) sky level, and rare dungeon gates
-/// on the deepest mine with stairs DOWN to the (finite) dungeon. Coarser grid, lower odds
-/// than regular stairwells.
+/// Rare dungeon gates on the deepest mine with stairs DOWN to the (finite) dungeon.
+/// Coarser grid, lower odds than regular stairwells.
 const GATE_GRID: i32 = 160;
 
 pub fn gate_in_cell(seed: i64, depth: i32, cell_x: i32, cell_y: i32) -> Option<(i32, i32)> {
-    if depth != 0 && depth != -3 {
+    if depth != -3 {
         return None;
     }
     const GATE_SALT: u64 = 0x6A7E6A7E6A7E6A7E;

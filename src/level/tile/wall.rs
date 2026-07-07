@@ -9,9 +9,6 @@ use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
 use crate::item::{Item, ItemKind, ToolType};
 
-/// Java `WallTile.obrickMsg`.
-const OBRICK_MSG: &str = "The airwizard must be defeated first.";
-
 /// Java `Material.ordinal()`.
 fn ordinal(material: Material) -> i32 {
     match material {
@@ -66,18 +63,15 @@ pub fn hurt_by(
     let TileKind::Wall { material } = def.kind else {
         return false;
     };
-    if g.level(lvl).depth != -3 || material != Material::Obsidian || g.air_wizard_beaten {
-        // JAVA: `random.nextInt(6) / 6 * dmg / 2` — integer division made this always 0,
-        // so bare-hand/mob hits never damaged walls. FIX: multiply before dividing so the
-        // intended random scaling (0..dmg/2, averaging ~dmg/5) actually applies.
-        let d = dmg * g.random.next_int_bound(6) / 6 / 2;
-        hurt_dmg(g, def, lvl, x, y, d);
-        true
-    } else {
-        // JAVA: Game.notifications.add
-        g.notifications.push(OBRICK_MSG.to_string());
-        false
-    }
+    // (The Java "beat the Air Wizard first" lock on deep obsidian walls is gone with
+    // the sandbox pivot — walls obey their material rules everywhere.)
+    let _ = material;
+    // JAVA: `random.nextInt(6) / 6 * dmg / 2` — integer division made this always 0,
+    // so bare-hand/mob hits never damaged walls. FIX: multiply before dividing so the
+    // intended random scaling (0..dmg/2, averaging ~dmg/5) actually applies.
+    let d = dmg * g.random.next_int_bound(6) / 6 / 2;
+    hurt_dmg(g, def, lvl, x, y, d);
+    true
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -94,20 +88,15 @@ pub fn interact(
     let TileKind::Wall { material } = def.kind else {
         return false;
     };
+    let _ = material;
     if let ItemKind::Tool { ttype, level, .. } = item.kind {
-        if ttype == ToolType::Pickaxe {
-            if g.level(lvl).depth != -3 || material != Material::Obsidian || g.air_wizard_beaten {
-                if crate::entity::mob::player_behavior::pay_stamina(player, 4 - level)
-                    && item.pay_durability(g.is_mode("creative"))
-                {
-                    let dmg = g.random.next_int_bound(10) + level * 5 + 10;
-                    hurt_dmg(g, def, lvl, xt, yt, dmg);
-                    return true;
-                }
-            } else {
-                // JAVA: Game.notifications.add
-                g.notifications.push(OBRICK_MSG.to_string());
-            }
+        if ttype == ToolType::Pickaxe
+            && crate::entity::mob::player_behavior::pay_stamina(player, 4 - level)
+            && item.pay_durability(g.is_mode("creative"))
+        {
+            let dmg = g.random.next_int_bound(10) + level * 5 + 10;
+            hurt_dmg(g, def, lvl, xt, yt, dmg);
+            return true;
         }
     }
     false

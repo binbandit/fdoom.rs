@@ -148,9 +148,6 @@ pub fn create_and_validate_map(
     theme: &str,
     history_random: &mut Rng,
 ) -> Option<(Vec<u8>, Vec<u8>)> {
-    if level == 1 {
-        return Some(create_and_validate_sky_map(w, h, tiles, world_seed));
-    }
     if level == 0 {
         return Some(create_and_validate_top_map(
             w,
@@ -318,33 +315,6 @@ fn create_and_validate_dungeon(
         }
         if count[(tiles.get("Obsidian Wall").id & 0xff) as usize] < 100 {
             continue;
-        }
-
-        return result;
-    }
-}
-
-fn create_and_validate_sky_map(
-    w: i32,
-    h: i32,
-    tiles: &Tiles,
-    world_seed: i64,
-) -> (Vec<u8>, Vec<u8>) {
-    let mut random = Rng::new(world_seed);
-    // JAVA: unused `int attempt = 0;` omitted.
-    loop {
-        let result = create_sky_map(w, h, tiles, &mut random);
-
-        let mut count = [0i32; 256];
-
-        for i in 0..(w * h) as usize {
-            count[result.0[i] as usize] += 1;
-        }
-        if count[(tiles.get("cloud").id & 0xff) as usize] < 2000 {
-            continue;
-        }
-        if count[(tiles.get("Stairs Down").id & 0xff) as usize] < w / 64 {
-            continue; // size 128 = 2 stairs min
         }
 
         return result;
@@ -925,90 +895,6 @@ fn create_underground_map(
             if count >= w / 32 {
                 break;
             }
-        }
-    }
-
-    (map, data)
-}
-
-fn create_sky_map(w: i32, h: i32, tiles: &Tiles, random: &mut Rng) -> (Vec<u8>, Vec<u8>) {
-    let noise1 = LevelGen::new(w, h, 8, random);
-    let noise2 = LevelGen::new(w, h, 8, random);
-
-    let mut map = vec![0u8; (w * h) as usize];
-    let data = vec![0u8; (w * h) as usize];
-
-    for y in 0..h {
-        for x in 0..w {
-            let i = (x + y * w) as usize;
-
-            let val = (noise1.values[i] - noise2.values[i]).abs() * 3.0 - 2.0;
-
-            let mut xd = x as f64 / (w as f64 - 1.0) * 2.0 - 1.0;
-            let mut yd = y as f64 / (h as f64 - 1.0) * 2.0 - 1.0;
-            if xd < 0.0 {
-                xd = -xd;
-            }
-            if yd < 0.0 {
-                yd = -yd;
-            }
-            let mut dist = if xd >= yd { xd } else { yd };
-            dist = dist * dist * dist * dist;
-            dist = dist * dist * dist * dist;
-            let val = -val * 1.0 - 2.2;
-            let val = val + 1.0 - dist * 20.0;
-
-            if val < -0.25 {
-                map[i] = tiles.get("Infinite Fall").id;
-            } else {
-                map[i] = tiles.get("cloud").id;
-            }
-        }
-    }
-
-    'cactus_loop: for _ in 0..(w * h / 50) {
-        // JAVA: label is also called stairsLoop in the source.
-        let x = random.next_int_bound(w - 2) + 1;
-        let y = random.next_int_bound(h - 2) + 1;
-
-        for yy in y - 1..=y + 1 {
-            for xx in x - 1..=x + 1 {
-                if map[(xx + yy * w) as usize] != tiles.get("cloud").id {
-                    continue 'cactus_loop;
-                }
-            }
-        }
-
-        map[(x + y * w) as usize] = tiles.get("Cloud Cactus").id;
-    }
-
-    let mut count = 0;
-    'stairs_loop: for _ in 0..(w * h) {
-        let x = random.next_int_bound(w - 2) + 1;
-        let y = random.next_int_bound(h - 2) + 1;
-
-        for yy in y - 1..=y + 1 {
-            for xx in x - 1..=x + 1 {
-                if map[(xx + yy * w) as usize] != tiles.get("cloud").id {
-                    continue 'stairs_loop;
-                }
-            }
-        }
-
-        // this should prevent any stairsDown tile from being within 30 tiles of any
-        // other stairsDown tile.
-        for yy in 0.max(y - STAIR_RADIUS)..=(h - 1).min(y + STAIR_RADIUS) {
-            for xx in 0.max(x - STAIR_RADIUS)..=(w - 1).min(x + STAIR_RADIUS) {
-                if map[(xx + yy * w) as usize] == tiles.get("Stairs Down").id {
-                    continue 'stairs_loop;
-                }
-            }
-        }
-
-        map[(x + y * w) as usize] = tiles.get("Stairs Down").id;
-        count += 1;
-        if count >= w / 64 {
-            break;
         }
     }
 

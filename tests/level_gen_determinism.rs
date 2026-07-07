@@ -23,7 +23,7 @@ fn generate(seed: i64, depth: i32) -> (Vec<u8>, Vec<u8>) {
 
 #[test]
 fn same_seed_same_world() {
-    for depth in [1, 0, -1, -4] {
+    for depth in [0, -1, -4] {
         let a = generate(4242, depth);
         let b = generate(4242, depth);
         assert_eq!(a, b, "depth {depth} not deterministic");

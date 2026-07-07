@@ -153,32 +153,20 @@ impl WorldGenDisplay {
             }
         };
 
-        let settings: Vec<SettingEntry> =
-            ["mode", "scoretime", "worldtype", "size", "theme", "type"]
-                .iter()
-                .map(|key| settings_widgets::make_entry(g, key))
-                .collect();
-
-        // locked score times stay hidden until unlocked in score mode
-        for minutes in crate::core::io::settings::LOCKED_SCORETIMES {
-            if !g.settings.scoretime_visible(minutes) {
-                settings[1].1.borrow_mut().set_value_visibility(
-                    &crate::screen::entry::array_entry::Value::Int(minutes),
-                    false,
-                );
-            }
-        }
+        let settings: Vec<SettingEntry> = ["mode", "worldtype", "size", "theme", "type"]
+            .iter()
+            .map(|key| settings_widgets::make_entry(g, key))
+            .collect();
 
         let entries: Vec<EntryHandle> = vec![
             name_field,
             handle(name_help),
             settings[0].1.clone(),
             settings[1].1.clone(),
-            settings[2].1.clone(),
             handle(create_world),
+            settings[2].1.clone(),
             settings[3].1.clone(),
             settings[4].1.clone(),
-            settings[5].1.clone(),
             handle(world_seed),
         ];
 
@@ -207,9 +195,6 @@ impl Display for WorldGenDisplay {
     fn tick(&mut self, g: &mut Game) {
         super::display::display_tick_default(&mut self.base, g);
         settings_widgets::sync(g, &self.settings);
-        // the score-time row only matters in Score mode (Java's mode change listener)
-        let score_mode = g.settings.get("mode").as_str() == "Score";
-        self.settings[1].1.borrow_mut().set_visible(score_mode);
     }
 
     // JAVA: init forces the parent to a TitleDisplay when not opened from one; with the

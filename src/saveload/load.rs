@@ -192,10 +192,11 @@ pub fn new_world(g: &mut Game, worldname: &str, load_game: bool) -> Load {
         return l;
     }
 
-    if *l.wv() < Version::new("1.9.2") {
-        // JAVA: new LegacyLoad(worldname). LegacyLoad is not ported; see the module docs.
+    if *l.wv() < Version::new("3.0") {
+        // Pre-3.0 worlds have six levels (sky included) and Score-mode state; the
+        // sandbox pivot changed the world shape, so they can't be loaded.
         eprintln!(
-            "LOAD ERROR: world \"{}\" was saved by version {}; pre-1.9.2 saves (LegacyLoad) are not supported in this port.",
+            "LOAD ERROR: world \"{}\" was saved by version {}; worlds from before 3.0 (the sandbox pivot) are not supported.",
             worldname,
             l.wv()
         );
@@ -389,11 +390,8 @@ impl Load {
                 .replace("M_ScoreTime", "_ScoreTime")
                 .replace("2H_ScoreTime", "120_ScoreTime");
 
-            if unlock.contains("_ScoreTime") {
-                if let Ok(num) = unlock[..unlock.find('_').unwrap_or(0)].parse::<i32>() {
-                    g.settings.unlock_scoretime(num);
-                }
-            }
+            // legacy "<n>_ScoreTime" unlocks are ignored (Score mode was removed)
+            let _ = unlock;
         }
     }
 
@@ -427,35 +425,12 @@ impl Load {
         g.air_wizard_beaten = parse_bool(&self.data.remove(0));
     }
 
-    /// Java `loadMode(modedata)`.
+    /// Java `loadMode(modedata)` — Score mode was removed in the sandbox pivot; a
+    /// score-mode payload (mode 3) falls back to Survival.
     fn load_mode(&self, g: &mut Game, modedata: &str) {
-        let mut mode: i32;
-        if modedata.contains(';') {
-            let modeinfo = java_split(modedata, ';');
-            mode = modeinfo[0].parse().unwrap();
-            if *self.wv() <= Version::new("2.0.3") {
-                mode -= 1; // we changed the min mode idx from 1 to 0.
-            }
-            if mode == 3 {
-                g.score_time = modeinfo[1].parse().unwrap();
-                if *self.wv() >= Version::new("1.9.4") {
-                    // JAVA: Settings.set("scoretime", modeinfo[2]) — a String value never
-                    // matches the Integer options, so this was always a no-op; preserved.
-                    g.settings.set("scoretime", modeinfo[2].clone());
-                }
-            }
-        } else {
-            mode = modedata.parse().unwrap();
-            if *self.wv() <= Version::new("2.0.3") {
-                mode -= 1; // we changed the min mode idx from 1 to 0.
-            }
-
-            if mode == 3 {
-                g.score_time = 300;
-            }
-        }
-
-        g.settings.set_idx("mode", mode);
+        let raw = modedata.split(';').next().unwrap_or(modedata);
+        let mode: i32 = raw.parse().unwrap_or(0);
+        g.settings.set_idx("mode", if mode == 3 { 0 } else { mode });
     }
 
     /// Java `loadPrefs(filename)`.
@@ -817,7 +792,6 @@ impl Load {
 
         for i in 0..g.levels.len() {
             crate::core::world::check_chest_count(g, i, true);
-            crate::core::world::check_air_wizard(g, i, true);
         }
     }
 }
