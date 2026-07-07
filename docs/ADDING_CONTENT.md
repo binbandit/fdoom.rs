@@ -175,3 +175,17 @@ One sheet: `assets/icons.png`, embedded at build time (`src/assets.rs`), decoded
 - **A true-RGB art overhaul is planned**, replacing the 4-shade palette encoding.
   New sprites are welcome, but don't build elaborate machinery on `get4` tricks — that
   layer is scheduled to change.
+
+## Adding a biome (infinite worlds)
+
+Biomes live entirely in `src/level/infinite_gen.rs`:
+
+1. Add a variant to `enum Biome`.
+2. Give it a region in `biome_at` — carve a slice of the temperature/moisture space
+   (fields are continental-scale: period 384-512 tiles, so regions come out large).
+3. Add its ground-cover arm in `surface_tile` — pick tiles per-position using `detail`
+   scatter and mid-frequency `fractal` masks (see Marsh pools / Forest clearings).
+4. If stairwell aprons should use a different ground tile, extend `biome_ground`.
+5. Run `cargo test level` (`biomes_are_large_and_all_present` will fail until the new
+   biome actually appears) and eyeball it: `cargo test --test biome_frames` dumps
+   rendered frames per biome into `target/verify/`.

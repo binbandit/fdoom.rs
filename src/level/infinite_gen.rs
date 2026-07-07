@@ -137,6 +137,8 @@ struct Ids {
     cactus: u8,
     flower: u8,
     tall_grass: [u8; 3],
+    snow: u8,
+    snow_tree: u8,
     iron: u8,
     gold: u8,
     gem: u8,
@@ -162,6 +164,8 @@ impl Ids {
                 tiles.get("medium grass").id,
                 tiles.get("tall grass").id,
             ],
+            snow: tiles.get("snow").id,
+            snow_tree: tiles.get("snow tree").id,
             iron: tiles.get("iron ore").id,
             gold: tiles.get("gold ore").id,
             gem: tiles.get("gem ore").id,
@@ -172,47 +176,138 @@ impl Ids {
     }
 }
 
+/// The biome at a global surface position — Minecraft-scale regions from
+/// continental-frequency temperature/moisture fields (Whittaker-style table).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Biome {
+    Ocean,
+    Beach,
+    Mountains,
+    Tundra,
+    Desert,
+    Marsh,
+    Forest,
+    Savanna,
+    Plains,
+}
+
+pub fn biome_at(seed: i64, x: i32, y: i32) -> Biome {
+    // continental fields: several-hundred-tile features so biomes feel expansive
+    let continent = fractal(seed, 1, x, y, 384, 3);
+    let temperature = fractal(seed, 6, x, y, 512, 2);
+    let moisture = fractal(seed, 2, x, y, 448, 2);
+    // local ruggedness: mountain ranges + irregular coastlines
+    let rough = fractal(seed, 5, x, y, 48, 4);
+
+    let land = continent + (rough - 0.5) * 0.08;
+    if land < 0.42 {
+        return Biome::Ocean;
+    }
+    if land < 0.445 {
+        return Biome::Beach;
+    }
+    // ranges: a broad mountain belt refined by local ruggedness
+    let belt = fractal(seed, 9, x, y, 320, 2);
+    if belt > 0.70 && rough > 0.55 {
+        return Biome::Mountains;
+    }
+
+    if temperature < 0.35 {
+        Biome::Tundra
+    } else if temperature > 0.68 && moisture < 0.42 {
+        Biome::Desert
+    } else if moisture > 0.74 {
+        Biome::Marsh
+    } else if moisture > 0.52 {
+        Biome::Forest
+    } else if moisture < 0.34 {
+        Biome::Savanna
+    } else {
+        Biome::Plains
+    }
+}
+
 /// The surface tile at a global position (before stairs/gates are stamped).
 fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
-    // smoother field for water/beach so lakes have clean shores (a high-frequency
-    // octave here would speckle single water tiles all over the grass)
-    let elevation = fractal(seed, 1, x, y, 64, 2);
-    let moisture = fractal(seed, 2, x, y, 96, 3);
     let detail = unit(hash(seed, 3, x, y));
+    let tuft = |salt: u64| {
+        let which = (hash(seed, salt, x, y) % 3) as usize;
+        ids.tall_grass[which]
+    };
 
-    if elevation < 0.34 {
-        return ids.water;
-    }
-    if elevation < 0.37 {
-        return ids.sand;
-    }
-    let ruggedness = fractal(seed, 5, x, y, 48, 4);
-    if ruggedness > 0.78 {
-        return ids.rock;
-    }
-
-    // dry pockets become deserts
-    if moisture < 0.30 {
-        if detail < 0.012 {
-            return ids.cactus;
+    match biome_at(seed, x, y) {
+        Biome::Ocean => ids.water,
+        Biome::Beach => ids.sand,
+        Biome::Mountains => ids.rock,
+        Biome::Tundra => {
+            // snowfields with scattered firs and the odd bare rock
+            if detail < 0.055 {
+                ids.snow_tree
+            } else if detail < 0.062 {
+                ids.rock
+            } else {
+                ids.snow
+            }
         }
-        return ids.sand;
+        Biome::Desert => {
+            if detail < 0.014 {
+                ids.cactus
+            } else if detail < 0.020 {
+                ids.rock
+            } else {
+                ids.sand
+            }
+        }
+        Biome::Marsh => {
+            // blobby pools (mid-frequency, so no lonely single water tiles)
+            let pool = fractal(seed, 7, x, y, 14, 2);
+            if pool > 0.66 {
+                return ids.water;
+            }
+            if detail < 0.16 {
+                tuft(4)
+            } else if detail < 0.175 {
+                ids.flower
+            } else {
+                ids.grass
+            }
+        }
+        Biome::Forest => {
+            // dense canopy with clearings
+            let clearing = fractal(seed, 8, x, y, 24, 2);
+            let trees = if clearing > 0.62 { 0.03 } else { 0.16 };
+            if detail < trees {
+                ids.tree
+            } else if detail < trees + 0.05 {
+                tuft(4)
+            } else {
+                ids.grass
+            }
+        }
+        Biome::Savanna => {
+            // dry open country: lone trees, lots of dry tufts
+            if detail < 0.008 {
+                ids.tree
+            } else if detail < 0.10 {
+                tuft(4)
+            } else if detail < 0.115 {
+                ids.sand
+            } else {
+                ids.grass
+            }
+        }
+        Biome::Plains => {
+            if detail < 0.015 {
+                ids.tree
+            } else if detail < 0.055 {
+                ids.flower
+            } else if detail < 0.10 {
+                tuft(4)
+            } else {
+                ids.grass
+            }
+        }
     }
-
-    // forest density scales with moisture
-    let tree_chance = ((moisture - 0.45) * 0.5).max(0.0) + 0.04;
-    if detail < tree_chance {
-        return ids.tree;
-    }
-    if detail < tree_chance + 0.015 {
-        return ids.flower;
-    }
-    if detail < tree_chance + 0.055 {
-        let which = (hash(seed, 4, x, y) % 3) as usize;
-        return ids.tall_grass[which];
-    }
-
-    ids.grass
 }
 
 /// The mine tile at a global position for depth -1..-3 (before stairs are stamped).
@@ -295,7 +390,16 @@ pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) ->
         base_y + CHUNK_SIZE - 1 + margin,
     );
 
-    let clear_tile = if depth == 0 { ids.grass } else { ids.dirt };
+    let biome_ground = |sx: i32, sy: i32| -> u8 {
+        if depth != 0 {
+            return ids.dirt;
+        }
+        match biome_at(seed, sx, sy) {
+            Biome::Tundra => ids.snow,
+            Biome::Desert | Biome::Beach => ids.sand,
+            _ => ids.grass,
+        }
+    };
     let mut stamp = |sx: i32, sy: i32, stairs: u8| {
         for dy in -1..=1 {
             for dx in -1..=1 {
@@ -309,7 +413,7 @@ pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) ->
                     chunk.tiles[i] = if dx == 0 && dy == 0 {
                         stairs
                     } else {
-                        clear_tile
+                        biome_ground(tx, ty)
                     };
                 }
             }
@@ -416,13 +520,19 @@ pub fn gates_in_rect(seed: i64, depth: i32, x0: i32, y0: i32, x1: i32, y1: i32) 
 /// outward spiral (bounded; falls back to (0, 0)).
 pub fn find_surface_spawn(seed: i64, tiles: &Tiles) -> (i32, i32) {
     let ids = Ids::get(tiles);
-    for radius in 0i32..200 {
-        for dy in -radius..=radius {
-            for dx in -radius..=radius {
-                if dx.abs() != radius && dy.abs() != radius {
+    // coarse ring scan (biome regions are hundreds of tiles, so step by 4)
+    for radius in 0i32..300 {
+        let r = radius * 4;
+        for dy in (-r..=r).step_by(4) {
+            for dx in (-r..=r).step_by(4) {
+                if dx.abs() != r && dy.abs() != r {
                     continue; // ring only
                 }
-                if surface_tile(seed, dx, dy, &ids) == ids.grass {
+                let hospitable = matches!(
+                    biome_at(seed, dx, dy),
+                    Biome::Plains | Biome::Forest | Biome::Savanna | Biome::Marsh
+                );
+                if hospitable && surface_tile(seed, dx, dy, &ids) == ids.grass {
                     return (dx, dy);
                 }
             }
@@ -471,22 +581,55 @@ mod tests {
     }
 
     #[test]
-    fn surface_has_reasonable_biome_mix() {
-        let tiles = Tiles::new();
-        let ids = Ids::get(&tiles);
-        let mut counts = std::collections::HashMap::new();
-        for y in -128..128 {
-            for x in -128..128 {
-                *counts.entry(surface_tile(42, x, y, &ids)).or_insert(0usize) += 1;
+    fn biomes_are_large_and_all_present() {
+        // sample a wide area on a coarse lattice: every biome family should appear,
+        // and regions should be big (few biome changes along a straight walk)
+        let seed = 424242;
+        let mut seen = std::collections::HashSet::new();
+        for y in (-4096..4096).step_by(64) {
+            for x in (-4096..4096).step_by(64) {
+                seen.insert(biome_at(seed, x, y));
             }
         }
-        let total = 256 * 256;
-        let grass = counts.get(&ids.grass).copied().unwrap_or(0);
-        let water = counts.get(&ids.water).copied().unwrap_or(0);
-        let trees = counts.get(&ids.tree).copied().unwrap_or(0);
-        assert!(grass * 100 / total > 20, "grass too rare: {grass}/{total}");
-        assert!(water > 0, "no water at all");
-        assert!(trees > 50, "almost no trees: {trees}");
+        for b in [
+            Biome::Ocean,
+            Biome::Beach,
+            Biome::Tundra,
+            Biome::Desert,
+            Biome::Forest,
+            Biome::Plains,
+        ] {
+            assert!(seen.contains(&b), "biome {b:?} missing from 8k x 8k sample");
+        }
+
+        // region size: walking 2048 tiles shouldn't flip biome often
+        let mut changes = 0;
+        let mut last = biome_at(seed, -1024, 0);
+        for x in -1024..1024 {
+            let b = biome_at(seed, x, 0);
+            if b != last {
+                changes += 1;
+                last = b;
+            }
+        }
+        assert!(
+            changes < 40,
+            "biomes too small: {changes} changes over 2048 tiles"
+        );
+    }
+
+    #[test]
+    fn spawn_lands_on_grass() {
+        let tiles = Tiles::new();
+        for seed in [1, 999, -55, 20260707] {
+            let (sx, sy) = find_surface_spawn(seed, &tiles);
+            let ids = Ids::get(&tiles);
+            assert_eq!(
+                surface_tile(seed, sx, sy, &ids),
+                ids.grass,
+                "seed {seed}: spawn ({sx},{sy}) not grass"
+            );
+        }
     }
 
     #[test]
