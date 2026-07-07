@@ -627,8 +627,21 @@ on this level or `removed` are pruned from the level rather than drawn.
 
 **Lighting/atmosphere post-pass**: `render_level` ends with
 `gfx::lighting::render_pass(&mut screen, &mut light_screen, g, lvl, x_scroll, y_scroll)` —
-biome ground tint, time-of-day grading, emitter radiance, and event skies, applied before
-the HUD so UI text stays crisp (the module's doc comment is the full reference). Emitter
+ground blend, time-of-day grading, emitter radiance, and event skies, applied before
+the HUD so UI text stays crisp (the module's doc comment is the full reference).
+The ground blend (`ground_blend_pass`, surface layer only) is the Minecraft-style
+seamless biome coloring: each visible tile's pixels are multiplied by a mild color
+factor (0.85–1.10 per channel) **bilinearly interpolated between the tile's four
+corners**, where a corner's factor averages the 4 tiles sharing it. A tile's factor
+comes from its ground family via `TileKind` (sand/cactus/quicksand → warm, snow/snow
+tree → bright frost, mud → dark peat), falling back to the per-biome tint
+(`biome_at_blended`: forest deeper green, savanna warmer, marsh sage, tundra cool...)
+for grass/dirt/water/everything else. Result: a grass→sand boundary grades over ~2
+tiles instead of switching per tile, and snow edges soften into a frosty fringe —
+while the tile art itself stays pixel-crisp, since only the color multiplier is
+interpolated. Per frame it costs one factor lookup per tile of the visible grid plus
+a one-tile margin (~315) and one corner average per corner (~280); tiles whose four
+corners agree take a flat-multiply fast path, and fully neutral tiles skip entirely. Emitter
 stamping is **occlusion-aware**: tiles with `TileDef.blocks_light` (walls, rock, hard rock;
 closed doors via `dispatch::blocks_light`) cast per-emitter tile-grid shadows, so torchlight
 fills a room and beams through doorways/Windows instead of glowing through walls. Emitters

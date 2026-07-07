@@ -5,9 +5,15 @@
 //! Runs at the end of `Renderer::render_level`, after the world and entities are drawn
 //! but *before* the HUD and menus, so UI text stays crisp. Four stages:
 //!
-//! 0. **Biome ground tint** — on the infinite surface layer, each visible tile's pixels
-//!    are multiplied by a mild per-biome factor (`biome_at_blended`, domain-warped so
-//!    boundaries are patchy): Minecraft-style ground palette shifts per biome.
+//! 0. **Ground blend** — on the infinite surface layer, each visible tile's pixels are
+//!    multiplied by a mild color factor, bilinearly interpolated per pixel between the
+//!    tile's four corners (each corner averages the factors of the 4 tiles sharing it):
+//!    Minecraft-style smooth ground-color transitions. A tile's factor comes from its
+//!    ground family (sand/snow/mud read as themselves wherever they are), falling back
+//!    to the per-biome tint (`biome_at_blended`, domain-warped so boundaries are patchy)
+//!    for grass/dirt/water/everything else — so a grass→sand boundary grades over ~2
+//!    tiles and snow edges soften into a frosty fringe, while the tile art itself stays
+//!    pixel-crisp (only the multiply factor is interpolated).
 //! 1. **Time-of-day grading** — a per-frame ambient (brightness + RGB tint) derived from
 //!    the day clock: rose-gold dawn, neutral day, a two-stage amber→violet sunset over
 //!    ~15% of the day, deep-blue night at ~35% brightness. Applied as a per-pixel
@@ -163,10 +169,10 @@ pub fn render_pass(
     x_scroll: i32,
     y_scroll: i32,
 ) {
-    // Per-biome ground tint first: it shifts the *base* image the grade then operates
-    // on, and must apply even at neutral noon (it is how biomes read at midday).
+    // Ground blend first: it shifts the *base* image the grade then operates on, and
+    // must apply even at neutral noon (it is how biomes read at midday).
     if lvl == 3 && g.levels[lvl].as_ref().is_some_and(|l| l.is_infinite()) {
-        biome_tint_pass(screen, g, x_scroll, y_scroll);
+        ground_blend_pass(screen, g, lvl, x_scroll, y_scroll);
     }
 
     // Weather is surface-only presentation, and event skies own the night: an Ember
@@ -370,13 +376,26 @@ pub fn fish_bubbles(
     }
 }
 
-/// Per-biome ground tint factors (8.8 fixed point, 256 = 1.0), Minecraft-style: a
-/// mild palette shift so biome transitions read on the ground itself, not just the
-/// flora. Deliberately subtle (~0.86-1.08). `None` = neutral, skip the multiply.
-fn biome_tint(b: crate::level::infinite_gen::Biome) -> Option<[i32; 3]> {
+/// Neutral ground-blend factor (8.8 fixed point, 256 = 1.0): multiply by 1, no shift.
+const NEUTRAL_F: [i32; 3] = [256; 3];
+
+/// Sand family: warm — deliberately identical to the Desert biome tint, so desert
+/// interiors look exactly as before and beach/oasis sand grades toward the same hue.
+const SAND_F: [i32; 3] = [271, 256, 230]; // 1.06, 1.00, 0.90
+
+/// Snow family: bright frost, a touch cooler and lighter than the Tundra grass tint —
+/// the small difference is what makes snow edges grade into a frosty fringe.
+const SNOW_F: [i32; 3] = [256, 264, 281]; // 1.00, 1.03, 1.10
+
+/// Mud: dark peaty brown, slightly deeper than the Marsh tint around it.
+const MUD_F: [i32; 3] = [227, 233, 218]; // 0.89, 0.91, 0.85
+
+/// Per-biome ground tint factors (8.8 fixed point), Minecraft-style: a mild palette
+/// shift so biome transitions read on the ground itself, not just the flora.
+/// Deliberately subtle (all factors stay within ~0.85-1.10).
+fn biome_factor(b: crate::level::infinite_gen::Biome) -> [i32; 3] {
     use crate::level::infinite_gen::Biome;
-    let f =
-        |r: f32, g: f32, b: f32| Some([(r * 256.0) as i32, (g * 256.0) as i32, (b * 256.0) as i32]);
+    let f = |r: f32, g: f32, b: f32| [(r * 256.0) as i32, (g * 256.0) as i32, (b * 256.0) as i32];
     match b {
         Biome::Forest => f(0.88, 1.00, 1.02),    // deeper, cooler green
         Biome::Savanna => f(1.08, 1.02, 0.86),   // warmer, yellower
@@ -385,32 +404,119 @@ fn biome_tint(b: crate::level::infinite_gen::Biome) -> Option<[i32; 3]> {
         Biome::Desert => f(1.06, 1.00, 0.90),    // warmer sand
         Biome::Mountains => f(0.97, 0.98, 1.03), // faintly cool stone
         // plains stay the neutral reference; water/beach keep their painted colors
-        Biome::Plains | Biome::Beach | Biome::Ocean | Biome::DeepOcean => None,
+        Biome::Plains | Biome::Beach | Biome::Ocean | Biome::DeepOcean => NEUTRAL_F,
     }
 }
 
-/// Multiply each visible tile's 16x16 pixel block by its biome tint. One
-/// `biome_at_blended` lookup per tile (~250/frame), not per pixel; the domain warp in
-/// that lookup is what makes boundaries patchy rather than ruled lines.
-fn biome_tint_pass(screen: &mut Screen, g: &Game, x_scroll: i32, y_scroll: i32) {
+/// The ground-blend factor of one surface tile. Hard ground families read as
+/// themselves wherever they sit (a lone snow patch is frosty even outside tundra);
+/// grass, dirt, water, and everything else take the biome tint — that is where the
+/// per-biome hue direction (deep forest green, warm savanna...) comes from.
+fn tile_factor(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> [i32; 3] {
+    use crate::level::tile::TileKind;
+    match g.tile_at(lvl, tx, ty).kind {
+        TileKind::Sand | TileKind::Cactus | TileKind::FruitingCactus | TileKind::QuickSand => {
+            SAND_F
+        }
+        TileKind::Snow | TileKind::SnowTree => SNOW_F,
+        TileKind::Mud => MUD_F,
+        _ => biome_factor(crate::level::infinite_gen::biome_at_blended(seed, tx, ty)),
+    }
+}
+
+/// Minecraft-style seamless ground blending: multiply each visible tile's 16x16 pixel
+/// block by a color factor bilinearly interpolated between the tile's four corners,
+/// where a corner's factor is the average of the 4 tiles sharing it. Ground-color
+/// transitions grade over ~2 tiles instead of switching per tile; the tile art itself
+/// stays pixel-crisp because only the multiply factor is interpolated.
+///
+/// Cost: one factor lookup per tile of the visible grid + margin (~315/frame),
+/// corner averages once per frame (~280), then integer bilinear interpolation in the
+/// pixel loop. Tiles whose four corners agree take a flat-multiply fast path; fully
+/// neutral tiles (deep plains interior) skip entirely.
+fn ground_blend_pass(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_scroll: i32) {
     let seed = g.world_seed;
-    for ty in (y_scroll >> 4)..=((y_scroll + screen::H - 1) >> 4) {
+    let tx0 = x_scroll >> 4;
+    let ty0 = y_scroll >> 4;
+    let nx = ((x_scroll + screen::W - 1) >> 4) as usize - tx0 as usize + 1;
+    let ny = ((y_scroll + screen::H - 1) >> 4) as usize - ty0 as usize + 1;
+
+    // Per-tile factors over the visible grid plus a one-tile margin (edge corners
+    // average tiles just off screen).
+    let tw = nx + 2;
+    let mut tf = vec![NEUTRAL_F; tw * (ny + 2)];
+    for j in 0..ny + 2 {
+        for i in 0..tw {
+            tf[j * tw + i] = tile_factor(g, lvl, seed, tx0 + i as i32 - 1, ty0 + j as i32 - 1);
+        }
+    }
+
+    // Corner factors: corner (i, j) sits at world tile corner (tx0 + i, ty0 + j) and
+    // averages the 4 tiles around it.
+    let cw = nx + 1;
+    let mut cf = vec![NEUTRAL_F; cw * (ny + 1)];
+    for j in 0..=ny {
+        for i in 0..=nx {
+            let (a, b, c, d) = (
+                tf[j * tw + i],
+                tf[j * tw + i + 1],
+                tf[(j + 1) * tw + i],
+                tf[(j + 1) * tw + i + 1],
+            );
+            for ch in 0..3 {
+                cf[j * cw + i][ch] = (a[ch] + b[ch] + c[ch] + d[ch] + 2) >> 2;
+            }
+        }
+    }
+
+    for tj in 0..ny {
+        let ty = ty0 + tj as i32;
         let y0 = (ty * 16 - y_scroll).max(0);
         let y1 = (ty * 16 + 16 - y_scroll).min(screen::H);
-        for tx in (x_scroll >> 4)..=((x_scroll + screen::W - 1) >> 4) {
-            let biome = crate::level::infinite_gen::biome_at_blended(seed, tx, ty);
-            let Some([fr, fg, fb]) = biome_tint(biome) else {
+        for ti in 0..nx {
+            let tx = tx0 + ti as i32;
+            let c00 = cf[tj * cw + ti];
+            let c10 = cf[tj * cw + ti + 1];
+            let c01 = cf[(tj + 1) * cw + ti];
+            let c11 = cf[(tj + 1) * cw + ti + 1];
+            let flat = c00 == c10 && c00 == c01 && c00 == c11;
+            if flat && c00 == NEUTRAL_F {
                 continue;
-            };
+            }
             let x0 = (tx * 16 - x_scroll).max(0);
             let x1 = (tx * 16 + 16 - x_scroll).min(screen::W);
             for y in y0..y1 {
                 let row = (y * screen::W) as usize;
-                for p in screen.pixels[row + x0 as usize..row + x1 as usize].iter_mut() {
-                    let r = ((((*p >> 16) & 0xFF) * fr) >> 8).min(255);
+                let px = &mut screen.pixels[row + x0 as usize..row + x1 as usize];
+                if flat {
+                    let [fr, fg, fb] = c00;
+                    for p in px.iter_mut() {
+                        let r = ((((*p >> 16) & 0xFF) * fr) >> 8).min(255);
+                        let g2 = ((((*p >> 8) & 0xFF) * fg) >> 8).min(255);
+                        let b = (((*p & 0xFF) * fb) >> 8).min(255);
+                        *p = (r << 16) | (g2 << 8) | b;
+                    }
+                    continue;
+                }
+                // Bilinear, sampled at pixel centers: wv/wu in 1..32 of 32 (5.5 bits
+                // of subtile weight), so the two >>10 shifts return to 8.8 factors.
+                let wv = 2 * (y + y_scroll - ty * 16) + 1;
+                let mut l = [0i32; 3];
+                let mut r = [0i32; 3];
+                for ch in 0..3 {
+                    l[ch] = c00[ch] * (32 - wv) + c01[ch] * wv;
+                    r[ch] = c10[ch] * (32 - wv) + c11[ch] * wv;
+                }
+                let mut wu = 2 * (x0 + x_scroll - tx * 16) + 1;
+                for p in px.iter_mut() {
+                    let fr = (l[0] * (32 - wu) + r[0] * wu) >> 10;
+                    let fg = (l[1] * (32 - wu) + r[1] * wu) >> 10;
+                    let fb = (l[2] * (32 - wu) + r[2] * wu) >> 10;
+                    let rr = ((((*p >> 16) & 0xFF) * fr) >> 8).min(255);
                     let g2 = ((((*p >> 8) & 0xFF) * fg) >> 8).min(255);
                     let b = (((*p & 0xFF) * fb) >> 8).min(255);
-                    *p = (r << 16) | (g2 << 8) | b;
+                    *p = (rr << 16) | (g2 << 8) | b;
+                    wu += 2;
                 }
             }
         }
