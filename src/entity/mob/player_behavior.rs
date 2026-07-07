@@ -7,6 +7,7 @@
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::core::updater::Time;
+use crate::core::weather;
 use crate::entity::behavior::{
     entity_interact, get_attack_dir, is_swimming, mob_do_hurt_base, mob_hurt_by_mob, mob_move,
     mob_tick_base, remove_entity,
@@ -157,6 +158,11 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
     if e.player().stamina_recharge_delay == 0 {
         // ticks since last recharge, accounting for the time potion effect.
         e.player_mut().stamina_recharge += 1;
+
+        // fire wave: resting within 2 tiles of a lit campfire recharges at 2x
+        if crate::entity::furniture::campfire_behavior::near_lit_campfire(g, e) {
+            e.player_mut().stamina_recharge += 1;
+        }
 
         if is_swimming(g, e) && !e.player().potioneffects.contains_key(&PotionType::Swim) {
             e.player_mut().stamina_recharge = 0; // don't recharge stamina while swimming.
@@ -857,26 +863,109 @@ fn get_interaction_tile(e: &Entity) -> Point {
     Point::new(x >> 4, y >> 4)
 }
 
-/// Java `Player.goFishing(x, y)`.
-pub fn go_fishing(g: &mut Game, player: &mut Entity, x: i32, y: i32) {
-    let Some(lvl) = player.c.level else { return };
-    let fcatch = g.random.next_int_bound(90);
+// ---- Fishing wave tuning (invisible fish: the water tells you where they are) ----
+/// Base per-cast catch chance on average open water — tuned to the classic feel
+/// (the Java table landed ~16/90 ≈ 0.18 per cast).
+const FISHING_BASE_CHANCE: f64 = 0.18;
+/// Catch multiplier on a bubbling hotspot (`weather::fish_presence` at or above
+/// `FISH_PRESENCE_THRESHOLD` — the same edge that draws the bubbles).
+const FISHING_HOTSPOT_MULT: f64 = 3.0;
+/// Fish bite in the rain (`weather::is_raining` at the player).
+const FISHING_RAIN_MULT: f64 = 1.3;
 
-    if fcatch < 10 {
-        let item = registry::get(g, "raw fish");
-        level::drop_item(g, lvl, x, y, item);
-    } else if fcatch < 15 {
-        let item = registry::get(g, "slime");
-        level::drop_item(g, lvl, x, y, item);
-    } else if fcatch == 15 {
-        let item = registry::get(g, "Leather Armor");
-        level::drop_item(g, lvl, x, y, item);
-    } else if fcatch == 42 && g.random.next_int_bound(5) == 0 {
-        // JAVA: easter-egg console message, preserved verbatim.
-        println!(
-            "FISHNORRIS got away... just kidding, FISHNORRIS din't get away from you, you got away from FISHNORRIS..."
-        );
+/// Which catch table a cast draws from, decided by where the line lands.
+enum CastWater {
+    /// Open `water` — and a submerged Tidal Flat, which fishes like regular water.
+    Regular,
+    /// `Deep Water`, cast from a raft or the shore edge: bigger fish, rare treasure.
+    Deep,
+    /// Underground pools (any `depth < 0` layer): pale things live down there.
+    Cave,
+}
+
+/// Per-cast catch chance from the local fish-presence field + rain. Pure, so tests
+/// can pin the multipliers exactly:
+/// - at/above [`weather::FISH_PRESENCE_THRESHOLD`] (the bubble edge) → 3x base;
+/// - below it the odds scale down linearly — dead water bottoms out around 0.25x;
+/// - rain adds a further 1.3x everywhere.
+pub fn fishing_catch_chance(presence: f64, raining: bool) -> f64 {
+    let presence_mult = if presence >= weather::FISH_PRESENCE_THRESHOLD {
+        FISHING_HOTSPOT_MULT
+    } else {
+        // 0.25x in dead water up to ~1x just under the bubble edge
+        0.25 + 1.2 * presence
+    };
+    let rain_mult = if raining { FISHING_RAIN_MULT } else { 1.0 };
+    (FISHING_BASE_CHANCE * presence_mult * rain_mult).min(0.95)
+}
+
+/// Java `Player.goFishing(x, y)`, reworked for the fishing wave: `(x, y)` is where a
+/// catch drops (pixels, by the player), `(xt, yt)` the tile the line landed on. There
+/// are no fish entities — the `weather::fish_presence` field (rendered as bubbles on
+/// open water) sets the odds, and the kind of water sets the catch table.
+pub fn go_fishing(g: &mut Game, player: &mut Entity, x: i32, y: i32, xt: i32, yt: i32) {
+    let Some(lvl) = player.c.level else { return };
+
+    // Classify the cast: mine pools -> cave table; Deep Water -> deep table;
+    // everything else (open water, submerged Tidal Flat) -> the regular table.
+    let cast = if g.level(lvl).depth < 0 {
+        CastWater::Cave
+    } else if g.tile_at(lvl, xt, yt).id == g.tiles.get("Deep Water").id {
+        CastWater::Deep
+    } else {
+        CastWater::Regular
+    };
+
+    let presence = weather::fish_presence(g.world_seed, xt, yt);
+    let raining = weather::is_raining(g);
+
+    // Flavor cues (deduped so repeat casts don't stack the same note).
+    let cue = if presence >= weather::FISH_PRESENCE_THRESHOLD {
+        Some("Something stirs here...")
+    } else if raining {
+        Some("The rain has the fish biting...")
+    } else {
+        None
+    };
+    if let Some(msg) = cue {
+        if g.notifications.last().map(String::as_str) != Some(msg) {
+            g.notifications.push(msg.to_string());
+        }
     }
+
+    if g.random.next_double() >= fishing_catch_chance(presence, raining) {
+        if g.random.next_int_bound(370) == 42 {
+            // JAVA: easter-egg console message, preserved verbatim.
+            println!(
+                "FISHNORRIS got away... just kidding, FISHNORRIS din't get away from you, you got away from FISHNORRIS..."
+            );
+        }
+        return;
+    }
+
+    let roll = g.random.next_int_bound(100);
+    let name = match cast {
+        // mostly fish, the odd slime, rarely someone's lost armor (the Java trio)
+        CastWater::Regular => match roll {
+            0..=64 => "Raw Fish",
+            65..=93 => "Slime",
+            _ => "Leather Armor",
+        },
+        // bigger fish out deep, and a very rare snagged treasure
+        CastWater::Deep => match roll {
+            0..=1 => "gem",
+            2..=4 => "Iron",
+            5..=21 => "Big Fish",
+            _ => "Raw Fish",
+        },
+        // underground pools: pale eels (and the slime that was always going to be there)
+        CastWater::Cave => match roll {
+            0..=84 => "Cave Eel",
+            _ => "Slime",
+        },
+    };
+    let item = registry::get(g, name);
+    level::drop_item(g, lvl, x, y, item);
 }
 
 /// Java `use(Rectangle area)` — called by the other use method; this serves as a buffer in
