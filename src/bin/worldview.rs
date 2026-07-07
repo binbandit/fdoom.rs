@@ -30,7 +30,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-use fdoom::gfx::{Screen, SpriteSheet, color, font};
+use fdoom::gfx::{Screen, color, font};
 use fdoom::level::chunk::{CHUNK_SIZE, chunk_coord};
 use fdoom::level::infinite_gen::{Biome, biome_at, gates_in_rect, generate_chunk};
 use fdoom::level::structures_gen::{
@@ -202,7 +202,7 @@ impl WorldView {
             tiles,
             tile_colors,
             cache: HashMap::new(),
-            text: Screen::new(Arc::new(SpriteSheet::from_png(fdoom::assets::SPRITES_PNG))),
+            text: Screen::new(Arc::new(fdoom::assets::sprite_sheet())),
             frame: vec![0; (VIEW_W * VIEW_H) as usize],
             seed,
             depth,

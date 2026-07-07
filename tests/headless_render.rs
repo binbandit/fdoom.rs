@@ -4,14 +4,14 @@
 use std::sync::Arc;
 
 use fdoom::gfx::{
-    SpriteSheet, color, font,
+    color, font,
     screen::{self, Screen},
 };
 use fdoom::testutil::{save_png, verify_path};
 
 #[test]
 fn sheet_loads_and_text_renders() {
-    let sheet = Arc::new(SpriteSheet::from_png(fdoom::assets::SPRITES_PNG));
+    let sheet = Arc::new(fdoom::assets::sprite_sheet());
     assert!(
         sheet.width >= 256 && sheet.height >= 256,
         "unexpected sheet size {}x{}",

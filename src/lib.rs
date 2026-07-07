@@ -20,7 +20,6 @@ use std::sync::Arc;
 use crate::core::file_handler;
 use crate::core::game::Game;
 use crate::core::renderer::Renderer;
-use crate::gfx::SpriteSheet;
 use crate::screen::splash_menu::SplashMenu;
 
 /// Entry point; equivalent of Java `fdoom.core.Game.main` + `Initializer.parseArgs`.
@@ -55,7 +54,7 @@ pub fn run(args: Vec<String>) {
 
     game.set_menu(SplashMenu::new()); // sets menu to the title screen
 
-    let sheet = Arc::new(SpriteSheet::from_png(assets::SPRITES_PNG));
+    let sheet = Arc::new(assets::sprite_sheet());
     let renderer = Renderer::new(sheet);
 
     platform::run(game, renderer);

@@ -24,7 +24,7 @@ use crate::core::game::Game;
 use crate::core::renderer::Renderer;
 use crate::core::world;
 use crate::entity::{Direction, EntityKind};
-use crate::gfx::{SpriteSheet, screen};
+use crate::gfx::screen;
 use crate::item::{Recipe, registry};
 use crate::level::infinite_gen::{Biome, biome_at};
 use crate::level::tile::dispatch;
@@ -318,7 +318,7 @@ impl TestWorldBuilder {
 /// A headless [`Renderer`] with the real sprite sheet, for tests that drive rendering
 /// directly (most tests want [`TestWorld::render`] / [`TestWorld::screenshot`] instead).
 pub fn renderer() -> Renderer {
-    Renderer::new(Arc::new(SpriteSheet::from_png(crate::assets::SPRITES_PNG)))
+    Renderer::new(Arc::new(crate::assets::sprite_sheet()))
 }
 
 /// A headless `Game` with the main player created (eid 0) but **no world** — for

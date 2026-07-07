@@ -27,7 +27,7 @@ just demo-title     # scripted run: screenshot the title screen into target/veri
 just demo-world     # scripted run: generate a world named PIT, screenshot gameplay
 just shots          # run all visual test harnesses, upscale everything in target/verify
 just soak           # long randomized gameplay soak (release build)
-just sheet          # regenerate assets/sprites.png via artgen and open it
+just preview        # stitch assets/sprites/** into the atlas and open the preview
 just upscale        # 3x-upscale target/verify PNGs for easier viewing
 just clean-saves    # DELETE all saves + preferences (~/fdoom)
 ```

@@ -5,7 +5,7 @@ edition = "2024"
 description = "Fossickers Doom — Rust port of the Java game Fossicker"
 license = "MIT"
 rust-version = "1.85"
-# `cargo run` = the game; the art generator is `cargo run --bin artgen`
+# `cargo run` = the game; art tools are `worldview` and `pixel_studio`
 default-run = "fdoom"
 
 [dependencies]

@@ -65,10 +65,11 @@ biome-map seed:
     FDOOM_SEED={{seed}} cargo test --test biome_frames biome_map_overview -- --nocapture
     @echo "map: {{verify_dir}}/biome_map_{{seed}}.png"
 
-# Regenerate the sprite sheet from artgen and open it.
-sheet:
-    cargo run --bin artgen
-    open assets/sprites.png 2>/dev/null || xdg-open assets/sprites.png
+# Stitch assets/sprites/** into the atlas and open the preview PNG
+# (docs/ART_GUIDE.md; the golden check is `cargo test --test sprite_atlas`).
+preview:
+    cargo test --test sprite_atlas write_atlas_preview
+    open target/verify/atlas.png 2>/dev/null || xdg-open target/verify/atlas.png
 
 # Long randomized gameplay soak (release build: thousands of ticks across seeds).
 soak:
