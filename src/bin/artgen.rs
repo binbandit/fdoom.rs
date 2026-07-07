@@ -477,7 +477,7 @@ fn grass_connector(s: &mut Sheet) {
     for y in 0..24 {
         for x in 0..24 {
             // only the four 8x8 corner cells of the 3x3 block
-            let corner = (x < 8 || x >= 16) && (y < 8 || y >= 16);
+            let corner = !(8..16).contains(&x) && !(8..16).contains(&y);
             if !corner {
                 continue;
             }
@@ -768,27 +768,29 @@ fn footprint_cell(s: &mut Sheet) {
 /// roles: 0 = wet puddle hollows (darkest), 1 = mud base, 2 = drier clod ridges,
 /// 3 = sheen glints on the puddle rims.
 fn mud_cells(s: &mut Sheet) {
+    // CALM BASE: three wet puddle hollows with clod ridges hugging their rims and a
+    // single sheen glint each — the rest is flat mud.
     let mut c = cell(s, 24, 1);
     c.pat(
         0,
         0,
         &[
-            "1111211112111121", //
-            "1211100111211111", //
-            "1113000011121121", // puddle, upper-left (3 = glint on the rim)
-            "1211000112111111", //
-            "1121100121112211", //
-            "1111211111211121", //
-            "2111112111130111", // puddle, right
-            "1121111211000011", //
-            "1111211110000111", //
-            "1211112111003121", //
-            "1112111121111211", //
-            "1130011211121111", // puddle, lower-left
-            "1000001121211121", //
-            "1100011112111311", //
-            "1211121111212111", //
-            "1111211121111121", //
+            "1111111111111111", //
+            "1111100111111111", //
+            "1113000011111111", // puddle, upper-left (3 = sheen glint on the rim)
+            "1110000211111111", //
+            "1112002111111111", //
+            "1111221111111211", //
+            "1111111111100111", //
+            "1111111111000011", // puddle, right
+            "1111111113000211", //
+            "1111111111002111", //
+            "1111111111221111", //
+            "1100111111111111", //
+            "1000011111211111", // puddle, lower-left
+            "1100002111111111", //
+            "1131021111111111", //
+            "1111111111111111", //
         ],
         PMAP,
     );
@@ -2670,9 +2672,8 @@ fn flora_cells(s: &mut Sheet) {
     cell(s, 0, 26).outline(0, 0, 16, 16, OUT);
     cell(s, 1, 26).outline(0, 0, 8, 8, OUT);
     let pine_tex = |x: i32, y: i32| -> Ink {
-        if y.rem_euclid(4) == 3 && speck(x, y, 83, 2) {
-            PINE_DK
-        } else if speck(x, y, 81, 4) {
+        // tier-shadow bands + scattered dark needles share the shadow ink
+        if (y.rem_euclid(4) == 3 && speck(x, y, 83, 2)) || speck(x, y, 81, 4) {
             PINE_DK
         } else if speck(x, y, 82, 6) {
             LEAF_MD
@@ -2957,9 +2958,7 @@ fn flora_cells(s: &mut Sheet) {
             frost
         } else if speck(x, y, 90, 6) {
             frost_dim
-        } else if y.rem_euclid(4) == 3 && speck(x, y, 83, 2) {
-            PINE_DK
-        } else if speck(x, y, 81, 4) {
+        } else if (y.rem_euclid(4) == 3 && speck(x, y, 83, 2)) || speck(x, y, 81, 4) {
             PINE_DK
         } else {
             LEAF_DK
