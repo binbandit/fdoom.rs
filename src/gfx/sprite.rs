@@ -162,6 +162,15 @@ impl Sprite {
         make_sprite(2, 2, col, 0, false, &[0, 1, 2, 3])
     }
 
+    /// Like `dots`, but reads four consecutive cells starting at (sx, sy) — the
+    /// per-material terrain texture rows (grass tufts, sand ripples, snow drifts,
+    /// dirt clods, stone plates) that artgen lays out in `Sprite::dots` quadrant
+    /// order (TL, TR, BL, BR).
+    pub fn dots_at(sx: i32, sy: i32, col: i32) -> Sprite {
+        let base = sx + sy * 32;
+        make_sprite(2, 2, col, 0, false, &[base, base + 1, base + 2, base + 3])
+    }
+
     /// Java `Sprite.randomDots(seed, col)`.
     pub fn random_dots(seed: i64, col: i32) -> Sprite {
         let mut ran = Rng::new(seed);

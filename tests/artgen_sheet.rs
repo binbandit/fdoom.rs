@@ -45,6 +45,12 @@ fn has_true_color(s: &SpriteSheet, cx: i32, cy: i32) -> bool {
 const INVENTORY: &[(i32, i32, i32, i32, &str)] = &[
     // -- terrain --
     (0, 0, 4, 1, "dots texture cells (Sprite::dots/random_dots)"),
+    (22, 0, 4, 1, "grass tuft texture (Sprite::dots_at)"),
+    (26, 0, 4, 1, "sand ripple texture (Sprite::dots_at)"),
+    (13, 3, 4, 1, "snow drift texture (Sprite::dots_at)"),
+    (21, 3, 4, 1, "dirt clod texture (Sprite::dots_at)"),
+    (25, 3, 4, 1, "stone plate texture (Sprite::dots_at)"),
+    (24, 1, 2, 2, "mud block"),
     (4, 0, 3, 3, "rock/hard-rock/cloud sparse blob"),
     (7, 0, 2, 2, "rock/cloud sides block"),
     (9, 0, 2, 2, "tree outer pieces"),
@@ -79,16 +85,29 @@ const INVENTORY: &[(i32, i32, i32, i32, &str)] = &[
     ),
     (13, 5, 4, 1, "flight arrows"),
     (20, 5, 2, 1, "stick + grass fibers"),
+    (22, 5, 4, 1, "weapon icons (spear/crossbow/knife/slingshot)"),
     // -- logo + furniture + decor --
-    (0, 6, 14, 2, "title logo"),
+    (0, 6, 15, 2, "title logo (DOOM strip)"),
+    // the kicker strip is 17 cells wide but its first/last cells are transparent
+    // margin (the word is centered within the strip)
+    (16, 6, 15, 2, "title kicker (FOSSICKERS strip)"),
     (0, 8, 22, 2, "furniture sprites (anvil..spawner)"),
     (22, 8, 2, 2, "pumpkin"),
-    (26, 8, 6, 2, "tall grass variants"),
+    (26, 8, 2, 2, "tall grass: tall stage"),
+    (28, 9, 2, 1, "tall grass: small stage (ground row only)"),
+    (30, 8, 2, 2, "tall grass: medium stage"),
     (0, 10, 11, 1, "furniture item icons"),
+    (11, 10, 7, 1, "forage/food icons"),
     (0, 11, 1, 1, "splash cell A"),
     (3, 11, 1, 1, "splash cell B"),
-    (11, 11, 2, 2, "grave stone"),
-    (13, 11, 2, 2, "broken grave stone"),
+    (11, 11, 2, 2, "grave stone (slab)"),
+    (13, 11, 2, 2, "broken grave stone (rubble)"),
+    (15, 11, 2, 2, "grave: rounded headstone"),
+    (17, 11, 2, 2, "grave: stone cross"),
+    (19, 11, 2, 2, "grave: cracked slab"),
+    (21, 11, 2, 2, "grave: rubble variant"),
+    (23, 11, 2, 2, "grave: wooden cross"),
+    (25, 11, 2, 2, "grave: broken wooden cross"),
     // -- UI --
     (0, 12, 4, 1, "heart/stamina/hunger/armor icons"),
     (5, 12, 1, 1, "smash particle"),
@@ -119,6 +138,12 @@ const INVENTORY: &[(i32, i32, i32, i32, &str)] = &[
     (4, 25, 3, 3, "stone wall sparse"),
     (7, 24, 2, 2, "stone wall sides"),
     (30, 30, 1, 1, "missing texture"),
+    // -- flora (rows 26-29) --
+    (0, 26, 4, 3, "pine + dead tree species sets"),
+    (7, 26, 8, 3, "willow/palm/flat-crown/snow-pine species sets"),
+    (15, 26, 16, 2, "decor flora (berry bushes..jack-o-lantern)"),
+    (15, 28, 4, 2, "mushroom + dry bush"),
+    (19, 28, 12, 2, "species tree shape variants B"),
 ];
 
 /// `Font::CHARS` prefix that is actually renderable (text is uppercased before drawing).
@@ -175,6 +200,10 @@ fn palette_cells_stay_grayscale() {
     // true-color pixels
     let must_be_gray: &[(i32, i32, i32, i32, &str)] = &[
         (0, 0, 4, 1, "dots"),
+        (22, 0, 8, 1, "grass/sand textures"),
+        (13, 3, 4, 1, "snow texture"),
+        (21, 3, 8, 1, "dirt/stone textures"),
+        (24, 1, 2, 2, "mud block"),
         (4, 0, 3, 3, "rock sparse"),
         (7, 0, 2, 2, "rock sides"),
         (11, 0, 6, 3, "grass/water sparse"),
@@ -187,6 +216,8 @@ fn palette_cells_stay_grayscale() {
         (0, 5, 8, 1, "tools"),
         (8, 5, 4, 1, "reserved crafting icons"),
         (13, 5, 4, 1, "arrows"),
+        (22, 5, 4, 1, "weapon icons"),
+        (11, 10, 7, 1, "food icons"),
         (2, 8, 2, 2, "chest"),
         (10, 8, 2, 2, "lantern"),
         (20, 8, 2, 2, "spawner"),
@@ -234,6 +265,12 @@ fn scenery_cells_are_true_color() {
         (14, 8, "tnt"),
         (11, 11, "grave stone"),
         (22, 1, "quicksand"),
+        (16, 6, "FOSSICKERS kicker"),
+        (0, 26, "pine tree"),
+        (15, 26, "berry bush"),
+        (23, 11, "wooden cross grave"),
+        (15, 28, "mushroom tile"),
+        (19, 28, "pine variant B"),
     ] {
         assert!(
             has_true_color(&s, cx, cy),

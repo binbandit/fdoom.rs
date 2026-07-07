@@ -4,13 +4,14 @@
 //! hitting a bare bush tears it out.
 //!
 //! Per-tile data byte: 0 = ripe (freshly generated chunks are ripe for free, since
-//! chunk data bytes default to 0), 1 = picked/regrowing.
+//! chunk data bytes default to 0), 1 = picked/regrowing. Art: dedicated ripe/picked
+//! blocks from artgen `flora_cells` ((15,26)/(17,26)).
 
 use super::{TileDef, TileKind, dispatch};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::{Direction, Entity};
-use crate::gfx::{Screen, Sprite, color};
+use crate::gfx::{Screen, Sprite};
 use crate::level::{drop_item, drop_items_counted};
 
 /// Ripe when the data byte is 0 (see module docs).
@@ -18,15 +19,14 @@ pub const DATA_RIPE: i32 = 0;
 /// Picked; random ticks roll it back to ripe.
 pub const DATA_REGROWING: i32 = 1;
 
-/// Bush body. TODO(art): final cells — reuses the tall-grass cell (26,8) for now.
-fn bush() -> Sprite {
-    Sprite::new(26, 8, 2, 2, color::get4(-1, 10, 30, 41), 0)
+/// Ripe bush (artgen `flora_cells` (15,26)): green shrub studded with red berries.
+fn bush_ripe() -> Sprite {
+    Sprite::new(15, 26, 2, 2, 0, 0)
 }
 
-/// Ripe-berry overlay: sparse specks recolored red (dots convention: shade2 = specks).
-/// TODO(art): final cells — dedicated berry clusters.
-fn berries() -> Sprite {
-    Sprite::dots(color::get4(-1, -1, 400, -1))
+/// Picked bush (artgen `flora_cells` (17,26)): the same shrub, clearly bare.
+fn bush_picked() -> Sprite {
+    Sprite::new(17, 26, 2, 2, 0, 0)
 }
 
 pub fn make(name: &str) -> TileDef {
@@ -38,9 +38,10 @@ pub fn make(name: &str) -> TileDef {
 pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: i32, y: i32) {
     let grass = g.tiles.get("grass");
     dispatch::render(g, screen, &grass, lvl, x, y);
-    bush().render(screen, x * 16, y * 16);
     if g.level(lvl).get_data(x, y) == DATA_RIPE {
-        berries().render(screen, x * 16, y * 16);
+        bush_ripe().render(screen, x * 16, y * 16);
+    } else {
+        bush_picked().render(screen, x * 16, y * 16);
     }
 }
 

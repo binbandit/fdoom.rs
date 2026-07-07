@@ -13,8 +13,8 @@ use crate::item::{Item, ItemKind, ToolType};
 /// Java static `steppedOn` sprite.
 fn stepped_on_sprite() -> Sprite {
     let pixels = vec![
-        vec![Px::new(3, 1, 0), Px::new(1, 0, 0)],
-        vec![Px::new(1, 0, 0), Px::new(3, 1, 0)],
+        vec![Px::new(3, 1, 0), Px::new(14, 3, 0)],
+        vec![Px::new(15, 3, 0), Px::new(3, 1, 0)],
     ];
     // cool blue-gray prints so tracks read as compressed snow, not tan smudges
     Sprite::from_pixels(
@@ -47,12 +47,18 @@ pub fn make(name: &str) -> TileDef {
             ),
             3,
         ),
-        Sprite::dots(color::get4(
-            color::hex("#2c2c2c"),
-            color::hex("#ffffff"),
-            color::hex("#d3d3d3"),
-            321,
-        )),
+        // dedicated drift-and-glint texture (artgen `snow_texture`, cells 13..16,3):
+        // 1 = snow field, 2 = soft drift shading, 3 = deep drift edge / glints
+        Sprite::dots_at(
+            13,
+            3,
+            color::get4(
+                color::hex("#ffffff"),
+                color::hex("#ffffff"),
+                color::hex("#dde6f0"),
+                color::hex("#b9c8d8"),
+            ),
+        ),
     ));
     def.may_spawn = true;
     def.connects_to_snow = true;
@@ -84,12 +90,16 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         if stepped_on {
             cs.full = stepped_on_sprite();
         } else {
-            cs.full = Sprite::dots(color::get4(
-                color::hex("#2c2c2c"),
-                color::hex("#ffffff"),
-                color::hex("#d3d3d3"),
-                321,
-            ));
+            cs.full = Sprite::dots_at(
+                13,
+                3,
+                color::get4(
+                    color::hex("#ffffff"),
+                    color::hex("#ffffff"),
+                    color::hex("#dde6f0"),
+                    color::hex("#b9c8d8"),
+                ),
+            );
         }
     }
 

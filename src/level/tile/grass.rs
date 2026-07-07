@@ -17,7 +17,9 @@ pub fn make(name: &str) -> TileDef {
     // ConnectorSprite constructor already did.
     def.csprite = Some(ConnectorSprite::simple(
         Sprite::new(11, 0, 3, 3, color::get4(141, 141, 252, 240), 3),
-        Sprite::dots(color::get4(141, 141, 252, 240)),
+        // dedicated tufted-meadow texture (artgen `grass_texture`, cells 22..25,0):
+        // 1 = meadow base, 2 = light blade tips / mottle, 3 = dark blade shadows
+        Sprite::dots_at(22, 0, color::get4(141, 141, 252, 30)),
     ));
     def.connects_to_grass = true;
     def.may_spawn = true;

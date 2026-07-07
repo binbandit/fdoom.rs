@@ -38,25 +38,30 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let dl = g.tile_at(lvl, x - 1, y + 1).id == def.id;
     let dr = g.tile_at(lvl, x + 1, y + 1).id == def.id;
 
+    // frost-dusted snow-pine art block (artgen `flora_cells`, base (13,26)) — same
+    // six-cell corner-sampling as the broadleaf, so snowy woods merge into one roof
+    let (bx, by) = (13, 26);
+    let pos = |cx: i32, cy: i32| cx + cy * 32;
+
     if u && ul && l {
-        screen.render(x * 16, y * 16, 10 + 32, COL, 0);
+        screen.render(x * 16, y * 16, pos(bx, by + 2), COL, 0);
     } else {
-        screen.render(x * 16, y * 16, 9, COL, 0);
+        screen.render(x * 16, y * 16, pos(bx, by), COL, 0);
     }
     if u && ur && r {
-        screen.render(x * 16 + 8, y * 16, 10 + 2 * 32, bark_col2, 0);
+        screen.render(x * 16 + 8, y * 16, pos(bx + 1, by + 2), bark_col2, 0);
     } else {
-        screen.render(x * 16 + 8, y * 16, 10, COL, 0);
+        screen.render(x * 16 + 8, y * 16, pos(bx + 1, by), COL, 0);
     }
     if d && dl && l {
-        screen.render(x * 16, y * 16 + 8, 10 + 2 * 32, bark_col2, 0);
+        screen.render(x * 16, y * 16 + 8, pos(bx + 1, by + 2), bark_col2, 0);
     } else {
-        screen.render(x * 16, y * 16 + 8, 9 + 32, bark_col1, 0);
+        screen.render(x * 16, y * 16 + 8, pos(bx, by + 1), bark_col1, 0);
     }
     if d && dr && r {
-        screen.render(x * 16 + 8, y * 16 + 8, 10 + 32, COL, 0);
+        screen.render(x * 16 + 8, y * 16 + 8, pos(bx, by + 2), COL, 0);
     } else {
-        screen.render(x * 16 + 8, y * 16 + 8, 10 + 3 * 32, bark_col2, 0);
+        screen.render(x * 16 + 8, y * 16 + 8, pos(bx + 1, by + 1), bark_col2, 0);
     }
 }
 

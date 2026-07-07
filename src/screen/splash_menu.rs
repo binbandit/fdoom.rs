@@ -52,28 +52,37 @@ impl Display for SplashMenu {
     }
 
     fn render(&mut self, screen: &mut Screen, _g: &mut Game) {
-        // The flyover world is already on screen (clear_screen=false); fade the logo in
-        // by stepping its shade with time.
+        // The flyover world is already on screen (clear_screen=false). The title lockup
+        // is true-color sheet art (artgen `logo`), so instead of a palette fade the two
+        // strips are revealed in beats: kicker first, then the DOOM wordmark.
         let t = self.tickc.min(60);
-        let shade = match t {
-            0..=14 => 111,
-            15..=29 => 222,
-            30..=44 => 333,
-            _ => 444,
-        };
-        let logo_shade = color::get4(-1, 0, shade, 500);
-        let (w, h) = (14, 2);
-        let xo = (crate::gfx::screen::W - w * 8) / 2;
-        let yo = 56;
-        font::draw_centered(
-            "* F O S S I C K E R S *",
-            screen,
-            yo - 8,
-            color::get(-1, 500),
-        );
-        for y in 0..h {
-            for x in 0..w {
-                screen.render(xo + x * 8, yo + y * 8, x + (y + 6) * 32, logo_shade, 0);
+        let logo_color = color::get4(-1, 0, 333, 500);
+        let kicker_w = 17; // "FOSSICKERS" strip, cells (15..31,6..7)
+        let doom_w = 15; // "DOOM" strip, cells (0..14,6..7)
+        let kicker_x = (crate::gfx::screen::W - kicker_w * 8) / 2;
+        let kicker_y = 48;
+        let doom_x = (crate::gfx::screen::W - doom_w * 8) / 2;
+        let doom_y = kicker_y + 18;
+        for y in 0..2 {
+            for x in 0..kicker_w {
+                screen.render(
+                    kicker_x + x * 8,
+                    kicker_y + y * 8,
+                    15 + x + (y + 6) * 32,
+                    logo_color,
+                    0,
+                );
+            }
+            if t >= 15 {
+                for x in 0..doom_w {
+                    screen.render(
+                        doom_x + x * 8,
+                        doom_y + y * 8,
+                        x + (y + 6) * 32,
+                        logo_color,
+                        0,
+                    );
+                }
             }
         }
         if t >= 45 {

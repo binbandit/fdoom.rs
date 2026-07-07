@@ -449,7 +449,8 @@ connector-sparse blobs parameterized by radius/inks/seed, used by rock/grass/wat
 connectors; `sides16` for rock/cloud/wall "sides" blocks; `icon8`/`item_icon`/`center8` for
 auto-centered 8x8 inventory icons; `spr16`/`tc16` generic 16x16 palette/true-color
 painters; `frame16`, the 16x16 ASCII-art painter used for every mob frame — the player/suit/carry
-sets are pixel-for-pixel transcriptions of the original Java sheet (`assets/icons.png`),
+sets are pixel-for-pixel transcriptions of the original Java sheet (`icons.png`,
+removed after tracing — see git history),
 and `marsh_lurker`, `pig`, `knight`, `feral_hound`, `cow`, `stone_golem`, `night_wisp`,
 `sheep`, `snake`, `glow_worm` each have their own recipe; the old `humanoid` head+body
 composer was retired with the traced player art), plus per-tile-family functions (`wool_cell`, `cloud_full_cells`, `farm_cell`,

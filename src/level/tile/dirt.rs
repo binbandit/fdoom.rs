@@ -23,13 +23,15 @@ pub fn d_col(depth: i32) -> i32 {
 /// Java `DirtTile.getColor(depth)`.
 fn get_color(depth: i32) -> i32 {
     let dcol = d_col(depth);
-    color::get4(dcol, dcol, dcol - 111, dcol - 111)
+    // 0 = lit clod tops, 1 = soil base, 2 = clod under-shadow, 3 = stones
+    color::get4(dcol + 111, dcol, dcol - 111, dcol - 111)
 }
 
 /// Java `DirtTile` constructor.
 pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::Dirt);
-    def.sprite = Some(Sprite::dots(get_color(0)));
+    // dedicated clods-and-stones texture (artgen `dirt_texture`, cells 21..24,3)
+    def.sprite = Some(Sprite::dots_at(21, 3, get_color(0)));
     def.may_spawn = true;
     def
 }

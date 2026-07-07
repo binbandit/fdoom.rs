@@ -31,15 +31,16 @@ pub fn make_fruiting(name: &str) -> TileDef {
 pub fn fruiting_render(
     g: &mut Game,
     screen: &mut Screen,
-    def: &TileDef,
+    _def: &TileDef,
     lvl: usize,
     x: i32,
     y: i32,
 ) {
-    render(g, screen, def, lvl, x, y);
-    // Ripe fruit: sparse specks recolored red over the cactus body (dots convention:
-    // shade2 = specks). TODO(art): final cells — dedicated fruiting-cactus art.
-    Sprite::dots(color::get4(-1, -1, 400, -1)).render(screen, x * 16, y * 16);
+    let sand = g.tiles.get("sand");
+    dispatch::render(g, screen, &sand, lvl, x, y);
+    // dedicated fruiting-saguaro art (artgen `flora_cells` (25,26)): staggered arms
+    // carrying coral-pink fruit — true color, distinct from the plain cactus
+    Sprite::new(25, 26, 2, 2, 0, 0).render(screen, x * 16, y * 16);
 }
 
 /// A hit knocks the fruit loose; the tile becomes a plain Cactus with the same

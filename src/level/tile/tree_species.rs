@@ -3,10 +3,10 @@
 //! same damage-in-data-byte accounting — but differ in base ground tile, canopy palette,
 //! health, and drops. The classic broadleaf stays `TileKind::Tree` in `tree.rs`.
 //!
-//! TODO(art): final cells — every species currently reuses the broadleaf canopy cells
-//! (9/10 + rows) with a species palette; the true-color tree art ignores palettes, so
-//! until the art agent lands dedicated cells the species read mostly via their base
-//! ground (snow under pines, sand under palms/dead trees) plus the Dead Tree's darken.
+//! Each species has its own dedicated true-color cell set (artgen `flora_cells`,
+//! rows 26..=28): a 2x3 block of [TL, TR / BL, BR standalone quarters / fill,
+//! knot-fill] — the same six roles the broadleaf samples — so adjacent trees merge
+//! into one connected woodland roof exactly like `tree.rs` does.
 
 use super::{TileDef, TileKind, TreeSpecies, dispatch};
 use crate::core::game::Game;
@@ -23,12 +23,16 @@ struct Info {
     /// Tile the species stands on (rendered under the canopy, restored when felled).
     base: &'static str,
     health: i32,
-    /// Canopy / bark palettes, mirroring `tree.rs`'s COL/COL1/COL2 roles.
+    /// Canopy / bark palettes, mirroring `tree.rs`'s COL/COL1/COL2 roles. The
+    /// dedicated species art is true color, so these only tint the rare palette
+    /// pixel; they are kept for compatibility.
     col: i32,
     col1: i32,
     col2: i32,
-    /// Extra full-tile darken (Dead Tree only) so snags read even with shared art.
+    /// Extra full-tile darken (was used while the Dead Tree shared broadleaf art).
     darken: i32,
+    /// Base cell (bx, by) of the species' 2x3 art block on the sheet.
+    art: (i32, i32),
 }
 
 fn info(species: TreeSpecies) -> Info {
@@ -40,6 +44,7 @@ fn info(species: TreeSpecies) -> Info {
             col1: color::get4(10, 20, 430, -1),
             col2: color::get4(10, 20, 320, -1),
             darken: 0,
+            art: (0, 26),
         },
         TreeSpecies::Dead => Info {
             base: "sand",
@@ -47,7 +52,8 @@ fn info(species: TreeSpecies) -> Info {
             col: color::get4(110, 211, 322, -1),
             col1: color::get4(110, 211, 430, -1),
             col2: color::get4(110, 211, 320, -1),
-            darken: 48,
+            darken: 0,
+            art: (2, 26),
         },
         TreeSpecies::Willow => Info {
             base: "grass",
@@ -56,6 +62,7 @@ fn info(species: TreeSpecies) -> Info {
             col1: color::get4(10, 41, 430, -1),
             col2: color::get4(10, 41, 320, -1),
             darken: 0,
+            art: (7, 26),
         },
         TreeSpecies::Palm => Info {
             base: "sand",
@@ -64,6 +71,7 @@ fn info(species: TreeSpecies) -> Info {
             col1: color::get4(20, 40, 541, -1),
             col2: color::get4(20, 40, 431, -1),
             darken: 0,
+            art: (9, 26),
         },
         TreeSpecies::FlatCrown => Info {
             base: "grass",
@@ -72,6 +80,7 @@ fn info(species: TreeSpecies) -> Info {
             col1: color::get4(10, 30, 430, -1),
             col2: color::get4(10, 30, 320, -1),
             darken: 0,
+            art: (11, 26),
         },
     }
 }
@@ -108,25 +117,31 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let dl = g.tile_at(lvl, x - 1, y + 1).same_tile(def);
     let dr = g.tile_at(lvl, x + 1, y + 1).same_tile(def);
 
+    // species art block: TL/TR/BL/BR standalone quarters, fill, knot-fill (see
+    // module docs); fully-surrounded corners swap in the fill cells so canopies of
+    // adjacent trees merge into one roof
+    let (bx, by) = inf.art;
+    let pos = |cx: i32, cy: i32| cx + cy * 32;
+
     if u && ul && l {
-        screen.render(x * 16, y * 16, 10 + 32, inf.col, 0);
+        screen.render(x * 16, y * 16, pos(bx, by + 2), inf.col, 0);
     } else {
-        screen.render(x * 16, y * 16, 9, inf.col, 0);
+        screen.render(x * 16, y * 16, pos(bx, by), inf.col, 0);
     }
     if u && ur && r {
-        screen.render(x * 16 + 8, y * 16, 10 + 2 * 32, inf.col2, 0);
+        screen.render(x * 16 + 8, y * 16, pos(bx + 1, by + 2), inf.col2, 0);
     } else {
-        screen.render(x * 16 + 8, y * 16, 10, inf.col, 0);
+        screen.render(x * 16 + 8, y * 16, pos(bx + 1, by), inf.col, 0);
     }
     if d && dl && l {
-        screen.render(x * 16, y * 16 + 8, 10 + 2 * 32, inf.col2, 0);
+        screen.render(x * 16, y * 16 + 8, pos(bx + 1, by + 2), inf.col2, 0);
     } else {
-        screen.render(x * 16, y * 16 + 8, 9 + 32, inf.col1, 0);
+        screen.render(x * 16, y * 16 + 8, pos(bx, by + 1), inf.col1, 0);
     }
     if d && dr && r {
-        screen.render(x * 16 + 8, y * 16 + 8, 10 + 32, inf.col, 0);
+        screen.render(x * 16 + 8, y * 16 + 8, pos(bx, by + 2), inf.col, 0);
     } else {
-        screen.render(x * 16 + 8, y * 16 + 8, 10 + 3 * 32, inf.col2, 0);
+        screen.render(x * 16 + 8, y * 16 + 8, pos(bx + 1, by + 1), inf.col2, 0);
     }
     if inf.darken > 0 {
         screen.darken_rect(x * 16, y * 16, 16, 16, inf.darken);

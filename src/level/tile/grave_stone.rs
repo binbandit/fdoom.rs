@@ -19,7 +19,31 @@ use crate::item::Item;
 // night zombie".
 const FLAG_SET: i32 = 1;
 
-/// Java static `sprite` (unbroken).
+/// Standing marker shapes (artgen `gravestone_cells`, all 2x2 true-color blocks on
+/// sheet rows 11..=12): slab, rounded headstone, stone cross, cracked slab, wooden
+/// cross — cemeteries mix stone and wood markers.
+const STANDING: [(i32, i32); 5] = [(11, 11), (15, 11), (17, 11), (19, 11), (23, 11)];
+/// Crumbled shapes: two stone rubble piles + the collapsed wooden cross.
+const BROKEN_STONE: [(i32, i32); 2] = [(13, 11), (21, 11)];
+const BROKEN_WOOD: (i32, i32) = (25, 11);
+
+/// Deterministic per-position shape pick, stable across frames and saves. A broken
+/// grave keeps its standing shape's material: the position that picked the wooden
+/// cross crumbles into the collapsed wooden cross.
+fn shape(x: i32, y: i32, broken: bool) -> (i32, i32) {
+    let h = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)).unsigned_abs();
+    let standing_ix = (h % STANDING.len() as u32) as usize;
+    if !broken {
+        STANDING[standing_ix]
+    } else if standing_ix == STANDING.len() - 1 {
+        BROKEN_WOOD
+    } else {
+        BROKEN_STONE[(h / 7 % BROKEN_STONE.len() as u32) as usize]
+    }
+}
+
+/// Java static `sprite` (unbroken). The item/tile-list icon keeps the classic slab;
+/// in-world rendering varies the shape per position (see `render`).
 fn sprite() -> Sprite {
     Sprite::new(
         11,
@@ -29,11 +53,6 @@ fn sprite() -> Sprite {
         color::get4(-1, 300, color::rgb(60, 63, 65), 550),
         0,
     )
-}
-
-/// Java static `broken` sprite.
-fn broken_sprite() -> Sprite {
-    Sprite::new(13, 11, 2, 2, color::get4(-1, 300, 300, 300), 0)
 }
 
 /// Java `GraveStoneTile` constructor.
@@ -52,26 +71,10 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let grass = g.tiles.get("grass");
     dispatch::render(g, screen, &grass, lvl, x, y);
 
-    if !broken {
-        sprite().render_color(
-            screen,
-            x * 16,
-            y * 16,
-            color::get4(
-                -1,
-                color::hex("#515151"),
-                color::hex("#808080"),
-                color::hex("#515151"),
-            ),
-        );
-    } else {
-        broken_sprite().render_color(
-            screen,
-            x * 16,
-            y * 16,
-            color::get4(-1, color::hex("#515151"), color::hex("#808080"), 321),
-        );
-    }
+    let (cx, cy) = shape(x, y, broken);
+    // the marker art is true color; the palette word is inert and kept only for the
+    // render call shape
+    Sprite::new(cx, cy, 2, 2, 0, 0).render(screen, x * 16, y * 16);
 }
 
 pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {

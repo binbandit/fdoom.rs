@@ -23,14 +23,13 @@ pub fn make(name: &str) -> TileDef {
 pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: i32, y: i32) {
     let sand = g.tiles.get("sand");
     dispatch::render(g, screen, &sand, lvl, x, y);
-    // Twiggy dry tuft. TODO(art): final cells — reuses the wheat stalk cell (4,3)
-    // recolored to dry browns for now (wheat shades: 0 = soil, 1 = ridge — both
-    // transparent here; 2 = stalks, 3 = heads).
+    // Dedicated tumbleweed skeleton (artgen `flora_cells` (17,28)) — true color, the
+    // palette is ignored.
     let col = color::get4(-1, -1, 321, 210);
-    screen.render(x * 16, y * 16, 4 + 3 * 32, col, 0);
-    screen.render(x * 16 + 8, y * 16, 4 + 3 * 32, col, 1);
-    screen.render(x * 16, y * 16 + 8, 4 + 3 * 32, col, 2);
-    screen.render(x * 16 + 8, y * 16 + 8, 4 + 3 * 32, col, 3);
+    screen.render(x * 16, y * 16, 17 + 28 * 32, col, 0);
+    screen.render(x * 16 + 8, y * 16, 18 + 28 * 32, col, 0);
+    screen.render(x * 16, y * 16 + 8, 17 + 29 * 32, col, 0);
+    screen.render(x * 16 + 8, y * 16 + 8, 18 + 29 * 32, col, 0);
 }
 
 #[allow(clippy::too_many_arguments)]

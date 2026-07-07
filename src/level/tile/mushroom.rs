@@ -8,13 +8,13 @@ use super::{TileDef, TileKind, dispatch};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::{Direction, Entity};
-use crate::gfx::{Screen, Sprite, color};
+use crate::gfx::{Screen, Sprite};
 use crate::level::drop_item;
 
-/// Cap cluster. TODO(art): final cells — reuses the ore-nub cell (17,1) recolored
-/// red/white for now (shade 0 = ground, transparent here).
+/// Dedicated mushroom art (artgen `flora_cells` (15,28)): classic red cap on a pale
+/// stem — true color, the palette is ignored.
 fn caps() -> Sprite {
-    Sprite::new(17, 1, 2, 2, color::get4(-1, 300, 500, 554), 0)
+    Sprite::new(15, 28, 2, 2, 0, 0)
 }
 
 fn base_name(g: &Game, lvl: usize) -> &'static str {

@@ -13,15 +13,17 @@ use crate::level::drop_item;
 /// Java `SandTile.steppedOn` (the static footprint sprite).
 fn stepped_on_sprite() -> Sprite {
     let pixels = vec![
-        vec![Px::new(3, 1, 0), Px::new(1, 0, 0)],
-        vec![Px::new(1, 0, 0), Px::new(3, 1, 0)],
+        vec![Px::new(3, 1, 0), Px::new(27, 0, 0)],
+        vec![Px::new(28, 0, 0), Px::new(3, 1, 0)],
     ];
     Sprite::from_pixels(pixels, color::get4(552, 550, 440, 440))
 }
 
 /// Java `SandTile.normal`.
 fn normal_sprite() -> Sprite {
-    Sprite::dots(color::get4(552, 550, 440, 440))
+    // dedicated dune-ripple texture (artgen `sand_texture`, cells 26..29,0):
+    // 0 = sunlit crest, 1 = sand base, 2/3 = ripple shadow
+    Sprite::dots_at(26, 0, color::get4(552, 550, 440, 440))
 }
 
 /// Java `SandTile` constructor.

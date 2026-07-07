@@ -8,19 +8,19 @@ use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::behavior::can_swim;
 use crate::entity::{Direction, Entity};
-use crate::gfx::{Screen, Sprite, color};
+use crate::gfx::{Screen, Sprite};
 use crate::level::drop_items_counted;
 
 /// Swaying fronds. TODO(art): final cells — reuses the tall-grass cell (26,8) over
 /// water for now.
 fn fronds() -> Sprite {
-    Sprite::new(26, 8, 2, 2, color::get4(-1, 20, 30, 41), 0)
+    Sprite::new(21, 26, 2, 2, 0, 0)
 }
 
 /// Coral heads. TODO(art): final cells — reuses the ore-nub cell (17,1) recolored
 /// pink/orange for now (shade 0 = ground, transparent here).
 fn heads() -> Sprite {
-    Sprite::new(17, 1, 2, 2, color::get4(-1, 410, 520, 531), 0)
+    Sprite::new(23, 26, 2, 2, 0, 0)
 }
 
 fn make_base(name: &str, kind: TileKind) -> TileDef {

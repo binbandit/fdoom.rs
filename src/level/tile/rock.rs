@@ -25,7 +25,9 @@ pub fn make(name: &str) -> TileDef {
     def.csprite = Some(ConnectorSprite::new(
         Sprite::new(4, 0, 3, 3, color::get4(111, 444, 555, 321), 3),
         Sprite::new(7, 0, 2, 2, color::get4(111, 444, 555, 321), 3),
-        Sprite::dots(color::get4(444, 444, 333, 333)),
+        // dedicated fractured-plate texture (artgen `stone_texture`, cells 25..28,3):
+        // 0 = lit plate edges, 1 = stone face, 2 = cracks, 3 = deep pits
+        Sprite::dots_at(25, 3, color::get4(555, 444, 333, 111)),
     ));
     def
 }

@@ -64,6 +64,19 @@
 //!   of the old Creeper block. The old AirWizard (8,14), Skeleton (8,16), and Slime
 //!   (0,18) blocks were reused for the Marsh Lurker, Feral Hound, and Stone Golem.
 //!
+//! # Art-wave additions (see the per-recipe docs for exact roles)
+//!
+//! - Title lockup: DOOM strip (0..14,6..7), FOSSICKERS kicker strip (15..31,6..7).
+//! - Per-material terrain textures (`Sprite::dots_at` reads 4 cells in a row as one
+//!   16x16 tile): grass (22..25,0), sand (26..29,0), snow (13..16,3),
+//!   dirt (21..24,3), stone (25..28,3); dedicated mud block (24..25,1..2).
+//! - Weapon icons (22..25,5): spear, crossbow, throwing knife, slingshot.
+//! - Food icons (11..17,10): berry, mushroom, cactus fruit, coconut, cooked meat,
+//!   jack-o-lantern, pumpkin.
+//! - Grave variety (rows 11..12): rounded (15,11), stone cross (17,11), cracked slab
+//!   (19,11), rubble B (21,11), wooden cross (23,11), broken wooden cross (25,11).
+//! - Flora rows 26..29: species tree sets + decor + variants (see `flora_cells`).
+//!
 //! Item icons are auto-centered in their 8x8 cell (`item_icon`/`center8`) so they all
 //! share the same bounding-box alignment in inventory lists and the HUD.
 //!
@@ -313,6 +326,9 @@ pub const PUMPK: Ink = rgb(224, 122, 48); // pumpkin body
 pub const PUMPK_DK: Ink = rgb(172, 84, 36); // pumpkin shade
 pub const GOLDEN: Ink = rgb(229, 181, 76); // seed heads / accents
 pub const MOSS: Ink = rgb(104, 141, 92); // gravestone moss
+pub const PINE_DK: Ink = rgb(36, 62, 44); // evergreen shadow / kelp
+pub const CORAL: Ink = rgb(222, 108, 122); // coral pink
+pub const CORAL_DK: Ink = rgb(168, 64, 88); // coral shadow
 
 /* ==============================  terrain  ============================== */
 
@@ -320,17 +336,35 @@ pub const MOSS: Ink = rgb(104, 141, 92); // gravestone moss
 /// Interior texture for dirt/grass/sand/water/lava/snow/hole/sky/etc — shade1 base with
 /// a few shade2 specks, full coverage. Each cell places its specks differently so the
 /// randomized picker gives a lively field.
+/// NOTE: these cells are shared by every "flat field" tile (dirt/grass/sand/snow/
+/// water/lava/rock/hole/sky), and several of those palettes leave shades 0 and 3
+/// hostile (snow's shade0 is near-black, its shade3 is dirt-brown) — so the texture
+/// must stay strictly shade1 (base) + shade2 (accent). shade2 is *lighter* than the
+/// base for grass/snow/water (mottle/sparkle/glints) and *darker* for sand/dirt
+/// (ripple shadows / clods), so the same strokes read material-appropriately.
 fn dots_cells(s: &mut Sheet) {
-    let speck_sets: [&[(i32, i32)]; 4] = [
-        &[(2, 2), (5, 5), (6, 1)],
-        &[(1, 5), (4, 2), (6, 6)],
-        &[(3, 6), (6, 3), (1, 1)],
-        &[(2, 4), (5, 1), (7, 6), (4, 6)],
+    // per-variant accents: short broken strokes (ripples/clod edges/drifts) + specks
+    let strokes: [&[(i32, i32, i32)]; 4] = [
+        // (x, y, len) of a horizontal dash with a 1px droop at the end
+        &[(1, 2, 3), (4, 6, 3)],
+        &[(3, 1, 3), (0, 5, 2)],
+        &[(4, 3, 3), (0, 7, 2)],
+        &[(2, 0, 2), (5, 4, 3)],
     ];
-    for (i, specks) in speck_sets.iter().enumerate() {
+    let speck_sets: [&[(i32, i32)]; 4] = [
+        &[(6, 0), (2, 4), (7, 5)],
+        &[(1, 3), (6, 6), (7, 0)],
+        &[(1, 1), (6, 5), (3, 6)],
+        &[(0, 2), (4, 2), (7, 7), (1, 6)],
+    ];
+    for i in 0..4usize {
         let mut c = cell(s, i as i32, 0);
         c.rect(0, 0, 8, 8, G1);
-        for &(x, y) in *specks {
+        for &(x, y, len) in strokes[i] {
+            c.hline(x, y, len, G2);
+            c.set(x + len, y + 1, G2); // drooping tail: reads organic, not gridded
+        }
+        for &(x, y) in speck_sets[i] {
             c.set(x, y, G2);
         }
     }
@@ -399,15 +433,67 @@ fn rock_connector(s: &mut Sheet) {
             }
         }
     }
+    // cracked facets: short shade0 fault lines across the dome, each with a shade2
+    // lit edge hugging its lower-right, so the face reads as split planes instead of
+    // a flat fill. (Shared with cloud, whose shade0 is a soft mid-gray — the cracks
+    // read as gentle creases there; keep them sparse.)
+    let cracks: &[&[(i32, i32)]] = &[
+        &[(9, 11), (10, 12), (11, 12), (12, 13)],
+        &[(16, 7), (16, 8), (17, 9)],
+        &[(6, 15), (7, 16), (8, 16)],
+        &[(15, 16), (16, 17), (17, 17)],
+    ];
+    for line in cracks {
+        for &(x, y) in *line {
+            if rounded_inside(x, y, 24, 24, 3, 7) {
+                c.set(x, y, G0);
+                if rounded_inside(x + 1, y + 1, 24, 24, 3, 7) {
+                    c.set(x + 1, y + 1, G2);
+                }
+            }
+        }
+    }
     let mut sd = cell(s, 7, 0);
     sides16(&mut sd, G1, G0, G3);
+    // matching hairline cracks on the sides/face block (kept clear of the center
+    // notch, which the connector logic owns)
+    for &(x, y) in &[(2, 3), (3, 4), (12, 11), (13, 12), (11, 2), (4, 13)] {
+        sd.set(x, y, G0);
+    }
 }
 
 /// Cells (11..13,0..2): grass/sand/snow sparse blob.
 /// Roles: 1 = interior, 2 = light fringe band, 3 = outside (dirt).
+///
+/// The four corner cells get a cleanup pass: the wobbled blob edge used to leave
+/// stray shade3 pixels ("outside" = dirt-brown for the sand/snow palettes) intruding
+/// into the turf, which showed up as brown corner nubs at biome borders. Those
+/// pixels are pulled back into the fringe/interior shades, and the corner wedge
+/// beyond the arc is softened with a fringe rim so the eroded corner fades out
+/// through grass-family shades instead of jumping straight to brown.
 fn grass_connector(s: &mut Sheet) {
     let mut c = cell(s, 11, 0);
     blob24(&mut c, 5, G3, &[G2, G1], 33);
+    for y in 0..24 {
+        for x in 0..24 {
+            // only the four 8x8 corner cells of the 3x3 block
+            let corner = (x < 8 || x >= 16) && (y < 8 || y >= 16);
+            if !corner {
+                continue;
+            }
+            if rounded_inside(x, y, 24, 24, 0, 5) {
+                // inside the nominal arc: no brown allowed — wobble strays become turf
+                if c.s.get(c.ox + x, c.oy + y) == G3 {
+                    c.set(x, y, G2);
+                }
+            } else if rounded_inside(x, y, 24, 24, -1, 5) {
+                // 1px rim just beyond the arc: eroded fringe crumbs, not hard dirt
+                if speck(x, y, 34, 2) {
+                    c.set(x, y, G2);
+                }
+            }
+        }
+    }
 }
 
 /// Cells (14..16,0..2): water/lava/hole sparse blob.
@@ -415,6 +501,212 @@ fn grass_connector(s: &mut Sheet) {
 fn water_connector(s: &mut Sheet) {
     let mut c = cell(s, 14, 0);
     blob24(&mut c, 6, G3, &[G2, G2, G1], 47);
+}
+
+/* ==============  per-material terrain textures (dedicated cell rows)  ============== */
+
+/// A 16x16 scratch buffer committed to four consecutive row cells in `Sprite::dots`
+/// quadrant order (TL, TR, BL, BR) — the layout `Sprite::dots_at(base_cx, cy, col)`
+/// reads back as one 16x16 tile. Lets a texture be art-directed as a whole tile while
+/// stored in a single sheet row.
+struct T16 {
+    px: [[Ink; 16]; 16],
+}
+
+impl T16 {
+    fn new(base: Ink) -> T16 {
+        T16 {
+            px: [[base; 16]; 16],
+        }
+    }
+
+    fn set(&mut self, x: i32, y: i32, ink: Ink) {
+        if (0..16).contains(&x) && (0..16).contains(&y) {
+            self.px[y as usize][x as usize] = ink;
+        }
+    }
+
+    fn commit(&self, s: &mut Sheet, base_cx: i32, cy: i32) {
+        for (i, (ox, oy)) in [(0, 0), (8, 0), (0, 8), (8, 8)].iter().enumerate() {
+            let mut c = cell(s, base_cx + i as i32, cy);
+            for y in 0..8 {
+                for x in 0..8 {
+                    c.set(x, y, self.px[(oy + y) as usize][(ox + x) as usize]);
+                }
+            }
+        }
+    }
+}
+
+/// Cells (22..25,0): GRASS — layered short-blade tufting with 2-tone mottling.
+/// Wired via `Sprite::dots_at(22, 0, color::get4(141, 141, 252, 30))`:
+/// 1 = meadow base, 2 = light blade tips / mottle, 3 = dark blade shadows.
+fn grass_texture(s: &mut Sheet) {
+    let mut t = T16::new(G1);
+    // soft light mottle patches first (under the tufts)
+    for &(x, y) in &[
+        (4, 3),
+        (5, 3),
+        (5, 4),
+        (12, 10),
+        (13, 10),
+        (12, 11),
+        (1, 14),
+    ] {
+        t.set(x, y, G2);
+    }
+    // tufts: two dark blades + a light tip blade, staggered in loose diagonal drifts
+    let tufts = [
+        (1, 1),
+        (7, 0),
+        (12, 2),
+        (3, 5),
+        (9, 6),
+        (13, 7),
+        (0, 9),
+        (5, 10),
+        (11, 9),
+        (2, 13),
+        (8, 13),
+        (13, 12),
+    ];
+    for &(x, y) in &tufts {
+        t.set(x, y, G3);
+        t.set(x, y + 1, G3);
+        t.set(x + 1, y + 1, G3);
+        t.set(x + 2, y, G2);
+    }
+    t.commit(s, 22, 0);
+}
+
+/// Cells (26..29,0): SAND — flowing dune ripple lines every 4 rows (they tile
+/// seamlessly across cells), each with a lit crest above and loose grains between.
+/// Wired via `Sprite::dots_at(26, 0, color::get4(552, 550, 440, 440))`:
+/// 0 = sunlit crest, 1 = sand base, 2/3 = ripple shadow.
+fn sand_texture(s: &mut Sheet) {
+    let mut t = T16::new(G1);
+    // each ripple: base row + per-x dip mask (1 = ride 1px higher) — masks chosen so
+    // the wave phase drifts between rows
+    let ripples: [(i32, u16); 4] = [
+        (2, 0b0001_1100_0000_0111),
+        (6, 0b1100_0000_1110_0000),
+        (10, 0b0000_0111_0000_0011),
+        (14, 0b0011_1000_0001_1100),
+    ];
+    for &(base_y, mask) in &ripples {
+        for x in 0..16 {
+            let y = base_y - ((mask >> (15 - x)) & 1) as i32;
+            t.set(x, y, G3);
+            t.set(x, y - 1, G0);
+        }
+    }
+    // stray grains on the flats
+    for &(x, y) in &[(3, 4), (11, 3), (7, 8), (14, 12), (1, 12)] {
+        t.set(x, y, G3);
+    }
+    t.commit(s, 26, 0);
+}
+
+/// Cells (13..16,3): SNOW — wind-piled drift arcs and sparse glints on a bright
+/// field. Wired via `Sprite::dots_at(13, 3, ...)` with a cool palette
+/// (`get4(#ffffff, #ffffff, #dde6f0, #b9c8d8)`): 1 = snow, 2 = soft drift shading,
+/// 3 = deep drift edge / glint sparkle.
+fn snow_texture(s: &mut Sheet) {
+    let mut t = T16::new(G1);
+    // drift arcs: a shade2 curve with a shade3 undercut at the trailing tip
+    let drifts: [&[(i32, i32)]; 4] = [
+        &[(2, 3), (3, 3), (4, 3), (5, 4), (6, 4)],
+        &[(10, 7), (11, 7), (12, 6), (13, 6)],
+        &[(4, 11), (5, 11), (6, 12), (7, 12), (8, 12)],
+        &[(12, 14), (13, 14), (14, 13)],
+    ];
+    for arc in &drifts {
+        for &(x, y) in *arc {
+            t.set(x, y, G2);
+        }
+        let &(tx, ty) = arc.last().unwrap();
+        t.set(tx + 1, ty + 1, G3);
+    }
+    // lone glints
+    for &(x, y) in &[(9, 1), (1, 8), (14, 9), (7, 5), (3, 15)] {
+        t.set(x, y, G3);
+    }
+    t.commit(s, 13, 3);
+}
+
+/// Cells (21..24,3): DIRT — earth clods and small stones. Wired via
+/// `Sprite::dots_at(21, 3, ...)` with dirt.rs's depth palette
+/// (`get4(dcol+111, dcol, dcol-111, dcol-111)`): 0 = lit clod top, 1 = soil base,
+/// 2 = clod under-shadow, 3 = stones.
+fn dirt_texture(s: &mut Sheet) {
+    let mut t = T16::new(G1);
+    // clods: light arc up-left, shadow arc down-right, hollow center
+    let clods = [(2, 2), (10, 4), (5, 8), (12, 11), (1, 12)];
+    for &(x, y) in &clods {
+        t.set(x, y, G0);
+        t.set(x + 1, y, G0);
+        t.set(x, y + 1, G0);
+        t.set(x + 2, y + 1, G2);
+        t.set(x + 1, y + 2, G2);
+        t.set(x + 2, y + 2, G2);
+    }
+    // small stones: a dark chip with a lit corner
+    for &(x, y) in &[(7, 1), (14, 7), (8, 14), (3, 6)] {
+        t.set(x, y, G3);
+        t.set(x + 1, y, G3);
+        t.set(x, y - 1, G0);
+    }
+    t.commit(s, 21, 3);
+}
+
+/// Cells (25..28,3): STONE — fractured plates: a crack network with junction pits
+/// and lit plate edges. Wired via `Sprite::dots_at(25, 3, ...)` in rock.rs
+/// (`get4(555, 444, 333, 111)`): 0 = lit plate edge, 1 = stone face, 2 = crack,
+/// 3 = deep crack pits. Crack ends meet the tile edges at matching offsets so the
+/// network continues across tiles.
+fn stone_texture(s: &mut Sheet) {
+    let mut t = T16::new(G1);
+    let paths: [&[(i32, i32)]; 4] = [
+        // main fault: left edge (y6) to the center, then down and out the bottom (x5)
+        &[
+            (0, 6),
+            (1, 6),
+            (2, 6),
+            (3, 6),
+            (4, 7),
+            (5, 7),
+            (6, 8),
+            (7, 8),
+            (8, 8),
+            (8, 9),
+            (8, 10),
+            (7, 11),
+            (7, 12),
+            (6, 13),
+            (5, 14),
+            (5, 15),
+        ],
+        // branch: center out the right edge (y6)
+        &[(9, 8), (10, 7), (11, 7), (12, 6), (13, 6), (14, 6), (15, 6)],
+        // branch: up from the fault bend and out the top (x5)
+        &[(3, 5), (4, 4), (4, 3), (5, 2), (5, 1), (5, 0)],
+        // hairline loner
+        &[(11, 12), (12, 13), (13, 13), (14, 14)],
+    ];
+    for path in &paths {
+        for &(x, y) in *path {
+            t.set(x, y, G2);
+            // lit plate edge along the upper side of the crack
+            if y > 0 && t.px[(y - 1) as usize][x as usize] == G1 {
+                t.set(x, y - 1, G0);
+            }
+        }
+    }
+    // junction pits
+    for &(x, y) in &[(3, 6), (8, 8), (8, 9)] {
+        t.set(x, y, G3);
+    }
+    t.commit(s, 25, 3);
 }
 
 /// Cell (17,0): wool — curly fleece. 0 = curl shadows, 3 = fleece, 2 = softening.
@@ -474,23 +766,59 @@ fn farm_cell(s: &mut Sheet) {
 }
 
 /// Cell (3,1): the footprint stamp for stepped-on sand/snow (base matches the dots).
+/// Two clear boot prints on a walking offset: sole (toe cap, deep instep, ball) plus
+/// a separate heel dab. 2 = pressed rim, 3 = deepest part of the print (the sand and
+/// snow palettes both put their strongest press tone on shade3).
 fn footprint_cell(s: &mut Sheet) {
     let mut c = cell(s, 3, 1);
     c.rect(0, 0, 8, 8, G1);
-    c.set(6, 1, G2);
-    c.set(1, 6, G2);
     c.pat(
-        1,
-        1,
+        0,
+        0,
         &[
-            ".22...", //
-            "2332..", //
-            "2332..", //
-            ".22.2.", //
-            "...232", //
-            "....2.", //
+            ".22.....", // left toe cap
+            ".33.....", // left instep (deep)
+            ".33..22.", // right toe cap
+            ".22..33.", // left ball / right instep (deep)
+            ".....33.", //
+            ".22..22.", // left heel / right ball
+            "........", //
+            ".....22.", // right heel
         ],
         &[('2', G2), ('3', G3)],
+    );
+}
+
+/// Cells (24..25,1..2): DEDICATED MUD tile block (16x16, palette mode) — dark wet
+/// brown with puddle hollows and sheen specks. Drawn for the mud tile so it can stop
+/// rendering darkened dirt; not wired yet. Suggested wiring in `mud.rs`:
+/// `Sprite::new(24, 1, 2, 2, color::get4(100, 210, 321, 433), 0)` —
+/// roles: 0 = wet puddle hollows (darkest), 1 = mud base, 2 = drier clod ridges,
+/// 3 = sheen glints on the puddle rims.
+fn mud_cells(s: &mut Sheet) {
+    let mut c = cell(s, 24, 1);
+    c.pat(
+        0,
+        0,
+        &[
+            "1111211112111121", //
+            "1211100111211111", //
+            "1113000011121121", // puddle, upper-left (3 = glint on the rim)
+            "1211000112111111", //
+            "1121100121112211", //
+            "1111211111211121", //
+            "2111112111130111", // puddle, right
+            "1121111211000011", //
+            "1111211110000111", //
+            "1211112111003121", //
+            "1112111121111211", //
+            "1130011211121111", // puddle, lower-left
+            "1000001121211121", //
+            "1100011112111311", //
+            "1211121111212111", //
+            "1111211121111121", //
+        ],
+        PMAP,
     );
 }
 
@@ -989,17 +1317,18 @@ fn items_row4(s: &mut Sheet) {
         ".2......",
         "........",
     ]);
-    // (6,4) wheat sheaf (NOTE: the fence tile reuses this cell with an inverted
-    // palette; keep the art in shades 1-3 so the fence stays mostly readable)
+    // (6,4) wheat sheaf: three heavy heads over gathered stems (NOTE: the fence tile
+    // reuses this cell with an inverted palette; keep the art in shades 1-3 so the
+    // fence stays mostly readable)
     item_icon(s, 6, 4, &[
-        "....3...",
-        "...32.3.",
-        "..32232.",
-        "..2322..",
-        ".232.2..",
-        ".22.2...",
-        ".12.2...",
-        ".1.1....",
+        ".3..3..3",
+        ".3.33.3.",
+        "..3.33..",
+        "..2.2.2.",
+        "...222..",
+        "...122..",
+        "..2122..",
+        "..1.1.1.",
     ]);
     // (7,4) power glove
     item_icon(s, 7, 4, &[
@@ -1023,16 +1352,16 @@ fn items_row4(s: &mut Sheet) {
         "........",
         "........",
     ]);
-    // (9,4) apple: body 3, shaded side 2, stem 1
+    // (9,4) apple: body 3, shaded side 2, stem 1, leaf 2 off the stem
     item_icon(s, 9, 4, &[
-        "...1....",
-        "..31....",
-        ".33332..",
+        "....1.22",
+        "...1.22.",
+        ".333332.",
         "3333332.",
         "3333322.",
+        ".333322.",
         ".33322..",
         "..222...",
-        "........",
     ]);
     // (10,4) ore chunk (coal/iron/lapis/gold/slime ball)
     item_icon(s, 10, 4, &[
@@ -1124,14 +1453,14 @@ fn items_row4(s: &mut Sheet) {
     ]);
     // (18,4) torch item: INVERTED palette roles — flame 1(red)/2(orange), stick 3
     item_icon(s, 18, 4, &[
-        "...1....",
-        "..121...",
-        "..122...",
-        "...3....",
-        "...3....",
-        "...3....",
-        "...3....",
-        "........",
+        "....1...",
+        "...12...",
+        "..1221..",
+        "..1221..",
+        "...33...",
+        "...33...",
+        "...33...",
+        "...33...",
     ]);
     // (19,4) leather hide
     item_icon(s, 19, 4, &[
@@ -1210,14 +1539,15 @@ fn items_row4(s: &mut Sheet) {
         "....2...",
         ".....2..",
     ]);
-    // (26,4) key: shades 0 AND 1 are transparent for keys — art in 2-3 only
+    // (26,4) key: shades 0 AND 1 are transparent for keys — art in 2-3 only.
+    // Ring bow left, shaft right, two teeth hanging at the tip.
     item_icon(s, 26, 4, &[
         "........",
-        ".333....",
-        ".3.3....",
-        ".3332222",
-        "......2.",
-        ".....2.2",
+        ".33.....",
+        "3..32222",
+        "3..3.2.2",
+        ".33..2.2",
+        "........",
         "........",
         "........",
     ]);
@@ -1266,27 +1596,27 @@ fn items_row5(s: &mut Sheet) {
         "21......",
         "........",
     ]);
-    // (1,5) hoe
+    // (1,5) hoe: angled blade plate with thickness, handle diagonal
     icon8(s, 1, 5, &[
-        "....333.",
-        "...1..3.",
-        "...12.3.",
+        "...3333.",
+        "..13333.",
+        "..12.33.",
         "..12....",
         ".12.....",
+        ".12.....",
         "12......",
-        "21......",
-        "........",
+        "2.......",
     ]);
-    // (2,5) sword
+    // (2,5) sword: 2px blade with a proper crossguard and pommel
     icon8(s, 2, 5, &[
         "......33",
-        ".....33.",
-        "....33..",
-        ".1.33...",
-        "..133...",
-        "..21....",
-        ".2.1....",
-        "1.......",
+        ".....333",
+        "....333.",
+        ".1.333..",
+        "..1331..",
+        "..131...",
+        ".121....",
+        "12.1....",
     ]);
     // (3,5) pickaxe
     icon8(s, 3, 5, &[
@@ -1411,15 +1741,15 @@ fn items_row5(s: &mut Sheet) {
     ]);
 
     // ---- RESERVED crafting-overhaul icons (see fn doc) ----
-    // (8,5) FIBER: blade bundle 2, seed tips 3, tie band 1
+    // (8,5) FIBER: grass-blade bundle fanned at both ends, tie band 1 at the waist
     item_icon(s, 8, 5, &[
-        ".3.3.3..",
-        ".2.2.2..",
-        ".2.2.2..",
-        ".11111..",
-        ".2.2.2..",
-        ".2.2.2..",
-        "........",
+        ".3..3.3.",
+        "..2.32..",
+        "..2322..",
+        "..1111..",
+        "..2322..",
+        ".232.2..",
+        ".2...2..",
         "........",
     ]);
     // (9,5) STICK: thick diagonal branch (3 = lit top, 2 = shadow), twig stub upper-left
@@ -1454,6 +1784,138 @@ fn items_row5(s: &mut Sheet) {
         "12221...",
         "1111....",
         "........",
+    ]);
+
+    // ---- NEW weapon icons (22..25,5) — not referenced by game code yet; tool-style
+    // shade roles (1 = outline/dark, 2 = wooden handle, 3 = head/tier metal) so the
+    // item owner can reuse the tool tier palettes. ----
+    // (22,5) SPEAR: leaf head top-right, lashing, long shaft
+    icon8(s, 22, 5, &[
+        "......33",
+        ".....333",
+        "....133.",
+        "...11...",
+        "..12....",
+        ".12.....",
+        "12......",
+        "2.......",
+    ]);
+    // (23,5) CROSSBOW: metal limbs 3, string 1, wooden stock 2, stirrup 1
+    icon8(s, 23, 5, &[
+        ".3....3.",
+        ".33..33.",
+        "..3333..",
+        ".112211.",
+        "...22...",
+        "...22...",
+        "...22...",
+        "...11...",
+    ]);
+    // (24,5) THROWING KNIFE: slim pointed blade, short wrapped grip
+    icon8(s, 24, 5, &[
+        "...3....",
+        "..331...",
+        "..331...",
+        "..331...",
+        "..111...",
+        "..221...",
+        "..221...",
+        "...1....",
+    ]);
+    // (25,5) SLINGSHOT: wooden fork 2, band 3 dipping to the pouch
+    icon8(s, 25, 5, &[
+        ".3....3.",
+        ".23..32.",
+        "..2332..",
+        "..2..2..",
+        "..2222..",
+        "...22...",
+        "...22...",
+        "...1....",
+    ]);
+}
+
+/// NEW forage/food icons, cells (11..17,10) — drawn for the flora/food work, not
+/// referenced by game code yet. Standard icon roles (1 = dark/outline, 2 = mid,
+/// 3 = light) so owners pick the hues per item.
+#[rustfmt::skip]
+fn food_icons(s: &mut Sheet) {
+    // (11,10) BERRY: fat berry with a shine + a small second berry
+    item_icon(s, 11, 10, &[
+        "...1....",
+        "..1.1...",
+        ".2332...",
+        "23332.1.",
+        "23322.32",
+        ".2222.22",
+        "..22....",
+        "........",
+    ]);
+    // (12,10) MUSHROOM: domed cap 2 with light spots 3, pale stalk 3
+    item_icon(s, 12, 10, &[
+        "..1111..",
+        ".123321.",
+        "12232221",
+        "12222321",
+        ".111111.",
+        "...33...",
+        "...33...",
+        "..3333..",
+    ]);
+    // (13,10) CACTUS FRUIT: prickly pear — leaning oval, tuft 1, spine specks 1
+    item_icon(s, 13, 10, &[
+        "....11..",
+        "..1331..",
+        ".13332..",
+        ".13322..",
+        "1.3222..",
+        ".2222.1.",
+        "..222...",
+        "...1....",
+    ]);
+    // (14,10) COCONUT: husked shell 2, three eyes 1, highlight 3
+    item_icon(s, 14, 10, &[
+        "..1111..",
+        ".132221.",
+        "13222221",
+        "12212121",
+        "12222221",
+        ".122221.",
+        "..1111..",
+        "........",
+    ]);
+    // (15,10) COOKED MEAT: glazed roast slab, grill marks 1, glaze shine 3
+    item_icon(s, 15, 10, &[
+        "........",
+        "..11111.",
+        ".1332321",
+        "12322321",
+        "12232221",
+        ".122221.",
+        "..1111..",
+        "........",
+    ]);
+    // (16,10) JACK-O-LANTERN: pumpkin 2, stem 1, lit triangle eyes + grin 3
+    item_icon(s, 16, 10, &[
+        "...11...",
+        ".111111.",
+        "12222221",
+        "12312321",
+        "12222221",
+        "12333321",
+        ".122221.",
+        "..1111..",
+    ]);
+    // (17,10) PUMPKIN (item): ribbed gourd 2 with rib lines 1, highlight 3
+    item_icon(s, 17, 10, &[
+        "...11...",
+        "..1111..",
+        ".132321.",
+        "13222321",
+        "13222321",
+        "12322321",
+        ".122321.",
+        "..1111..",
     ]);
 }
 
@@ -1763,8 +2225,11 @@ fn wall_cells(s: &mut Sheet) {
     sd.disc(8, 8, 4, G0);
 }
 
-/// Grave stones (true color, drawn over grass): (11..12,11..12) standing,
-/// (13..14,11..12) broken.
+/// Grave stones (true color, drawn over grass): (11..12,11..12) standing slab,
+/// (13..14,11..12) broken/rubble. Variety shapes (picked per tile position by
+/// `grave_stone.rs`), all 2x2 blocks on rows 11..=12: (15,11) rounded headstone,
+/// (17,11) stone cross, (19,11) cracked slab, (23,11) wooden cross — plus broken
+/// variants: (21,11) second stone rubble, (25,11) collapsed wooden cross.
 fn gravestone_cells(s: &mut Sheet) {
     let map: &[(char, Ink)] = &[
         ('o', OUT),
@@ -1822,6 +2287,171 @@ fn gravestone_cells(s: &mut Sheet) {
         ],
         map,
     );
+
+    // (15,11) rounded headstone: arched top, worn face
+    tc16(
+        s,
+        15,
+        11,
+        &[
+            "................",
+            ".....oooo.......",
+            "...oolllloo.....",
+            "..ollllllllo....",
+            "..olllllllmo....",
+            "..olddldllmo....",
+            "..olllllllmo....",
+            "..oldldldlmo....",
+            "..olllllllmo....",
+            "..olldldllmo....",
+            "..ogllllllmo....",
+            "..oglllllgmo....",
+            ".ogglllllggmo...",
+            ".okgggggggggo...",
+            "..ooooooooooo...",
+            "................",
+        ],
+        map,
+    );
+
+    // (17,11) stone cross on a mossy base
+    tc16(
+        s,
+        17,
+        11,
+        &[
+            "................",
+            ".....oooo.......",
+            "....olllmo......",
+            "....olllmo......",
+            "..oooolllmooo...",
+            ".ollllllllllmo..",
+            ".olmmmlllmmmmo..",
+            "..oooolllmooo...",
+            "....olllmo......",
+            "....olldmo......",
+            "....olldmo......",
+            "...oglllmgo.....",
+            "..ogglllllggo...",
+            ".okggggggggggo..",
+            "..oooooooooo....",
+            "................",
+        ],
+        map,
+    );
+
+    // (19,11) cracked slab: still standing, split by a zigzag fracture, chipped
+    // top-right corner
+    tc16(
+        s,
+        19,
+        11,
+        &[
+            "................",
+            "....ooooo.......",
+            "...ollllloo.....",
+            "..olllllllmo....",
+            "..olddlolllmo...",
+            "..olllollllmo...",
+            "..ollolldllmo...",
+            "..oldolllllmo...",
+            "..ollloldllmo...",
+            "..olldollllmo...",
+            "..oglllolllmo...",
+            "..ogllllolgmo...",
+            ".ogglllllogmo...",
+            ".okgggggggggo...",
+            "..ooooooooooo...",
+            "................",
+        ],
+        map,
+    );
+
+    // (21,11) rubble variant: a different collapse — leaning stump, strewn shards
+    tc16(
+        s,
+        21,
+        11,
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "........oo......",
+            "..oo...ollmo....",
+            ".olmo..olldo....",
+            ".ollmo..oldo....",
+            ".oglldo..oo.om..",
+            ".ogllldmo...oo..",
+            ".okgglllgo.oldo.",
+            "..ooggggggo.oo..",
+            "...ooooooo......",
+            "................",
+            "................",
+        ],
+        map,
+    );
+
+    // Wooden markers — weathered two-plank crosses, so cemeteries mix stone and wood.
+    let wood_map: &[(char, Ink)] = &[
+        ('o', OUT),
+        ('t', WOOD_LT),
+        ('w', WOOD_MD),
+        ('k', WOOD_DK),
+        ('g', MOSS),
+        ('x', LEAF_DK),
+    ];
+    // (23,11) standing wooden cross
+    tc16(
+        s,
+        23,
+        11,
+        &[
+            "................",
+            ".....oo.........",
+            "....otwo........",
+            "....otko........",
+            ".ooootkoooo.....",
+            "otttttkwwwko....",
+            "okkkktkkkkko....",
+            ".oooootkooo.....",
+            ".....otko.......",
+            ".....otko.......",
+            ".....otko.......",
+            "....ogtkgo......",
+            "...oggtkggo.....",
+            "..oxgggggggo....",
+            "...ooooooooo....",
+            "................",
+        ],
+        wood_map,
+    );
+    // (25,11) broken wooden cross: snapped post leaning, crossarm fallen at the base
+    tc16(
+        s,
+        25,
+        11,
+        &[
+            "................",
+            "................",
+            "................",
+            "........ow......",
+            ".......otko.....",
+            ".......otko.....",
+            "......otko......",
+            "......otko......",
+            ".....otko.......",
+            "....ogtkgo......",
+            "...oggkkggo.....",
+            "..oxggggggo.....",
+            ".ootttwkkoo.....",
+            ".okkkkkkkko.....",
+            "..oooooooo......",
+            "................",
+        ],
+        wood_map,
+    );
 }
 
 /// Cells (22..23,8..9): pumpkin (true color, drawn over grass).
@@ -1859,40 +2489,44 @@ fn pumpkin_cells(s: &mut Sheet) {
 }
 
 /// Cells (26..31,8..9): tall grass — tall (26), small (28), medium (30). True color,
-/// drawn over grass.
+/// drawn over grass. The three growth stages are deliberately unmistakable: small is
+/// a few pale sprouts hugging the ground, medium is knee-high mid-green tufts, tall
+/// is a dense full-height stand crowned with golden seed heads (only the tall stage
+/// has any gold, and each stage darkens the greens a step).
 fn tall_grass_cells(s: &mut Sheet) {
     let map: &[(char, Ink)] = &[
         ('d', LEAF_DK),
         ('m', LEAF_MD),
         ('l', LEAF_LT),
+        ('h', LEAF_HI),
         ('g', GOLDEN),
     ];
-    // tall: full-height fronds with golden seed heads
+    // TALL: dense, screen-filling blades, dark at the roots, golden heads on top
     tc16(
         s,
         26,
         8,
         &[
-            "..g.....g....g..",
-            "..l..g..l....l..",
-            ".ml..l.ml.g.ml..",
-            ".ml.ml..l.l..l..",
+            ".g...g..g....g..",
+            ".gl..g..lg...l..",
+            ".ml.gl.ml.g.mlg.",
+            ".ml.ml..l.lg.l..",
             ".dl.ml.ml.ml.ml.",
             ".dl.dl.ml.ml.ml.",
-            "..l.dl.dl.dl.dl.",
-            ".ml..l..l.dl.dl.",
-            ".ml.ml.ml..l..l.",
+            ".dl.dl.dl.dl.dl.",
+            ".ml.dl..l.dl.dl.",
+            ".ml.ml.ml.dl..l.",
             ".dl.ml.ml.ml.ml.",
             ".dl.dl.dl.ml.ml.",
-            "..d.dl.dl.dl.dl.",
+            ".dd.dl.dl.dl.dl.",
+            ".dd.dd.dd.dd.dd.",
             "..d..d..d..d..d.",
-            "................",
             "................",
             "................",
         ],
         map,
     );
-    // small: a few short tufts near the ground
+    // SMALL: a few short pale sprouts at ground level — clearly freshly grown
     tc16(
         s,
         28,
@@ -1904,20 +2538,20 @@ fn tall_grass_cells(s: &mut Sheet) {
             "................",
             "................",
             "................",
-            "....l........l..",
-            "....l...l....l..",
-            "...ml...l..ml...",
-            "...ml..ml..ml...",
-            "...dl.mdl..dl.l.",
-            "....d.dl....d.m.",
-            "......d.........",
             "................",
+            "................",
+            "................",
+            "....h......h....",
+            "...hl...h..hl...",
+            "...ll..hl..ll...",
+            "...ml..ll..ml.h.",
+            "....m..m....m.l.",
             "................",
             "................",
         ],
         map,
     );
-    // medium: knee-high tufts
+    // MEDIUM: knee-high mid-green tufts, no seed heads yet
     tc16(
         s,
         30,
@@ -1927,20 +2561,756 @@ fn tall_grass_cells(s: &mut Sheet) {
             "................",
             "................",
             "................",
+            "................",
+            "................",
             "..l....l....l...",
             ".ml...ml...ml...",
             ".ml.l.ml.l.ml...",
-            ".dl.m.dl.m.dl.l.",
+            ".ml.l.ml.l.ml.l.",
+            ".dl.m.dl.m.dl.m.",
             ".dl.m.dl.m.dl.m.",
             "..d.d..d.d..d.d.",
             "................",
             "................",
             "................",
+        ],
+        map,
+    );
+}
+
+/* ==========================  flora tiles (rows 26-28)  ========================== */
+
+/// NEW flora cells (true color, transparent background — the ground tile is drawn
+/// underneath), rows 26..=28.
+///
+/// **Species tree sets** — six cells each, 2 cols x 3 rows, the same six roles the
+/// broadleaf mechanism samples (`tree.rs` / `tree_species.rs` / `snow_tree.rs`):
+/// `(bx,by)` TL / `(bx+1,by)` TR / `(bx,by+1)` BL / `(bx+1,by+1)` BR standalone
+/// quarters, `(bx,by+2)` full canopy fill, `(bx+1,by+2)` fill with a bark knot.
+/// Standalone silhouettes are species-distinct (pine = tiered triangle, willow =
+/// drooping curtains, palm = curved trunk + frond burst, flat-crown = umbrella on a
+/// bare trunk, dead = bare forks); cluster interiors merge through the fill cells.
+/// Bases `(bx,by)`:
+///
+///   pine (0,26) | dead tree (2,26) | willow (7,26) | palm (9,26)
+///   flat-crown (11,26) | snow pine (13,26)
+///
+/// **Second shape variants** (standalone-only 2x2 blocks, rows 28..=29, for a
+/// position-hash pick on the tile side — not wired yet): pine B (19,28),
+/// dead B (21,28), willow B (23,28), palm B (25,28), flat-crown B (27,28),
+/// snow pine B (29,28).
+///
+/// **Other flora** (2x2 blocks): berry bush ripe (15,26) / picked (17,26),
+/// reed tuft (19,26), seaweed (21,26), coral (23,26), fruiting saguaro (25,26),
+/// barrel cactus (27,26), jack-o-lantern lit (29,26), mushroom (15,28),
+/// dry bush tumbleweed (17,28).
+///
+/// (Cells (4..6,25..27) in this region belong to the stone wall sparse blob.)
+fn flora_cells(s: &mut Sheet) {
+    /* ----- species trees ----- */
+
+    // Paint a hand-drawn 16x16 standalone tree and split it into 2x2 quarter cells
+    // at (bx, by) — silhouettes are the species identity, so these are drawn by
+    // hand instead of sharing a dome.
+    fn split16(s: &mut Sheet, bx: i32, by: i32, rows: &[&str; 16], map: &[(char, Ink)]) {
+        let mut px = [[TR; 16]; 16];
+        for (y, row) in rows.iter().enumerate() {
+            for (x, ch) in row.chars().enumerate() {
+                if let Some((_, ink)) = map.iter().find(|(c, _)| *c == ch) {
+                    px[y][x] = *ink;
+                }
+            }
+        }
+        for (qx, qy, ox, oy) in [(0, 0, 0, 0), (1, 0, 8, 0), (0, 1, 0, 8), (1, 1, 8, 8)] {
+            let mut c = cell(s, bx + qx, by + qy);
+            for y in 0..8i32 {
+                for x in 0..8i32 {
+                    let ink = px[(oy + y) as usize][(ox + x) as usize];
+                    if ink[3] != 0 {
+                        c.set(x, y, ink);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fill + knot-fill cells at (bx, by+2) from a texture closure (cluster interiors).
+    fn fill_cells(s: &mut Sheet, bx: i32, by: i32, tex: &dyn Fn(i32, i32) -> Ink) {
+        for knot in 0..2i32 {
+            let mut c = cell(s, bx + knot, by + 2);
+            for y in 0..8 {
+                for x in 0..8 {
+                    c.set(x, y, tex(x + 4, y + 2));
+                }
+            }
+            if knot == 1 {
+                c.pat(
+                    2,
+                    3,
+                    &[
+                        ".dd.", //
+                        "dbkd", //
+                        ".dd.", //
+                    ],
+                    &[('d', LEAF_DK), ('b', BARK), ('k', BARK_DK)],
+                );
+            }
+        }
+    }
+
+    let frost = rgb(236, 242, 250);
+    let frost_dim = rgb(205, 216, 230);
+    let trees: &[(char, Ink)] = &[
+        ('h', LEAF_HI),
+        ('l', LEAF_LT),
+        ('m', LEAF_MD),
+        ('d', LEAF_DK),
+        ('e', PINE_DK),
+        ('b', BARK),
+        ('k', BARK_DK),
+        ('g', GOLDEN),
+        ('r', RED_CL),
+        ('o', OUT),
+        ('w', frost),
+        ('v', frost_dim),
+    ];
+
+    // PINE (0,26) + variant B (19,28): tall narrow triangle, visible tiers
+    let pine_a: [&str; 16] = [
+        ".......dd.......",
+        "......dmed......",
+        ".....dlmeed.....",
+        "....dllmmeed....",
+        "......dmeed.....",
+        ".....dlmmeed....",
+        "....dllmmeeed...",
+        "...dllmmmeeeed..",
+        ".....dlmmeed....",
+        "....dllmmeeed...",
+        "...dllmmmeeeed..",
+        "..dlllmmmeeeeed.",
+        ".......bk.......",
+        ".......bk.......",
+        "......dbkd......",
+        "................",
+    ];
+    split16(s, 0, 26, &pine_a, trees);
+    cell(s, 0, 26).outline(0, 0, 16, 16, OUT);
+    cell(s, 1, 26).outline(0, 0, 8, 8, OUT);
+    let pine_tex = |x: i32, y: i32| -> Ink {
+        if y.rem_euclid(4) == 3 && speck(x, y, 83, 2) {
+            PINE_DK
+        } else if speck(x, y, 81, 4) {
+            PINE_DK
+        } else if speck(x, y, 82, 6) {
+            LEAF_MD
+        } else {
+            LEAF_DK
+        }
+    };
+    fill_cells(s, 0, 26, &pine_tex);
+    let pine_b: [&str; 16] = [
+        "................",
+        "........dd......",
+        ".......dmed.....",
+        "......dlmeed....",
+        ".......dmed.....",
+        "......dlmeed....",
+        ".....dllmeeed...",
+        "......dmmeed....",
+        ".....dlmmeeed...",
+        "....dllmmeeeed..",
+        "...dllmmmeeeeed.",
+        "........bk......",
+        "........bk......",
+        ".......dbkd.....",
+        "................",
+        "................",
+    ];
+    split16(s, 19, 28, &pine_b, trees);
+    cell(s, 19, 28).outline(0, 0, 16, 16, OUT);
+
+    // DEAD TREE (2,26) + variant B (21,28): bare forked branches
+    let dead_a: [&str; 16] = [
+        "..k.......k.....",
+        "..kk..k..kk.....",
+        "...k..k.kk...k..",
+        "...kk.bkk...kk..",
+        "....k.bk...kk...",
+        ".k..kkbbk.kk....",
+        ".kk...bbkkk.....",
+        "..kkk.bbk.......",
+        "....kbbk........",
+        ".....bbk........",
+        ".....bbk........",
+        "......bk........",
+        ".....bbkk.......",
+        "....bbkkkk......",
+        "...kk...........",
+        "................",
+    ];
+    split16(s, 2, 26, &dead_a, trees);
+    for knot in 0..2i32 {
+        let mut c = cell(s, 2 + knot, 28);
+        for y in 0..8i32 {
+            for x in 0..8i32 {
+                if (x + y).rem_euclid(5) == 0 || (x - y).rem_euclid(7) == 0 {
+                    c.set(x, y, BARK_DK);
+                } else if speck(x, y, 87, 9) {
+                    c.set(x, y, BARK);
+                }
+            }
+        }
+        if knot == 1 {
+            c.pat(
+                2,
+                3,
+                &[".kk.", "kbbk", ".kk."],
+                &[('b', BARK), ('k', BARK_DK)],
+            );
+        }
+    }
+    let dead_b: [&str; 16] = [
+        "................",
+        "....k.....k.....",
+        "....kk...kk.....",
+        ".....k...k......",
+        "..k..kk.kk..k...",
+        "..kk..bbk..kk...",
+        "...kkkbbkkkk....",
+        ".....kbbk.......",
+        "......bbk.......",
+        "......bk........",
+        "......bbk.......",
+        ".....bbk........",
+        ".....bbkk.......",
+        "....bkk.kk......",
+        "................",
+        "................",
+    ];
+    split16(s, 21, 28, &dead_b, trees);
+
+    // WILLOW (7,26) + variant B (23,28): drooping curtain strands to the ground
+    let willow_a: [&str; 16] = [
+        "....ddddddd.....",
+        "..ddllllllldd...",
+        ".dlhllllllllld..",
+        ".dlhlllllllllld.",
+        ".dlldlldlldlld..",
+        ".dl.dl.dl.dl.d..",
+        ".ml.dl.bk.dl....",
+        ".ml.ml.bk.ml....",
+        "..l.ml.bk.ml....",
+        ".ml..l.bk..l....",
+        "..d.ml.bk.ml....",
+        "....ml.bk.ml....",
+        ".....d.bk..d....",
+        "......dbkd......",
+        "................",
+        "................",
+    ];
+    split16(s, 7, 26, &willow_a, trees);
+    cell(s, 7, 26).outline(0, 0, 16, 16, OUT);
+    cell(s, 8, 26).outline(0, 0, 8, 8, OUT);
+    let willow_tex = |x: i32, y: i32| -> Ink {
+        match x.rem_euclid(3) {
+            0 => LEAF_DK,
+            1 => {
+                if speck(x, y, 84, 5) {
+                    LEAF_LT
+                } else {
+                    LEAF_MD
+                }
+            }
+            _ => {
+                if y.rem_euclid(4) == 2 {
+                    LEAF_MD
+                } else {
+                    LEAF_LT
+                }
+            }
+        }
+    };
+    fill_cells(s, 7, 26, &willow_tex);
+    let willow_b: [&str; 16] = [
+        "................",
+        ".....ddddd......",
+        "...ddlllllddd...",
+        "..dlhllllllld...",
+        "..dlldlldllld...",
+        "..dl.dl.dl.ld...",
+        "..ml.dl.bkdl....",
+        "..ml.ml.bk.l....",
+        "...l.ml.bk.ml...",
+        "..ml..l.bk..l...",
+        "...d.ml.bk.l....",
+        ".....ml.bk.m....",
+        "......d.bk......",
+        ".....dbkd.......",
+        "................",
+        "................",
+    ];
+    split16(s, 23, 28, &willow_b, trees);
+    cell(s, 23, 28).outline(0, 0, 16, 16, OUT);
+
+    // PALM (9,26) + variant B (25,28): curved trunk + frond burst, coconuts
+    let palm_a: [&str; 16] = [
+        "..dd..dd..dd....",
+        ".dllddlldllld...",
+        "dll.dllllld.ld..",
+        "dl..dllllld..d..",
+        ".d..dlgglld.....",
+        "....dggbkd......",
+        "......obk.......",
+        "......bk........",
+        ".....obk........",
+        ".....bk.........",
+        "....obk.....gg..",
+        "....bk......kg..",
+        "...obk..........",
+        "...bbk..........",
+        "..dbbkd.........",
+        "................",
+    ];
+    split16(s, 9, 26, &palm_a, trees);
+    let palm_tex = |x: i32, y: i32| -> Ink {
+        if (x + y).rem_euclid(4) == 0 {
+            LEAF_DK
+        } else if (x - y).rem_euclid(4) == 2 {
+            LEAF_LT
+        } else {
+            LEAF_MD
+        }
+    };
+    fill_cells(s, 9, 26, &palm_tex);
+    let palm_b: [&str; 16] = [
+        "....dd..dd..dd..",
+        "...dlldllddlld..",
+        "..dl.dllllld.ld.",
+        "..d..dllllld..d.",
+        ".....dlgglld....",
+        "......dggkbd....",
+        ".......okb......",
+        "........kb......",
+        ".........kbo....",
+        ".........kb.....",
+        "..........kbo...",
+        "..gg......kb....",
+        "..kg......kbo...",
+        ".........bkb....",
+        "........dbkbd...",
+        "................",
+    ];
+    split16(s, 25, 28, &palm_b, trees);
+
+    // FLAT-CROWN (11,26) + variant B (27,28): wide umbrella on a bare forked trunk
+    let flat_a: [&str; 16] = [
+        "................",
+        "..ddddddddddd...",
+        ".dhlllllllllmd..",
+        "dhlllllllllmmmd.",
+        ".ddmmmmmmmmmdd..",
+        "...k....bk......",
+        "....k..bk.......",
+        ".....kbbk.......",
+        "......bk........",
+        "......bk........",
+        ".....bbk........",
+        ".....bk.........",
+        "....dbkd........",
+        "................",
+        "................",
+        "................",
+    ];
+    split16(s, 11, 26, &flat_a, trees);
+    cell(s, 11, 26).outline(0, 0, 16, 16, OUT);
+    cell(s, 12, 26).outline(0, 0, 8, 8, OUT);
+    let flat_tex = |x: i32, y: i32| -> Ink {
+        if y.rem_euclid(8) < 2 {
+            if speck(x, y, 85, 4) { LEAF_HI } else { LEAF_LT }
+        } else if y.rem_euclid(8) >= 6 && speck(x, y, 86, 2) {
+            LEAF_DK
+        } else if speck(x, y, 88, 7) {
+            LEAF_LT
+        } else {
+            LEAF_MD
+        }
+    };
+    fill_cells(s, 11, 26, &flat_tex);
+    let flat_b: [&str; 16] = [
+        "................",
+        "....ddddddd.....",
+        "...dhllllllmd...",
+        "..dhlllllllmmd..",
+        "...ddmmmmmmdd...",
+        ".dddddd.bk......",
+        "dhllllmdbk......",
+        ".ddmmmdkbk......",
+        ".....k.bbk......",
+        "......kbk.......",
+        ".......bk.......",
+        "......bbk.......",
+        "......bk........",
+        ".....dbkd.......",
+        "................",
+        "................",
+    ];
+    split16(s, 27, 28, &flat_b, trees);
+    cell(s, 27, 28).outline(0, 0, 16, 16, OUT);
+
+    // SNOW PINE (13,26) + variant B (29,28): the pine silhouette under snow caps
+    let snowpine_a: [&str; 16] = [
+        ".......ww.......",
+        "......wwwd......",
+        ".....dwwwed.....",
+        "....dvlmeeed....",
+        "......wwed......",
+        ".....wwwwed.....",
+        "....dvlmeeed....",
+        "...dvllmmeeed...",
+        ".....wwwwd......",
+        "....wwwwwwed....",
+        "...dvllmmeeeed..",
+        "..dvlllmmeeeeed.",
+        ".......bk.......",
+        ".......bk.......",
+        "......dbkd......",
+        "................",
+    ];
+    split16(s, 13, 26, &snowpine_a, trees);
+    cell(s, 13, 26).outline(0, 0, 16, 16, OUT);
+    cell(s, 14, 26).outline(0, 0, 8, 8, OUT);
+    let snowpine_tex = |x: i32, y: i32| -> Ink {
+        if speck(x, y, 89, 3) {
+            frost
+        } else if speck(x, y, 90, 6) {
+            frost_dim
+        } else if y.rem_euclid(4) == 3 && speck(x, y, 83, 2) {
+            PINE_DK
+        } else if speck(x, y, 81, 4) {
+            PINE_DK
+        } else {
+            LEAF_DK
+        }
+    };
+    fill_cells(s, 13, 26, &snowpine_tex);
+    let snowpine_b: [&str; 16] = [
+        "................",
+        "........ww......",
+        ".......wwwd.....",
+        "......dvleed....",
+        ".......wwd......",
+        "......wwwed.....",
+        ".....dvlmeeed...",
+        "......wwwed.....",
+        ".....wwwweed....",
+        "....dvlmmeeed...",
+        "...dvllmmeeeed..",
+        "........bk......",
+        "........bk......",
+        ".......dbkd.....",
+        "................",
+        "................",
+    ];
+    split16(s, 29, 28, &snowpine_b, trees);
+    cell(s, 29, 28).outline(0, 0, 16, 16, OUT);
+
+    /* ----- other flora (2x2 blocks) ----- */
+
+    let trees: &[(char, Ink)] = &[
+        ('h', LEAF_HI),
+        ('l', LEAF_LT),
+        ('m', LEAF_MD),
+        ('d', LEAF_DK),
+        ('e', PINE_DK),
+        ('b', BARK),
+        ('k', BARK_DK),
+        ('g', GOLDEN),
+        ('r', RED_CL),
+        ('o', OUT),
+    ];
+
+    // (15,26) BERRY BUSH, RIPE: low rounded bush studded with red berry pairs
+    tc16(
+        s,
+        15,
+        26,
+        &[
+            "................",
+            "................",
+            "................",
+            "....dddddd......",
+            "..ddlllllldd....",
+            ".dllrrllllrrld..",
+            ".dllrrllllrrld..",
+            "dlllllrrlllllld.",
+            "dllrllrrllrrlld.",
+            ".dlrrllllllrld..",
+            "..ddlllllldd....",
+            "....ddkkdd......",
+            "................",
             "................",
             "................",
             "................",
         ],
-        map,
+        trees,
+    );
+    cell(s, 15, 26).outline(0, 3, 16, 10, OUT);
+
+    // (17,26) BERRY BUSH, PICKED: same silhouette, clearly bare (no red anywhere)
+    tc16(
+        s,
+        17,
+        26,
+        &[
+            "................",
+            "................",
+            "................",
+            "....dddddd......",
+            "..ddlllllldd....",
+            ".dllmllldllmld..",
+            ".dlmlldllmllld..",
+            "dllldmllldmlld..",
+            "dlmllldllllmld..",
+            ".dllldllmllld...",
+            "..ddlllllldd....",
+            "....ddkkdd......",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        trees,
+    );
+    cell(s, 17, 26).outline(0, 3, 16, 10, OUT);
+
+    // (19,26) REED TUFT: cattail stems with seed-head sausages
+    tc16(
+        s,
+        19,
+        26,
+        &[
+            "......g.....l...",
+            "..l...b.....l...",
+            "..l...b..g..l...",
+            ".ll...b..b..ll..",
+            ".l..l.k..b...l..",
+            ".l..l.k..b...l..",
+            "....l.k..k..l...",
+            ".l..l....k..l...",
+            ".l...l...k...l..",
+            "..l..l..l...l...",
+            "..l...l.l..l....",
+            "...l..l.l..l....",
+            "................",
+            "................",
+            "................",
+            "................",
+        ],
+        trees,
+    );
+
+    // (21,26) SEAWEED PATCH: wavy kelp fronds (drawn over water)
+    tc16(
+        s,
+        21,
+        26,
+        &[
+            "................",
+            "...m........m...",
+            "...em...m..me...",
+            "...e.m..m..e....",
+            "..e..e..em.e....",
+            "..e..e...e..e...",
+            "..em.e...e..e...",
+            "...e.em..em.e...",
+            "...e..e...e.em..",
+            "..e...e...e..e..",
+            "..e..e...e...e..",
+            "...e.e...e..e...",
+            "...e..e..e..e...",
+            "................",
+            "................",
+            "................",
+        ],
+        trees,
+    );
+
+    // (23,26) CORAL PATCH: branching pink fan on a stone base (drawn over water)
+    tc16(
+        s,
+        23,
+        26,
+        &[
+            "................",
+            "....c...c.......",
+            "...ac..ac..c....",
+            "...ca..ca.ac....",
+            "....c.ac..c.....",
+            "....acc..ac.....",
+            ".c...ca..ca.....",
+            ".ac...cac.c..c..",
+            "..ca..aca..cac..",
+            "...caccac.ca....",
+            "....accacca.....",
+            "..ssaccaccss....",
+            ".ssssssssssss...",
+            "................",
+            "................",
+            "................",
+        ],
+        &[('c', CORAL), ('a', CORAL_DK), ('s', STONE_MD), ('o', OUT)],
+    );
+
+    // (25,26) FRUITING SAGUARO: staggered arms, magenta fruits on the crown/arms
+    tc16(
+        s,
+        25,
+        26,
+        &[
+            "......ff........",
+            ".....mlds.......",
+            ".....mlds.......",
+            ".mm..mlds.......",
+            "flds.mlds.......",
+            "mldssmlds..sf...",
+            ".mmsmmlds.msm...",
+            ".....mldssmlm...",
+            ".....mlds.mm....",
+            ".....mlds.......",
+            ".....mlds.......",
+            ".....mlds.......",
+            ".....mlds.......",
+            "....dmlds.......",
+            "................",
+            "................",
+        ],
+        &[
+            ('m', LEAF_MD),
+            ('l', LEAF_LT),
+            ('d', LEAF_DK),
+            ('s', LEAF_DK),
+            ('f', CORAL),
+        ],
+    );
+    cell(s, 25, 26).outline(0, 0, 16, 16, OUT);
+
+    // (27,26) BARREL CACTUS: squat ribbed barrel with a bloom
+    tc16(
+        s,
+        27,
+        26,
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "......rgr.......",
+            ".......r........",
+            "....mmlmdm......",
+            "...mllmldmm.....",
+            "..mlldmldmdm....",
+            "..mlldmldmdm....",
+            "..mlldmldmdm....",
+            "...mldmldmd.....",
+            "....mmdddm......",
+            "................",
+            "................",
+        ],
+        trees,
+    );
+    cell(s, 27, 26).outline(0, 4, 16, 11, OUT);
+
+    // (29,26) JACK-O-LANTERN TILE: the pumpkin, carved and lit from within
+    tc16(
+        s,
+        29,
+        26,
+        &[
+            "......ss........",
+            "......ss........",
+            "....oooooo......",
+            "..oopppppdoo....",
+            ".opppdppppddo...",
+            ".oppdppppdpdo...",
+            "opppdppppdppdo..",
+            "opyydppppdyydo..",
+            "opyyydpppdyyydo.",
+            "oppdppyypdpppdo.",
+            "opppdpyypdpppdo.",
+            ".opddyppyydpdo..",
+            ".oppdyyyyyddo...",
+            "..ooppddddppo...",
+            "....oooooooo....",
+            "................",
+        ],
+        &[
+            ('o', OUT),
+            ('p', PUMPK),
+            ('d', PUMPK_DK),
+            ('y', FLAME_YL),
+            ('s', LEAF_DK),
+        ],
+    );
+
+    // (15,28) MUSHROOM TILE: classic fat cap + pale stem, spot highlights
+    tc16(
+        s,
+        15,
+        28,
+        &[
+            "................",
+            "................",
+            "....oooooo......",
+            "...ouuvvuuo.....",
+            "..ouvvuuuvuo....",
+            ".ouuvuuuuuvuo...",
+            ".ouvuuvvuuuuo...",
+            ".oooooooooooo...",
+            "...occccdco.....",
+            "...occccdco.....",
+            "...ocidcdco.....",
+            "...occccdco.....",
+            "..occccccdco....",
+            "...oooooooo.....",
+            "................",
+            "................",
+        ],
+        &[
+            ('o', OUT),
+            ('u', RED_CL),
+            ('v', CREAM),
+            ('c', CREAM),
+            ('d', rgb(210, 196, 160)),
+            ('i', rgb(210, 196, 160)),
+        ],
+    );
+
+    // (17,28) DRY BUSH: tumbleweed — an airy twig skeleton ball
+    tc16(
+        s,
+        17,
+        28,
+        &[
+            "................",
+            "................",
+            "................",
+            ".....kbbk.......",
+            "...kb.k..bk.....",
+            "..kb.b.k.k.b....",
+            "..b.k.b.k.b.k...",
+            ".kb.b.k.b.k.b...",
+            ".b.k.b.k.b.k....",
+            ".kb.k.b.k.b.k...",
+            "..b.b.k.b.k.....",
+            "..kb.k.b.k.b....",
+            "...kb.k.b.bk....",
+            ".....kbbkk......",
+            "................",
+            "................",
+        ],
+        &[('b', rgb(168, 138, 92)), ('k', rgb(120, 96, 62))],
     );
 }
 
@@ -2424,7 +3794,8 @@ fn frame16(s: &mut Sheet, cx: i32, cy: i32, rows: &[&str]) {
 // body as wide as the head; legs 2px wide with a clear stance change between frames.
 //
 /// Player sets — TRANSCRIBED pixel-for-pixel from the original Java sheet
-/// (`assets/icons.png`): walk frames from its cells (0,14), carry from (0,16), suit
+/// (`icons.png`, removed from the repo after tracing — see git history): walk frames
+/// from its cells (0,14), carry from (0,16), suit
 /// from (18,20), suit-carry from (18,22) — the same cell coordinates this sheet uses.
 /// Shades quantized 0/85/170/255 -> `.`/1/2/3; the call-site palette
 /// (`get4(-1, 100, shirt, 532)`) recolors: 1 = hair/outline, 2 = shirt, 3 = skin.
@@ -2819,164 +4190,220 @@ fn marsh_lurker(s: &mut Sheet) {
     frame16(s, 14, 14, &right2);
 }
 
-/// Pig (16,14): round face, big snout (shade2 = white accents, shade3 = pink body).
+/// Pig frames (16..23,14..15) — TRANSCRIBED pixel-for-pixel from the
+/// original Java sheet (`icons.png`, removed after tracing — see git history; same
+/// cell coordinates), like the player
+/// sets. Recognizability beats originality: do not redraw, only palettes at call
+/// sites may restyle. Frames: [down, up, right-a, right-b]; left + second down/up
+/// frames are mirrored at draw time.
 fn pig(s: &mut Sheet) {
-    let down = [
-        "................",
-        "..11........11..",
-        ".1331......1331.",
-        "..111111111111..",
-        ".13333333333331.",
-        ".13331333313331.",
-        ".13333333333331.",
-        ".13332222233331.",
-        ".13332122123331.",
-        ".13333333333331.",
-        "..133333333331..",
-        "...1111111111...",
-        "..11..11.11..11.",
-        "..11..11.11..11.",
-        "................",
-        "................",
-    ];
-    let up = [
-        "................",
-        "..11........11..",
-        ".1331......1331.",
-        "..111111111111..",
-        ".13333333333331.",
-        ".13333333333331.",
-        ".13333223333331.", // tail curl
-        ".13333333333331.",
-        ".13333333333331.",
-        ".13333333333331.",
-        "..133333333331..",
-        "...1111111111...",
-        "..11..11.11..11.",
-        "..11..11.11..11.",
-        "................",
-        "................",
-    ];
-    let right = [
-        "................",
-        "...11....11.....",
-        "..1331..1331....",
-        "..111111111111..",
-        ".13333333333331.",
-        ".13333333313331.",
-        ".13333333333221.",
-        ".13333333332221.",
-        ".13333333333331.",
-        "..133333333331..",
-        "...1111111111...",
-        "..11..11.11..11.",
-        "..11..11.11..11.",
-        "................",
-        "................",
-        "................",
-    ];
-    let right2 = [
-        "................",
-        "...11....11.....",
-        "..1331..1331....",
-        "..111111111111..",
-        ".13333333333331.",
-        ".13333333313331.",
-        ".13333333333221.",
-        ".13333333332221.",
-        ".13333333333331.",
-        "..133333333331..",
-        "...1111111111...",
-        "..11..11.11..11.",
-        ".11....11....11.",
-        "................",
-        "................",
-        "................",
-    ];
-    frame16(s, 16, 14, &down);
-    frame16(s, 18, 14, &up);
-    frame16(s, 20, 14, &right);
-    frame16(s, 22, 14, &right2);
+    // down
+    frame16(
+        s,
+        16,
+        14,
+        &[
+            "................",
+            "................",
+            "................",
+            "......111.......",
+            ".....13331......",
+            "....1123211.....",
+            "...131333131....",
+            "...133111331....",
+            "...133333331....",
+            "...133333331....",
+            "...113333311....",
+            "...131111131....",
+            "...131...111....",
+            "...111..........",
+            "................",
+            "................",
+        ],
+    );
+
+    // up
+    frame16(
+        s,
+        18,
+        14,
+        &[
+            "................",
+            "................",
+            "................",
+            "......111.......",
+            ".....13331......",
+            "....1111111.....",
+            "...133333331....",
+            "...133313331....",
+            "...133113331....",
+            "...133333331....",
+            "...113333311....",
+            "...131111131....",
+            "...131...111....",
+            "...111..........",
+            "................",
+            "................",
+        ],
+    );
+
+    // right_a
+    frame16(
+        s,
+        20,
+        14,
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "....11111111....",
+            "...133333333111.",
+            "...1333333331331",
+            "..11333333331321",
+            ".131333333331331",
+            ".111333333331111",
+            "...1333333331...",
+            "....13111131....",
+            "....111..131....",
+            ".........111....",
+            "................",
+            "................",
+        ],
+    );
+
+    // right_b
+    frame16(
+        s,
+        22,
+        14,
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "....11111111....",
+            "...133333333111.",
+            "...1333333331331",
+            "..11333333331321",
+            ".131333333331331",
+            ".111333333331111",
+            "...1333333331...",
+            "....13111131....",
+            "....131..111....",
+            "....111.........",
+            "................",
+            "................",
+        ],
+    );
 }
 
-/// Knight (24,14): crested helm, visor slit; armor = shade2, plume = shade3.
+/// Knight frames (24..31,14..15) — TRANSCRIBED pixel-for-pixel from the
+/// original Java sheet (`icons.png`, removed after tracing — see git history; same
+/// cell coordinates), like the player
+/// sets. Recognizability beats originality: do not redraw, only palettes at call
+/// sites may restyle. Frames: [down, up, right-a, right-b]; left + second down/up
+/// frames are mirrored at draw time.
 fn knight(s: &mut Sheet) {
-    let down = [
-        ".......33.......",
-        "......333.......",
-        "....12222221....",
-        "..122222222221..",
-        ".12222222222221.",
-        ".12111222111221.", // visor
-        ".12222222222221.",
-        "..122222222221..",
-        "...1111111111...",
-        "..122222222221..",
-        ".13222222222231.",
-        ".13222222222231.",
-        "..122222222221..",
-        "...1122..2211...",
-        "...112....11....",
-        "................",
-    ];
-    let up = [
-        ".......33.......",
-        "......333.......",
-        "....12222221....",
-        "..122222222221..",
-        ".12222222222221.",
-        ".12222222222221.",
-        ".12222222222221.",
-        "..122222222221..",
-        "...1111111111...",
-        "..122222222221..",
-        ".11222222222211.",
-        ".11222222222211.",
-        "..122222222221..",
-        "...1122..2211...",
-        "...112....11....",
-        "................",
-    ];
-    let right = [
-        ".....33.........",
-        "....333.........",
-        "....12222221....",
-        "..122222222221..",
-        ".12222222222221.",
-        ".12222221112221.", // slit forward
-        ".12222222222221.",
-        "..122222222221..",
-        "...1111111111...",
-        "..122222222221..",
-        ".13222222222231.",
-        ".13222222222231.",
-        "..122222222221..",
-        "...1122.1122....",
-        "....11...11.....",
-        "................",
-    ];
-    let right2 = [
-        ".....33.........",
-        "....333.........",
-        "....12222221....",
-        "..122222222221..",
-        ".12222222222221.",
-        ".12222221112221.",
-        ".12222222222221.",
-        "..122222222221..",
-        "...1111111111...",
-        "..122222222221..",
-        ".13222222222231.",
-        ".13222222222231.",
-        "..122222222221..",
-        "..1122...1122...",
-        "...11.....11....",
-        "................",
-    ];
-    frame16(s, 24, 14, &down);
-    frame16(s, 26, 14, &up);
-    frame16(s, 28, 14, &right);
-    frame16(s, 30, 14, &right2);
+    // down
+    frame16(
+        s,
+        24,
+        14,
+        &[
+            "................",
+            "......1111......",
+            ".....111111.....",
+            "....11222211....",
+            "...112222221....",
+            "...1123333211...",
+            "..12122332211...",
+            "..121122221221..",
+            "...11111113331..",
+            "....1222233333..",
+            "....1221233333..",
+            ".....12212333...",
+            ".....1221113....",
+            ".....1221.......",
+            ".....1111.......",
+            "................",
+        ],
+    );
+
+    // up
+    frame16(
+        s,
+        26,
+        14,
+        &[
+            "................",
+            "......1111......",
+            ".....122221.....",
+            "....12222221....",
+            "....12222221....",
+            "...112222221....",
+            "..1212222221....",
+            "..1211222211....",
+            "..12111111223...",
+            "...11222222233..",
+            "....1222121333..",
+            "....112212133...",
+            ".....1221113....",
+            ".....1221.......",
+            ".....1111.......",
+            "................",
+        ],
+    );
+
+    // right_a
+    frame16(
+        s,
+        28,
+        14,
+        &[
+            "................",
+            "......1111......",
+            ".....112221.....",
+            "....11222221....",
+            "....12222331....",
+            "....12222231....",
+            "....12222221....",
+            ".....112211.....",
+            "......1111......",
+            "......3333......",
+            ".....333333.....",
+            ".....333333.....",
+            "......3333......",
+            "......1331......",
+            ".......11.......",
+            "................",
+        ],
+    );
+
+    // right_b
+    frame16(
+        s,
+        30,
+        14,
+        &[
+            "................",
+            "......1111......",
+            ".....112221.....",
+            "....11222221....",
+            "....12222331....",
+            "....12222231....",
+            "....11222221....",
+            "....11111111....",
+            "...3332221231...",
+            "..33333221231...",
+            "..3333322111....",
+            "...33322221.....",
+            "...33221221.....",
+            "....11111221....",
+            ".........111....",
+            "................",
+        ],
+    );
 }
 
 /// Feral Hound (8,16): a lean pack hunter — pricked ears, long snout, thin legs,
@@ -3060,84 +4487,112 @@ fn feral_hound(s: &mut Sheet) {
     frame16(s, 14, 16, &right2);
 }
 
-/// Cow (16,16): horns shade2, brown body shade3, gray patches shade2.
+/// Cow frames (16..23,16..17) — TRANSCRIBED pixel-for-pixel from the
+/// original Java sheet (`icons.png`, removed after tracing — see git history; same
+/// cell coordinates), like the player
+/// sets. Recognizability beats originality: do not redraw, only palettes at call
+/// sites may restyle. Frames: [down, up, right-a, right-b]; left + second down/up
+/// frames are mirrored at draw time.
 fn cow(s: &mut Sheet) {
-    let down = [
-        ".22..........22.",
-        ".122........221.",
-        "..111111111111..",
-        ".13333223333331.",
-        ".13333223333331.",
-        ".13313333313331.",
-        ".13333333333331.",
-        ".12222222222221.", // muzzle
-        ".12212222212221.", // nostrils
-        "..122222222221..",
-        "..133223322331..",
-        "...1111111111...",
-        "..11..11.11..11.",
-        "..11..11.11..11.",
-        "................",
-        "................",
-    ];
-    let up = [
-        ".22..........22.",
-        ".122........221.",
-        "..111111111111..",
-        ".13223333223331.",
-        ".13333333333331.",
-        ".13333223333331.",
-        ".13333223333331.",
-        ".13333333333331.",
-        ".13333311333331.", // tail
-        "..133333333331..",
-        "..132233223331..",
-        "...1111111111...",
-        "..11..11.11..11.",
-        "..11..11.11..11.",
-        "................",
-        "................",
-    ];
-    let right = [
-        "..........22....",
-        ".........221....",
-        "..111111111111..",
-        ".13223333333331.",
-        ".13223333333331.",
-        ".13333333313331.",
-        ".13333333322221.",
-        ".13333333321221.",
-        "..133223333331..",
-        "..133223333331..",
-        "..133333333331..",
-        "...1111111111...",
-        "..11..11.11..11.",
-        "..11..11.11..11.",
-        "................",
-        "................",
-    ];
-    let right2 = [
-        "..........22....",
-        ".........221....",
-        "..111111111111..",
-        ".13223333333331.",
-        ".13223333333331.",
-        ".13333333313331.",
-        ".13333333322221.",
-        ".13333333321221.",
-        "..133223333331..",
-        "..133223333331..",
-        "..133333333331..",
-        "...1111111111...",
-        "..11..11.11..11.",
-        ".11....11....11.",
-        "................",
-        "................",
-    ];
-    frame16(s, 16, 16, &down);
-    frame16(s, 18, 16, &up);
-    frame16(s, 20, 16, &right);
-    frame16(s, 22, 16, &right2);
+    // down
+    frame16(
+        s,
+        16,
+        16,
+        &[
+            "................",
+            "................",
+            "....1111111.....",
+            "...133333221....",
+            "..13332233331...",
+            "..13133223131...",
+            "..13131113131...",
+            "..13113331131...",
+            "..13312321331...",
+            "..13313331321...",
+            "..12313331321...",
+            "..12231113231...",
+            "..11333333311...",
+            "..13111111131...",
+            "..131.....111...",
+            "..111...........",
+        ],
+    );
+
+    // up
+    frame16(
+        s,
+        18,
+        16,
+        &[
+            "................",
+            "................",
+            "....1111111.....",
+            "...133333331....",
+            "..13323322331...",
+            "..13223322231...",
+            "..13333333231...",
+            "..13233113231...",
+            "..13231313331...",
+            "..13313313331...",
+            "..13331133231...",
+            "..13223332331...",
+            "..11333333311...",
+            "..13111111131...",
+            "..131.....111...",
+            "..111...........",
+        ],
+    );
+
+    // right_a
+    frame16(
+        s,
+        20,
+        16,
+        &[
+            "................",
+            "................",
+            "...11111111.....",
+            "..1333333321....",
+            "..1323333331.1..",
+            "..133323223111..",
+            "..1332233331331.",
+            ".11322232331321.",
+            "131332332231331.",
+            "131333322231331.",
+            "11132233333111..",
+            "..1333332231....",
+            "...131111131....",
+            "...111...131....",
+            ".........111....",
+            "................",
+        ],
+    );
+
+    // right_b
+    frame16(
+        s,
+        22,
+        16,
+        &[
+            "................",
+            "................",
+            "...11111111.....",
+            "..1333333321....",
+            "..1323333331.1..",
+            "..133323223111..",
+            "..1332233331331.",
+            ".11322232331321.",
+            "131332332231331.",
+            "131333322231331.",
+            "11132233333111..",
+            "..1333332231....",
+            "...131111131....",
+            "...131...111....",
+            "...111..........",
+            "................",
+        ],
+    );
 }
 
 /// Stone Golem (0,18): a hulking mine-dweller — massive square shoulders, a small
@@ -3284,164 +4739,220 @@ fn night_wisp(s: &mut Sheet) {
     frame16(s, 2, 20, &flare);
 }
 
-/// Sheep (10,18): cloud of wool (shade2), tan face and legs (shade3).
+/// Sheep frames (10..17,18..19) — TRANSCRIBED pixel-for-pixel from the
+/// original Java sheet (`icons.png`, removed after tracing — see git history; same
+/// cell coordinates), like the player
+/// sets. Recognizability beats originality: do not redraw, only palettes at call
+/// sites may restyle. Frames: [down, up, right-a, right-b]; left + second down/up
+/// frames are mirrored at draw time.
 fn sheep(s: &mut Sheet) {
-    let down = [
-        "..11........11..",
-        "..122222222221..",
-        ".12222222222221.",
-        ".12233333332221.",
-        ".12331333313321.",
-        ".12233333332221.",
-        ".12222222222221.",
-        ".12222222222221.",
-        "..122222222221..",
-        ".12222222222221.",
-        ".12222222222221.",
-        "..122222222221..",
-        "...1111111111...",
-        "..33..33.33..33.",
-        "..33..33.33..33.",
-        "................",
-    ];
-    let up = [
-        "..11........11..",
-        "..122222222221..",
-        ".12222222222221.",
-        ".12222222222221.",
-        ".12222222222221.",
-        ".12222222222221.",
-        ".12222222222221.",
-        ".12222332222221.", // tail tuft
-        "..122222222221..",
-        ".12222222222221.",
-        ".12222222222221.",
-        "..122222222221..",
-        "...1111111111...",
-        "..33..33.33..33.",
-        "..33..33.33..33.",
-        "................",
-    ];
-    let right = [
-        "..........11....",
-        "..122222222221..",
-        ".12222222233321.",
-        ".12222222313321.",
-        ".12222222233321.",
-        ".12222222222221.",
-        ".12222222222221.",
-        ".12222222222221.",
-        "..122222222221..",
-        ".12222222222221.",
-        ".12222222222221.",
-        "..122222222221..",
-        "...1111111111...",
-        "..33..33.33..33.",
-        "..33..33.33..33.",
-        "................",
-    ];
-    let right2 = [
-        "..........11....",
-        "..122222222221..",
-        ".12222222233321.",
-        ".12222222313321.",
-        ".12222222233321.",
-        ".12222222222221.",
-        ".12222222222221.",
-        ".12222222222221.",
-        "..122222222221..",
-        ".12222222222221.",
-        ".12222222222221.",
-        "..122222222221..",
-        "...1111111111...",
-        ".33....33....33.",
-        ".33....33....33.",
-        "................",
-    ];
-    frame16(s, 10, 18, &down);
-    frame16(s, 12, 18, &up);
-    frame16(s, 14, 18, &right);
-    frame16(s, 16, 18, &right2);
+    // down
+    frame16(
+        s,
+        10,
+        18,
+        &[
+            "................",
+            "................",
+            "......111.......",
+            ".....13331......",
+            "...111232111....",
+            "..12213331221...",
+            "..12213331221...",
+            "..12221112221...",
+            "..12222222221...",
+            "..12222222221...",
+            "..12222222221...",
+            "..12222222221...",
+            "..11222222211...",
+            "..13111111131...",
+            "..131.....111...",
+            "..111...........",
+        ],
+    );
+
+    // up
+    frame16(
+        s,
+        12,
+        18,
+        &[
+            "................",
+            "................",
+            "......111.......",
+            ".....13331......",
+            "...111111111....",
+            "..12222222221...",
+            "..12222222221...",
+            "..12222222221...",
+            "..12222222221...",
+            "..12222222221...",
+            "..12222222221...",
+            "..12222222221...",
+            "..11222222211...",
+            "..13111111131...",
+            "..131.....111...",
+            "..111...........",
+        ],
+    );
+
+    // right_a
+    frame16(
+        s,
+        14,
+        18,
+        &[
+            "................",
+            "................",
+            "................",
+            "...11111111.....",
+            "..1222222221....",
+            "..122222222111..",
+            "..1222222221331.",
+            "..1222222221321.",
+            "..1222222221331.",
+            "..1222222221331.",
+            "..122222222111..",
+            "..1212222211....",
+            "...131111131....",
+            "...111...131....",
+            ".........111....",
+            "................",
+        ],
+    );
+
+    // right_b
+    frame16(
+        s,
+        16,
+        18,
+        &[
+            "................",
+            "................",
+            "................",
+            "...11111111.....",
+            "..1222222221....",
+            "..122222222111..",
+            "..1222222221331.",
+            "..1222222221321.",
+            "..1222222221331.",
+            "..1222222221331.",
+            "..122222222111..",
+            "..1212222211....",
+            "...131111131....",
+            "...131...111....",
+            "...111..........",
+            "................",
+        ],
+    );
 }
 
-/// Snake (18,18): coiled body (shade2) with diamond markings (shade3).
+/// Snake frames (18..25,18..19) — TRANSCRIBED pixel-for-pixel from the
+/// original Java sheet (`icons.png`, removed after tracing — see git history; same
+/// cell coordinates), like the player
+/// sets. Recognizability beats originality: do not redraw, only palettes at call
+/// sites may restyle. Frames: [down, up, right-a, right-b]; left + second down/up
+/// frames are mirrored at draw time.
 fn snake(s: &mut Sheet) {
-    let down = [
-        "................",
-        "................",
-        "......3.3.......",
-        ".......3........",
-        "....11111111....",
-        "...1222222221...",
-        "...1233223321...", // eyes
-        "...1222222221...",
-        "....12222221....",
-        ".....122221.....",
-        "...112222211....",
-        "..12223322221...",
-        ".1222332233221..",
-        ".1222222222221..",
-        "..111111111111..",
-        "................",
-    ];
-    let up = [
-        "................",
-        "................",
-        "................",
-        "................",
-        "....11111111....",
-        "...1222222221...",
-        "...1222222221...",
-        "...1222222221...",
-        "....12222221....",
-        ".....122221.....",
-        "...112222211....",
-        "..12223322221...",
-        ".1222332233221..",
-        ".1222222222221..",
-        "..111111111111..",
-        "................",
-    ];
-    let right = [
-        "................",
-        "................",
-        "................",
-        "..............33",
-        "........11111...",
-        ".......1222221..",
-        ".......1231221..",
-        "......12222221..",
-        "..111122222211..",
-        ".122223322221...",
-        ".122332233221...",
-        "..1222222221....",
-        "...11111111.....",
-        "................",
-        "................",
-        "................",
-    ];
-    let right2 = [
-        "................",
-        "................",
-        "................",
-        "..............33",
-        "........11111...",
-        ".......1222221..",
-        ".......1231221..",
-        "......12222221..",
-        "..111122222211..",
-        ".122233222221...",
-        ".122332233221...",
-        "..1222222221....",
-        "...11111111.....",
-        "................",
-        "................",
-        "................",
-    ];
-    frame16(s, 18, 18, &down);
-    frame16(s, 20, 18, &up);
-    frame16(s, 22, 18, &right);
-    frame16(s, 24, 18, &right2);
+    // down
+    frame16(
+        s,
+        18,
+        18,
+        &[
+            "................",
+            "...111111111....",
+            "..13333333331...",
+            "...11111111331..",
+            "...........131..",
+            "..........1331..",
+            "...1111111331...",
+            "..1333333331....",
+            ".1331111111.....",
+            ".131............",
+            ".1331.....111...",
+            "..133111113331..",
+            "...133333333231.",
+            "....1111111331..",
+            "...........11...",
+            "................",
+        ],
+    );
+
+    // up
+    frame16(
+        s,
+        20,
+        18,
+        &[
+            "................",
+            "................",
+            "...........11...",
+            "...11111111331..",
+            "..1333333333231.",
+            ".1333111113331..",
+            ".1331.....111...",
+            ".1331111111.....",
+            "..1333333331....",
+            "...1111111331...",
+            "..........1331..",
+            "...11111113331..",
+            "..13333333331...",
+            "...111111111....",
+            "................",
+            "................",
+        ],
+    );
+
+    // right_a
+    frame16(
+        s,
+        22,
+        18,
+        &[
+            "................",
+            "...........11...",
+            "....1111111331..",
+            "...133333333231.",
+            "..133111113331..",
+            ".1331.....111...",
+            ".131............",
+            ".1331111111.....",
+            "..1333333331....",
+            "...1111111331...",
+            "..........1331..",
+            "...........131..",
+            "...11111111331..",
+            "..13333333331...",
+            "...111111111....",
+            "................",
+        ],
+    );
+
+    // right_b
+    frame16(
+        s,
+        24,
+        18,
+        &[
+            ".........111....",
+            "................",
+            "...........11...",
+            "...11111111331..",
+            "..1333333333231.",
+            ".1333111113331..",
+            ".1331.....111...",
+            ".1331111111.....",
+            "..1333333331....",
+            "...1111111331...",
+            "..........1331..",
+            "...11111113331..",
+            "..13333333331...",
+            "...111111111....",
+            "................",
+            "................",
+        ],
+    );
 }
 
 /// Glow worm (26,19): shades 0 AND 1 are transparent in its palette — art in 2-3 only.
@@ -3541,39 +5052,63 @@ fn font(s: &mut Sheet) {
     }
 }
 
-/* ==========================  title logo (0..13, 6..8)  ========================== */
+/* ==========================  title logo (rows 6-7)  ========================== */
 
-/// The "DOOM" wordmark: big warm-red gradient letters with drop shadow and a
-/// full-width underline ("FOSSICKERS" is drawn above it as font text by the title).
-/// The game blits all 14x2 logo cells (rows 6..=7). True color: palettes are ignored.
+/// The full sheet-art title wordmark, warm-red gradient with a 1px drop shadow.
+/// True color: palettes are ignored. Two strips on rows 6..=7:
+///
+/// - cells (0..14, 6..7), 15x2:  "DOOM"        — art 116px wide incl. shadow +
+///   full-width underline (the 15th cell exists so the drop shadow isn't clipped).
+/// - cells (15..31, 6..7), 17x2: "FOSSICKERS"  — the kicker line, art 130px wide
+///   incl. shadow, half the stroke weight of DOOM at the same cap height.
+///
+/// Both words are centered within their own strip, so the blit loops in
+/// `title_display.rs` / `splash_menu.rs` just center each strip on screen.
 fn logo(s: &mut Sheet) {
     let hi = rgb(240, 110, 70);
     let md = RED_CL;
     let dk = rgb(128, 28, 32);
 
-    let mut c = cell(s, 0, 6);
+    // Narrow 5-wide variants of the letters in "FOSSICKERS" (the shared font glyphs
+    // are 6 wide, which packs the ten-letter kicker too tight at 2x). Same 2px-stroke
+    // style, 7 rows tall.
+    #[rustfmt::skip]
+    let kicker_glyph = |ch: char| -> [&'static str; 7] {
+        match ch {
+            'F' => ["#####", "##...", "##...", "####.", "##...", "##...", "##..."],
+            'O' => [".###.", "##.##", "##.##", "##.##", "##.##", "##.##", ".###."],
+            'S' => [".####", "##...", "##...", ".###.", "...##", "...##", "####."],
+            'I' => ["####", ".##.", ".##.", ".##.", ".##.", ".##.", "####"],
+            'C' => [".####", "##...", "##...", "##...", "##...", "##...", ".####"],
+            'K' => ["##.##", "##.##", "####.", "###..", "####.", "##.##", "##.##"],
+            'E' => ["#####", "##...", "##...", "####.", "##...", "##...", "#####"],
+            'R' => ["####.", "##.##", "##.##", "####.", "###..", "##.##", "##.##"],
+            _ => unreachable!("kicker letters only"),
+        }
+    };
 
-    // draw `word` with glyphs stretched (sx, sy), top edge at y_top, gradient banded
-    // over the word's own height; pass 0 = drop shadow, pass 1 = fill
-    let draw_word = |c: &mut C, word: &str, sx: i32, sy: i32, y_top: i32, gap: i32| {
+    // draw `word` with glyphs stretched (sx, sy), top edge at y_top, centered in a
+    // `field_w`-px-wide strip (accounting for the +1px shadow), gradient banded over
+    // the word's own height; pass 0 = drop shadow, pass 1 = fill
+    let draw_word = |c: &mut C,
+                     word: &str,
+                     glyph_of: &dyn Fn(char) -> [&'static str; 7],
+                     sx: i32,
+                     sy: i32,
+                     y_top: i32,
+                     gap: i32,
+                     field_w: i32| {
         let widths: Vec<i32> = word
             .chars()
-            .map(|ch| {
-                glyph(ch)
-                    .expect("logo letters exist")
-                    .iter()
-                    .map(|r| r.len() as i32)
-                    .max()
-                    .unwrap()
-            })
+            .map(|ch| glyph_of(ch).iter().map(|r| r.len() as i32).max().unwrap())
             .collect();
         let total: i32 = widths.iter().map(|w| w * sx).sum::<i32>() + (word.len() as i32 - 1) * gap;
-        let x0 = (112 - total) / 2;
+        let x0 = (field_w - total - 1) / 2; // -1: the drop shadow adds a column
         let height = 7 * sy; // font glyphs are 7 rows tall
         for pass in 0..2 {
             let mut lx = x0;
             for (li, ch) in word.chars().enumerate() {
-                let rows = glyph(ch).expect("logo letters exist");
+                let rows = glyph_of(ch);
                 for (ry, row) in rows.iter().enumerate() {
                     for (rx, g) in row.chars().enumerate() {
                         if g != '#' {
@@ -3603,14 +5138,20 @@ fn logo(s: &mut Sheet) {
         }
     };
 
-    // the "FOSSICKERS" kicker is drawn by the title screen in font text; the sheet
-    // region holds only the big DOOM wordmark
-    draw_word(&mut c, "DOOM", 4, 2, 0, 4);
+    // "DOOM" — the hero word, 8px strokes, in a 15-cell (120px) strip
+    let font_glyph = |ch: char| glyph(ch).expect("logo letters exist");
+    let mut c = cell(s, 0, 6);
+    draw_word(&mut c, "DOOM", &font_glyph, 4, 2, 0, 4, 120);
 
-    // full-width underline under everything
-    c.hline(1, 15, 110, dk);
-    c.set(0, 15, md);
-    c.set(111, 15, md);
+    // full-width underline under it
+    c.hline(3, 15, 114, dk);
+    c.set(2, 15, md);
+    c.set(117, 15, md);
+
+    // "FOSSICKERS" — the kicker, 4px strokes at the same cap height, in a 17-cell
+    // (136px) strip; slightly wider than DOOM so the lockup reads top-heavy
+    let mut k = cell(s, 15, 6);
+    draw_word(&mut k, "FOSSICKERS", &kicker_glyph, 2, 2, 0, 2, 136);
 }
 
 /// Cell (30,30): `Sprite::missing_texture` (drawn flat magenta by its palette).
@@ -3630,10 +5171,16 @@ fn main() {
     rock_connector(&mut s);
     grass_connector(&mut s);
     water_connector(&mut s);
+    grass_texture(&mut s);
+    sand_texture(&mut s);
+    snow_texture(&mut s);
+    dirt_texture(&mut s);
+    stone_texture(&mut s);
     wool_cell(&mut s);
     cloud_full_cells(&mut s);
     farm_cell(&mut s);
     footprint_cell(&mut s);
+    mud_cells(&mut s);
     ore_cells(&mut s);
     quicksand_cells(&mut s);
     stairs_cells(&mut s);
@@ -3649,10 +5196,12 @@ fn main() {
     gravestone_cells(&mut s);
     pumpkin_cells(&mut s);
     tall_grass_cells(&mut s);
+    flora_cells(&mut s);
 
     // items + UI
     items_row4(&mut s);
     items_row5(&mut s);
+    food_icons(&mut s);
     ui_row12(&mut s);
     ui_row13(&mut s);
     splash_cells(&mut s);
