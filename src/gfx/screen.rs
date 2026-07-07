@@ -217,6 +217,22 @@ impl Screen {
         }
     }
 
+    /// Saturating per-channel additive blend of one screen-space pixel (bounds-checked).
+    /// Used by the lighting pass's event skies (`gfx::lighting`); `darken_rect_screen`
+    /// is the multiplicative counterpart.
+    #[inline]
+    pub fn add_rgb(&mut self, x: i32, y: i32, dr: i32, dg: i32, db: i32) {
+        if !(0..W).contains(&x) || !(0..H).contains(&y) {
+            return;
+        }
+        let i = (x + y * W) as usize;
+        let p = self.pixels[i];
+        let r = (((p >> 16) & 0xFF) + dr).clamp(0, 255);
+        let g = (((p >> 8) & 0xFF) + dg).clamp(0, 255);
+        let b = ((p & 0xFF) + db).clamp(0, 255);
+        self.pixels[i] = (r << 16) | (g << 8) | b;
+    }
+
     /// Java `renderLight(x, y, r)` — writes a radial brightness gradient (light screen).
     pub fn render_light(&mut self, mut x: i32, mut y: i32, r: i32) {
         x -= self.x_offset;

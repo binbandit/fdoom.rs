@@ -27,8 +27,8 @@ struct Flyover {
 pub struct Renderer {
     flyover: Option<Flyover>,
     pub screen: Screen,
-    /// The darkness/fog-of-war overlay screen (JAVA: the overlay call is commented out in
-    /// this fork, but the screen is still constructed).
+    /// The light buffer (raw 0-255 brightness). JAVA: the fork's `overlay` call stays
+    /// commented out; post-port, `gfx::lighting` stamps emitters here each frame.
     pub light_screen: Screen,
 }
 
@@ -198,8 +198,17 @@ impl Renderer {
         crate::level::render_background(g, &mut self.screen, lvl, x_scroll, y_scroll);
         crate::level::render_sprites(g, &mut self.screen, lvl, x_scroll, y_scroll);
 
-        // JAVA: the cave-darkness light overlay is commented out in this fork; preserved
-        // as disabled (see Renderer.java renderLevel).
+        // JAVA: the fork's cave-darkness light overlay stays disabled (see Renderer.java
+        // renderLevel); the post-port lighting/atmosphere pass below replaces it. It runs
+        // here — after the world, before render_gui and menus — so UI text stays crisp.
+        crate::gfx::lighting::render_pass(
+            &mut self.screen,
+            &mut self.light_screen,
+            g,
+            lvl,
+            x_scroll,
+            y_scroll,
+        );
     }
 
     /// Java `renderGui()` — hearts, stamina, hunger, item bar, notifications...

@@ -10,6 +10,7 @@ pub mod ellipsis;
 pub mod font;
 pub mod font_style;
 pub mod insets;
+pub mod lighting;
 pub mod point;
 pub mod rectangle;
 pub mod screen;

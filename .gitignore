@@ -1,1 +1,5 @@
 target/
+
+# runtime output from bins run at repo root
+save/
+highscore.txt
