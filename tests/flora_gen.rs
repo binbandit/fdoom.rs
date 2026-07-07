@@ -4,11 +4,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fdoom::core::{game::Game, world};
-use fdoom::entity::{Direction, EntityKind};
 use fdoom::level::chunk::CHUNK_SIZE;
 use fdoom::level::infinite_gen::{Biome, biome_at, generate_chunk};
 use fdoom::level::tile::{Tiles, dispatch};
+use fdoom::testutil::TestWorld;
 
 const SEED: i64 = 20260707;
 
@@ -155,88 +154,41 @@ fn jack_o_lanterns_haunt_some_structures() {
 
 /* ------------------------------- interactive tests ------------------------------- */
 
-fn new_infinite(dir_name: &str) -> Game {
-    let tmp = std::env::temp_dir().join(dir_name);
-    let _ = std::fs::remove_dir_all(&tmp);
-    let mut g = Game::new(false, false, tmp);
-    world::reset_game(&mut g, true);
-    g.settings.set("worldtype", "Infinite");
-    g.world_name = "floratest".into();
-    g.world_seed = 4242;
-    world::init_world(&mut g);
-    g.tick();
-    g
-}
-
-/// Hit a tile the way a bare-handed player attack does (dispatch::hurt_by).
-fn hit(g: &mut Game, lvl: usize, xt: i32, yt: i32, dmg: i32) -> bool {
-    let def = g.tile_at(lvl, xt, yt);
-    let mut player = g.entities.take(g.player_id).expect("player");
-    let hit = dispatch::hurt_by(g, &def, lvl, xt, yt, &mut player, dmg, Direction::Down);
-    g.entities.put_back(player);
-    hit
-}
-
-/// Names of every item currently dropped on the level (queued or live).
-fn dropped_items(g: &Game, lvl: usize) -> Vec<String> {
-    let mut names: Vec<String> = g
-        .level(lvl)
-        .entities_to_add
-        .iter()
-        .filter_map(|e| match &e.kind {
-            EntityKind::ItemEntity(d) => Some(d.item.get_name().to_string()),
-            _ => None,
-        })
-        .collect();
-    for eid in g.entities.ids_on_level(lvl) {
-        if let Some(EntityKind::ItemEntity(d)) = g.entities.get(eid).map(|e| &e.kind) {
-            names.push(d.item.get_name().to_string());
-        }
-    }
-    names
-}
-
 fn has_item(names: &[String], want: &str) -> bool {
     names.iter().any(|n| n.eq_ignore_ascii_case(want))
 }
 
 #[test]
 fn berry_bush_pick_and_regrow_cycle() {
-    let mut g = new_infinite("fdoom_flora_berry_test");
-    let lvl = g.current_level;
-    let (px, py) = {
-        let p = g.player();
-        (p.c.x >> 4, p.c.y >> 4)
-    };
-    let (tx, ty) = (px + 1, py);
-    let bush = g.tiles.get("Berry Bush");
-    g.set_tile_default(lvl, tx, ty, &bush);
-    assert_eq!(g.level(lvl).get_data(tx, ty), 0, "fresh bush is ripe");
+    let mut tw = TestWorld::infinite().seed(4242).build();
+    let lvl = tw.current_level;
+    let (tx, ty) = tw.place("Berry Bush", 1, 0);
+    assert_eq!(tw.level(lvl).get_data(tx, ty), 0, "fresh bush is ripe");
 
     // first hit picks the berries: bush survives, goes into regrowth
-    assert!(hit(&mut g, lvl, tx, ty, 1));
+    assert!(tw.hit(1, 0, 1));
     assert!(
-        g.tile_at(lvl, tx, ty)
+        tw.tile_at(lvl, tx, ty)
             .name
             .eq_ignore_ascii_case("Berry Bush"),
         "picking must not destroy the bush"
     );
     assert_eq!(
-        g.level(lvl).get_data(tx, ty),
+        tw.level(lvl).get_data(tx, ty),
         1,
         "bush regrowing after pick"
     );
     assert!(
-        has_item(&dropped_items(&g, lvl), "Berry"),
+        has_item(&tw.dropped_items(), "Berry"),
         "picking a ripe bush drops a Berry"
     );
 
     // random ticks regrow the berries (1-in-2000 per random tick; generous cap)
-    let def = g.tile_at(lvl, tx, ty);
+    let def = tw.tile_at(lvl, tx, ty);
     let mut regrew = false;
     for _ in 0..200_000 {
-        dispatch::tick(&mut g, &def, lvl, tx, ty);
-        if g.level(lvl).get_data(tx, ty) == 0 {
+        dispatch::tick(&mut tw, &def, lvl, tx, ty);
+        if tw.level(lvl).get_data(tx, ty) == 0 {
             regrew = true;
             break;
         }
@@ -244,122 +196,103 @@ fn berry_bush_pick_and_regrow_cycle() {
     assert!(regrew, "berries regrow over time");
 
     // a second pick works after regrowth
-    assert!(hit(&mut g, lvl, tx, ty, 1));
-    assert_eq!(g.level(lvl).get_data(tx, ty), 1);
+    assert!(tw.hit(1, 0, 1));
+    assert_eq!(tw.level(lvl).get_data(tx, ty), 1);
 
     // hitting the bare bush tears it out
-    assert!(hit(&mut g, lvl, tx, ty, 1));
+    assert!(tw.hit(1, 0, 1));
     assert!(
-        g.tile_at(lvl, tx, ty).name.eq_ignore_ascii_case("Grass"),
+        tw.tile_at(lvl, tx, ty).name.eq_ignore_ascii_case("Grass"),
         "bare bush breaks to grass"
     );
 }
 
 #[test]
 fn palm_drops_coconuts_when_felled() {
-    let mut g = new_infinite("fdoom_flora_palm_test");
-    let lvl = g.current_level;
-    let (px, py) = {
-        let p = g.player();
-        (p.c.x >> 4, p.c.y >> 4)
-    };
-    let (tx, ty) = (px + 1, py);
-    let palm = g.tiles.get("Palm Tree");
-    g.set_tile_default(lvl, tx, ty, &palm);
+    let mut tw = TestWorld::infinite().seed(4242).build();
+    let (tx, ty) = tw.place("Palm Tree", 1, 0);
 
     // 20 damage fells a fresh palm (health 20) in one blow
-    assert!(hit(&mut g, lvl, tx, ty, 20));
+    assert!(tw.hit(1, 0, 20));
     assert!(
-        g.tile_at(lvl, tx, ty).name.eq_ignore_ascii_case("Sand"),
+        tw.tile_at(tw.current_level, tx, ty)
+            .name
+            .eq_ignore_ascii_case("Sand"),
         "felled palm leaves its sand base"
     );
-    let names = dropped_items(&g, lvl);
+    let names = tw.dropped_items();
     assert!(has_item(&names, "Coconut"), "felled palm drops Coconut(s)");
     assert!(has_item(&names, "Wood"), "felled palm drops Wood");
 }
 
 #[test]
 fn dead_tree_is_brittle_and_drops_sticks_only() {
-    let mut g = new_infinite("fdoom_flora_snag_test");
-    let lvl = g.current_level;
-    let (px, py) = {
-        let p = g.player();
-        (p.c.x >> 4, p.c.y >> 4)
-    };
-    let (tx, ty) = (px + 1, py);
-    let snag = g.tiles.get("Dead Tree");
-    g.set_tile_default(lvl, tx, ty, &snag);
+    let mut tw = TestWorld::infinite().seed(4242).build();
+    let (tx, ty) = tw.place("Dead Tree", 1, 0);
 
     // 8 damage fells the snag in one blow (broadleaf would shrug that off)
-    assert!(hit(&mut g, lvl, tx, ty, 8));
-    assert!(g.tile_at(lvl, tx, ty).name.eq_ignore_ascii_case("Sand"));
-    let names = dropped_items(&g, lvl);
+    assert!(tw.hit(1, 0, 8));
+    assert!(
+        tw.tile_at(tw.current_level, tx, ty)
+            .name
+            .eq_ignore_ascii_case("Sand")
+    );
+    let names = tw.dropped_items();
     assert!(has_item(&names, "Stick"), "dead tree drops Sticks");
     assert!(!has_item(&names, "Wood"), "dead tree drops no Wood");
 }
 
 #[test]
 fn pumpkins_and_jack_o_lanterns_drop_their_items() {
-    let mut g = new_infinite("fdoom_flora_pumpkin_test");
-    let lvl = g.current_level;
-    let (px, py) = {
-        let p = g.player();
-        (p.c.x >> 4, p.c.y >> 4)
-    };
+    let mut tw = TestWorld::infinite().seed(4242).build();
+    let lvl = tw.current_level;
 
-    let pumpkin = g.tiles.get("pumpkin");
-    g.set_tile_default(lvl, px + 1, py, &pumpkin);
-    assert!(hit(&mut g, lvl, px + 1, py, 1));
-    assert!(has_item(&dropped_items(&g, lvl), "Pumpkin"));
+    tw.place("pumpkin", 1, 0);
+    assert!(tw.hit(1, 0, 1));
+    assert!(has_item(&tw.dropped_items(), "Pumpkin"));
 
-    let jack = g.tiles.get("Jack-O-Lantern");
-    g.set_tile_default(lvl, px + 2, py, &jack);
+    let (jx, jy) = tw.place("Jack-O-Lantern", 2, 0);
+    let jack = tw.tile_at(lvl, jx, jy);
     assert!(
-        fdoom::level::tile::dispatch::get_light_radius(&g, &jack, lvl, px + 2, py) > 3,
+        dispatch::get_light_radius(&tw, &jack, lvl, jx, jy) > 3,
         "a Jack-O-Lantern out-glows a plain pumpkin"
     );
-    assert!(hit(&mut g, lvl, px + 2, py, 1));
-    assert!(has_item(&dropped_items(&g, lvl), "Jack-O-Lantern"));
+    assert!(tw.hit(2, 0, 1));
+    assert!(has_item(&tw.dropped_items(), "Jack-O-Lantern"));
 }
 
 #[test]
 fn thicket_blocks_only_paddock_cores() {
-    let mut g = new_infinite("fdoom_flora_thicket_test");
-    let lvl = g.current_level;
-    let (px, py) = {
-        let p = g.player();
-        (p.c.x >> 4, p.c.y >> 4)
-    };
+    let mut tw = TestWorld::infinite().seed(4242).build();
+    let lvl = tw.current_level;
+    let (px, py) = tw.player_tile();
     // clear a 9x9 stage well away from the player's own tile
     let (ox, oy) = (px + 10, py + 10);
-    let grass = g.tiles.get("grass");
     for dy in -4..=4 {
         for dx in -4..=4 {
-            g.set_tile_default(lvl, ox + dx, oy + dy, &grass);
+            tw.place_at("grass", ox + dx, oy + dy);
         }
     }
-    let thicket = g.tiles.get("Tall Grass");
 
-    let passable = |g: &Game, x: i32, y: i32| {
-        let def = g.tile_at(lvl, x, y);
-        let p = g.player();
-        dispatch::may_pass(g, &def, lvl, x, y, p)
+    let passable = |tw: &TestWorld, x: i32, y: i32| {
+        let def = tw.tile_at(lvl, x, y);
+        dispatch::may_pass(tw, &def, lvl, x, y, tw.player())
     };
 
     // a lone fully-grown tuft is brushed through
-    g.set_tile_default(lvl, ox, oy, &thicket);
-    assert!(passable(&g, ox, oy), "lone thicket tile must be passable");
+    tw.place_at("Tall Grass", ox, oy);
+    assert!(passable(&tw, ox, oy), "lone thicket tile must be passable");
 
     // a 5x5 paddock: the core is impenetrable, the fringe is walkable
     for dy in -2..=2 {
         for dx in -2..=2 {
-            g.set_tile_default(lvl, ox + dx, oy + dy, &thicket);
+            tw.place_at("Tall Grass", ox + dx, oy + dy);
         }
     }
-    assert!(!passable(&g, ox, oy), "paddock core must block");
-    assert!(passable(&g, ox - 2, oy), "paddock edge stays walkable");
+    assert!(!passable(&tw, ox, oy), "paddock core must block");
+    assert!(passable(&tw, ox - 2, oy), "paddock edge stays walkable");
     assert!(
-        passable(&g, ox + 2, oy + 2),
+        passable(&tw, ox + 2, oy + 2),
         "paddock corner stays walkable"
     );
 }

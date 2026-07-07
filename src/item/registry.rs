@@ -3,11 +3,17 @@
 //! Java built the list once in a static block; here `build_registry` runs once per game
 //! (from `Game::new`) since the furniture prototypes read the difficulty setting, exactly
 //! as Java's static init read `Settings` at class-load time.
+//!
+//! Adding an item is one line in `build_registry` (list order = creative-inventory
+//! order): a family helper + the sheet cell `(x, y)` + a `get4` palette, e.g.
+//! `stackable("Ruby", (10, 4), get4(-1, 400, 500, 511))`. See docs/ADDING_CONTENT.md.
 
 use crate::core::game::Game;
+use crate::entity::Entity;
 use crate::entity::furniture::crafter::CrafterType;
 use crate::entity::furniture::lantern::LanternType;
 use crate::entity::{furniture, mob};
+use crate::gfx::color::get4;
 use crate::gfx::{Sprite, color};
 use crate::item::{Fill, Inventory, Item, ItemKind, PotionType, ToolType};
 
@@ -18,44 +24,54 @@ pub const TOOL_LEVEL_NAMES: [&str; 6] = ["Crude", "Wood", "Rock", "Iron", "Gold"
 
 /// Java `ToolItem.LEVEL_COLORS` (+ crude tier).
 pub const TOOL_LEVEL_COLORS: [i32; 6] = [
-    color::get4(-1, 100, 221, 332), // crude (dull stone-on-stick)
-    color::get4(-1, 100, 321, 431), // wood
-    color::get4(-1, 100, 321, 111), // rock/stone
-    color::get4(-1, 100, 321, 555), // iron
-    color::get4(-1, 100, 321, 550), // gold
-    color::get4(-1, 100, 321, 55),  // gem
+    get4(-1, 100, 221, 332), // crude (dull stone-on-stick)
+    get4(-1, 100, 321, 431), // wood
+    get4(-1, 100, 321, 111), // rock/stone
+    get4(-1, 100, 321, 555), // iron
+    get4(-1, 100, 321, 550), // gold
+    get4(-1, 100, 321, 55),  // gem
 ];
 
 /// Java `ToolItem.BOW_COLORS` (+ crude tier).
 pub const TOOL_BOW_COLORS: [i32; 6] = [
-    color::get4(-1, 100, 444, 332),
-    color::get4(-1, 100, 444, 431),
-    color::get4(-1, 100, 444, 111),
-    color::get4(-1, 100, 444, 555),
-    color::get4(-1, 100, 444, 550),
-    color::get4(-1, 100, 444, 55),
+    get4(-1, 100, 444, 332),
+    get4(-1, 100, 444, 431),
+    get4(-1, 100, 444, 111),
+    get4(-1, 100, 444, 555),
+    get4(-1, 100, 444, 550),
+    get4(-1, 100, 444, 55),
 ];
 
 fn tool_color(ttype: ToolType, level: i32) -> i32 {
     if ttype == ToolType::Bow {
         TOOL_BOW_COLORS[level as usize]
     } else if ttype == ToolType::FishingRod {
-        color::get4(-1, 320, 320, 444)
+        get4(-1, 320, 320, 444)
+    } else if ttype == ToolType::Crossbow {
+        // dark stock + iron mechanism (distinguishes it from the bow-cell placeholder)
+        get4(-1, 100, 210, 444)
+    } else if ttype == ToolType::Slingshot {
+        // plain whittled wood + cord
+        get4(-1, 100, 321, 210)
     } else {
         TOOL_LEVEL_COLORS[level as usize]
     }
 }
 
+/// An item icon: 8x8 sheet cell `(x, y)` + a `get4` palette.
+fn icon(cell: (i32, i32), colors: i32) -> Sprite {
+    Sprite::new1x1(cell.0, cell.1, colors)
+}
+
 /// Java `new ToolItem(type, level)`.
 pub fn new_tool_item(ttype: ToolType, level: i32) -> Item {
-    let name = if ttype == ToolType::FishingRod {
-        "Fishing Rod".to_string()
-    } else {
-        format!("{} {}", TOOL_LEVEL_NAMES[level as usize], ttype.name())
+    let name = match ttype.flat_name() {
+        Some(flat) => flat.to_string(),
+        None => format!("{} {}", TOOL_LEVEL_NAMES[level as usize], ttype.name()),
     };
     Item::new(
         &name,
-        Sprite::new1x1(ttype.sprite(), 5, tool_color(ttype, level)),
+        icon((ttype.sprite(), 5), tool_color(ttype, level)),
         ItemKind::Tool {
             ttype,
             level,
@@ -68,7 +84,7 @@ pub fn new_tool_item(ttype: ToolType, level: i32) -> Item {
 pub fn new_potion_item(ptype: PotionType) -> Item {
     Item::new(
         &ptype.item_name(),
-        Sprite::new1x1(27, 4, color::get4(-1, 333, 310, ptype.disp_color())),
+        icon((27, 4), get4(-1, 333, 310, ptype.disp_color())),
         ItemKind::Potion { count: 1, ptype },
     )
 }
@@ -77,7 +93,7 @@ pub fn new_potion_item(ptype: PotionType) -> Item {
 pub fn new_bucket_item(fill: Fill) -> Item {
     Item::new(
         &format!("{} Bucket", fill.name()),
-        Sprite::new1x1(21, 4, color::get4(-1, 222, fill.inner_color(), 555)),
+        icon((21, 4), get4(-1, 222, fill.inner_color(), 555)),
         ItemKind::Bucket {
             count: 1,
             filling: fill,
@@ -86,7 +102,7 @@ pub fn new_bucket_item(fill: Fill) -> Item {
 }
 
 /// Java `new FurnitureItem(furniture)`.
-pub fn new_furniture_item(f: crate::entity::Entity) -> Item {
+pub fn new_furniture_item(f: Entity) -> Item {
     let fpos = f
         .furniture()
         .expect("furniture item needs furniture")
@@ -111,7 +127,7 @@ pub fn new_furniture_item(f: crate::entity::Entity) -> Item {
 pub fn new_power_glove() -> Item {
     Item::new(
         "Power Glove",
-        Sprite::new1x1(7, 4, color::get4(-1, 100, 320, 430)),
+        icon((7, 4), get4(-1, 100, 320, 430)),
         ItemKind::PowerGlove,
     )
 }
@@ -125,14 +141,17 @@ pub fn new_unknown_item(req_name: &str) -> Item {
     )
 }
 
-fn stackable(name: &str, sprite: Sprite) -> Item {
-    Item::new(name, sprite, ItemKind::Stackable { count: 1 })
+/* ---------- family helpers: one line per item in build_registry ---------- */
+
+fn stackable(name: &str, cell: (i32, i32), colors: i32) -> Item {
+    Item::new(name, icon(cell, colors), ItemKind::Stackable { count: 1 })
 }
 
-fn food(name: &str, sprite: Sprite, heal: i32) -> Item {
+/// Restores `heal` hunger points when eaten.
+fn food(name: &str, cell: (i32, i32), colors: i32, heal: i32) -> Item {
     Item::new(
         name,
-        sprite,
+        icon(cell, colors),
         ItemKind::Food {
             count: 1,
             heal,
@@ -141,10 +160,20 @@ fn food(name: &str, sprite: Sprite, heal: i32) -> Item {
     )
 }
 
-fn armor(name: &str, sprite: Sprite, armor: f32, level: i32) -> Item {
+/// Post-port: first-aid items (Bandage) — restore health directly, not hunger.
+fn medical(name: &str, cell: (i32, i32), colors: i32, heal: i32) -> Item {
     Item::new(
         name,
-        sprite,
+        icon(cell, colors),
+        ItemKind::Medical { count: 1, heal },
+    )
+}
+
+/// All armor shares the chestplate cell (3, 12); only the palette differs.
+fn armor(name: &str, colors: i32, armor: f32, level: i32) -> Item {
+    Item::new(
+        name,
+        icon((3, 12), colors),
         ItemKind::Armor {
             count: 1,
             armor,
@@ -154,10 +183,10 @@ fn armor(name: &str, sprite: Sprite, armor: f32, level: i32) -> Item {
     )
 }
 
-fn clothing(name: &str, color: i32, pcol: i32) -> Item {
+fn clothing(name: &str, colors: i32, pcol: i32) -> Item {
     Item::new(
         name,
-        Sprite::new1x1(6, 12, color),
+        icon((6, 12), colors),
         ItemKind::Clothing {
             count: 1,
             player_col: pcol,
@@ -165,14 +194,26 @@ fn clothing(name: &str, color: i32, pcol: i32) -> Item {
     )
 }
 
-fn tile_item(name: &str, sprite: Sprite, model: &str, valid_tiles: &[&str]) -> Item {
+/// Placeable: `model` = tile name to place, `valid_tiles` = names it can be placed on.
+fn tile_item(name: &str, cell: (i32, i32), colors: i32, model: &str, valid_tiles: &[&str]) -> Item {
     Item::new(
         name,
-        sprite,
+        icon(cell, colors),
         ItemKind::TileItem {
             count: 1,
             model: model.to_uppercase(),
             valid_tiles: valid_tiles.iter().map(|t| t.to_uppercase()).collect(),
+        },
+    )
+}
+
+fn book(name: &str, colors: i32, text: Option<&'static str>, has_title_page: bool) -> Item {
+    Item::new(
+        name,
+        icon((14, 4), colors),
+        ItemKind::Book {
+            book: text,
+            has_title_page,
         },
     )
 }
@@ -185,52 +226,20 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
 
     // FurnitureItem.getAllInstances()
     {
-        let mut r = g.random.clone();
-        let rnd = &mut r; // spawner constructors draw a spawn interval
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::cow::new(g),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::pig::new(g),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::sheep::new(g),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::zombie::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::snake::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::knight::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::marsh_lurker::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::feral_hound::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::stone_golem::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::night_wisp::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::glow_worm::new(g),
-            rnd,
-        )));
+        let mut rand = g.random.clone();
+        let rnd = &mut rand; // spawner constructors draw a spawn interval
+        let mut spawner = |m: Entity| new_furniture_item(furniture::spawner::new(m, rnd));
+        items.push(spawner(mob::cow::new(g)));
+        items.push(spawner(mob::pig::new(g)));
+        items.push(spawner(mob::sheep::new(g)));
+        items.push(spawner(mob::zombie::new(g, 1)));
+        items.push(spawner(mob::snake::new(g, 1)));
+        items.push(spawner(mob::knight::new(g, 1)));
+        items.push(spawner(mob::marsh_lurker::new(g, 1)));
+        items.push(spawner(mob::feral_hound::new(g, 1)));
+        items.push(spawner(mob::stone_golem::new(g, 1)));
+        items.push(spawner(mob::night_wisp::new(g, 1)));
+        items.push(spawner(mob::glow_worm::new(g)));
 
         items.push(new_furniture_item(furniture::chest::new()));
         for ctype in CrafterType::VALUES {
@@ -246,7 +255,7 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     // TorchItem.getAllInstances()
     items.push(Item::new(
         "Torch",
-        Sprite::new1x1(18, 4, color::get4(-1, 500, 520, 320)),
+        icon((18, 4), get4(-1, 500, 520, 320)),
         ItemKind::Torch {
             count: 1,
             valid_tiles: [
@@ -270,173 +279,189 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     }
 
     // BookItem.getAllInstances()
-    items.push(Item::new(
-        "Book",
-        Sprite::new1x1(14, 4, color::get4(-1, 200, 531, 430)),
-        ItemKind::Book {
-            book: None,
-            has_title_page: false,
-        },
-    ));
-    items.push(Item::new(
+    items.push(book("Book", get4(-1, 200, 531, 430), None, false));
+    items.push(book(
         "Antidious",
-        Sprite::new1x1(14, 4, color::get4(-1, 100, 300, 500)),
-        ItemKind::Book {
-            book: Some(crate::assets::ANTIDOUS_TXT),
-            has_title_page: true,
-        },
+        get4(-1, 100, 300, 500),
+        Some(crate::assets::ANTIDOUS_TXT),
+        true,
     ));
 
     // TileItem.getAllInstances()
     items.push(tile_item(
         "Flower",
-        Sprite::new1x1(0, 4, color::get4(-1, 10, 444, 330)),
+        (0, 4),
+        get4(-1, 10, 444, 330),
         "flower",
         &["grass"],
     ));
     items.push(tile_item(
         "Acorn",
-        Sprite::new1x1(3, 4, color::get4(-1, 100, 531, 320)),
+        (3, 4),
+        get4(-1, 100, 531, 320),
         "tree Sapling",
         &["grass"],
     ));
     items.push(tile_item(
         "Dirt",
-        Sprite::new1x1(2, 4, color::get4(-1, 100, 322, 432)),
+        (2, 4),
+        get4(-1, 100, 322, 432),
         "dirt",
         &["hole", "water", "lava"],
     ));
     items.push(tile_item(
         "Plank",
-        Sprite::new1x1(1, 4, color::get4(-1, 200, 531, 530)),
+        (1, 4),
+        get4(-1, 200, 531, 530),
         "Wood Planks",
         &["hole", "water"],
     ));
     items.push(tile_item(
         "Plank Wall",
-        Sprite::new1x1(16, 4, color::get4(-1, 200, 531, 530)),
+        (16, 4),
+        get4(-1, 200, 531, 530),
         "Wood Wall",
         &["Wood Planks"],
     ));
     items.push(tile_item(
         "Wood Door",
-        Sprite::new1x1(17, 4, color::get4(-1, 200, 531, 530)),
+        (17, 4),
+        get4(-1, 200, 531, 530),
         "Wood Door",
         &["Wood Planks"],
     ));
     items.push(tile_item(
         "Stone Brick",
-        Sprite::new1x1(1, 4, color::get4(-1, 333, 444, 444)),
+        (1, 4),
+        get4(-1, 333, 444, 444),
         "Stone Bricks",
         &["hole", "water", "lava"],
     ));
     items.push(tile_item(
         "Stone Wall",
-        Sprite::new1x1(16, 4, color::get4(-1, 100, 333, 444)),
+        (16, 4),
+        get4(-1, 100, 333, 444),
         "Stone Wall",
         &["Stone Bricks"],
     ));
     items.push(tile_item(
         "Stone Door",
-        Sprite::new1x1(17, 4, color::get4(-1, 111, 333, 444)),
+        (17, 4),
+        get4(-1, 111, 333, 444),
         "Stone Door",
         &["Stone Bricks"],
     ));
     items.push(tile_item(
         "Obsidian Brick",
-        Sprite::new1x1(1, 4, color::get4(-1, 159, 59, 59)),
+        (1, 4),
+        get4(-1, 159, 59, 59),
         "Obsidian",
         &["hole", "water", "lava"],
     ));
     items.push(tile_item(
         "Obsidian Wall",
-        Sprite::new1x1(16, 4, color::get4(-1, 159, 59, 59)),
+        (16, 4),
+        get4(-1, 159, 59, 59),
         "Obsidian Wall",
         &["Obsidian"],
     ));
     items.push(tile_item(
         "Obsidian Door",
-        Sprite::new1x1(17, 4, color::get4(-1, 159, 59, 59)),
+        (17, 4),
+        get4(-1, 159, 59, 59),
         "Obsidian Door",
         &["Obsidian"],
     ));
     items.push(tile_item(
         "Wool",
-        Sprite::new1x1(2, 4, color::WHITE),
+        (2, 4),
+        color::WHITE,
         "wool",
         &["hole", "water"],
     ));
     items.push(tile_item(
         "Red Wool",
-        Sprite::new1x1(2, 4, color::get4(-1, 100, 300, 500)),
+        (2, 4),
+        get4(-1, 100, 300, 500),
         "Wool_RED",
         &["hole", "water"],
     ));
     items.push(tile_item(
         "Blue Wool",
-        Sprite::new1x1(2, 4, color::get4(-1, 5, 115, 115)),
+        (2, 4),
+        get4(-1, 5, 115, 115),
         "Wool_BLUE",
         &["hole", "water"],
     ));
     items.push(tile_item(
         "Green Wool",
-        Sprite::new1x1(2, 4, color::get4(-1, 10, 40, 50)),
+        (2, 4),
+        get4(-1, 10, 40, 50),
         "Wool_GREEN",
         &["hole", "water"],
     ));
     items.push(tile_item(
         "Yellow Wool",
-        Sprite::new1x1(2, 4, color::get4(-1, 110, 440, 552)),
+        (2, 4),
+        get4(-1, 110, 440, 552),
         "Wool_YELLOW",
         &["hole", "water"],
     ));
     items.push(tile_item(
         "Black Wool",
-        Sprite::new1x1(2, 4, color::get4(-1, 0, 111, 111)),
+        (2, 4),
+        get4(-1, 0, 111, 111),
         "Wool_BLACK",
         &["hole", "water"],
     ));
     items.push(tile_item(
         "Sand",
-        Sprite::new1x1(2, 4, color::get4(-1, 110, 440, 550)),
+        (2, 4),
+        get4(-1, 110, 440, 550),
         "sand",
         &["dirt"],
     ));
     items.push(tile_item(
         "Cactus",
-        Sprite::new1x1(4, 4, color::get4(-1, 10, 40, 50)),
+        (4, 4),
+        get4(-1, 10, 40, 50),
         "cactus Sapling",
         &["sand"],
     ));
     items.push(tile_item(
         "Seeds",
-        Sprite::new1x1(5, 4, color::get4(-1, 10, 40, 50)),
+        (5, 4),
+        get4(-1, 10, 40, 50),
         "wheat",
         &["farmland"],
     ));
     items.push(tile_item(
         "Grass Seeds",
-        Sprite::new1x1(5, 4, color::get4(-1, 10, 30, 50)),
+        (5, 4),
+        get4(-1, 10, 30, 50),
         "grass",
         &["dirt"],
     ));
     items.push(tile_item(
         "Bone",
-        Sprite::new1x1(15, 4, color::get4(-1, 222, 555, 555)),
+        (15, 4),
+        get4(-1, 222, 555, 555),
         "tree",
         &["tree Sapling"],
     ));
     items.push(tile_item(
         "Cloud",
-        Sprite::new1x1(2, 4, color::get4(-1, 222, 555, 444)),
+        (2, 4),
+        get4(-1, 222, 555, 444),
         "cloud",
         &["Infinite Fall"],
     ));
 
     // ToolItem.getAllInstances()
-    items.push(new_tool_item(ToolType::FishingRod, 0));
     for ttype in ToolType::VALUES {
-        if ttype == ToolType::FishingRod {
+        if ttype.flat_name().is_some() {
+            // single-prototype tools: Fishing Rod, Crossbow, Slingshot
+            items.push(new_tool_item(ttype, 0));
             continue;
         }
         // level 0 = the post-port Crude tier, 1..=5 = the Java Wood..Gem tiers.
@@ -446,217 +471,95 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     }
 
     // FoodItem.getAllInstances()
-    items.push(food(
-        "Bread",
-        Sprite::new1x1(8, 4, color::get4(-1, 110, 330, 550)),
-        2,
-    ));
-    items.push(food(
-        "Apple",
-        Sprite::new1x1(9, 4, color::get4(-1, 100, 300, 500)),
-        1,
-    ));
-    items.push(food(
-        "Raw Pork",
-        Sprite::new1x1(20, 4, color::get4(-1, 211, 311, 411)),
-        1,
-    ));
-    items.push(food(
-        "Raw Fish",
-        Sprite::new1x1(24, 4, color::get4(-1, 660, 670, 680)),
-        1,
-    ));
-    items.push(food(
-        "Raw Beef",
-        Sprite::new1x1(20, 4, color::get4(-1, 200, 300, 400)),
-        1,
-    ));
-    items.push(food(
-        "Pork Chop",
-        Sprite::new1x1(20, 4, color::get4(-1, 220, 440, 330)),
-        3,
-    ));
-    items.push(food(
-        "Cooked Fish",
-        Sprite::new1x1(24, 4, color::get4(-1, 220, 330, 440)),
-        3,
-    ));
-    items.push(food(
-        "Cooked Pork",
-        Sprite::new1x1(20, 4, color::get4(-1, 220, 440, 330)),
-        3,
-    ));
-    items.push(food(
-        "Steak",
-        Sprite::new1x1(20, 4, color::get4(-1, 100, 333, 211)),
-        3,
-    ));
-    items.push(food(
-        "Gold Apple",
-        Sprite::new1x1(9, 4, color::get4(-1, 110, 440, 550)),
-        10,
-    ));
+    items.push(food("Bread", (8, 4), get4(-1, 110, 330, 550), 2));
+    items.push(food("Apple", (9, 4), get4(-1, 100, 300, 500), 1));
+    items.push(food("Raw Pork", (20, 4), get4(-1, 211, 311, 411), 1));
+    items.push(food("Raw Fish", (24, 4), get4(-1, 660, 670, 680), 1));
+    items.push(food("Raw Beef", (20, 4), get4(-1, 200, 300, 400), 1));
+    items.push(food("Pork Chop", (20, 4), get4(-1, 220, 440, 330), 3));
+    items.push(food("Cooked Fish", (24, 4), get4(-1, 220, 330, 440), 3));
+    items.push(food("Cooked Pork", (20, 4), get4(-1, 220, 440, 330), 3));
+    items.push(food("Steak", (20, 4), get4(-1, 100, 333, 211), 3));
+    items.push(food("Gold Apple", (9, 4), get4(-1, 110, 440, 550), 10));
+    // Forage foods (world spawning lives with the flora work; these are the item
+    // prototypes it drops). Heal values sit on the existing raw=1..2 / cooked=3 scale.
+    // TODO(art): final icons — placeholders reuse nearby cells recolored.
+    items.push(food("Berry", (5, 4), get4(-1, 102, 203, 415), 1));
+    items.push(food("Mushroom", (0, 4), get4(-1, 210, 433, 544), 1));
+    items.push(food("Cactus Fruit", (9, 4), get4(-1, 10, 40, 525), 1));
+    items.push(food("Coconut", (3, 4), get4(-1, 100, 321, 554), 2));
+    items.push(food("Cooked Mushroom", (0, 4), get4(-1, 210, 431, 543), 3));
+    // Jack-O-Lantern ingredient; the pumpkin tile needs a drop path (flora work).
+    items.push(food("Pumpkin", (2, 4), get4(-1, 210, 530, 550), 2));
+    items.push(food("Fruit Medley", (8, 4), get4(-1, 102, 304, 525), 3));
+
+    // Post-port first-aid: heals health (not hunger), hand-crafted from cord + fibers.
+    items.push(medical("Bandage", (1, 4), get4(-1, 300, 444, 555), 3));
 
     // StackableItem.getAllInstances()
-    items.push(stackable(
-        "Grass Fibers",
-        Sprite::new1x1(21, 5, color::get4(-1, 10, 40, 50)),
-    ));
+    items.push(stackable("Grass Fibers", (21, 5), get4(-1, 10, 40, 50)));
     items.push(stackable(
         "Stick",
-        Sprite::new1x1(20, 5, color::get4(-1, color::hex("#b5651d"), 532, 532)),
+        (20, 5),
+        get4(-1, color::hex("#b5651d"), 532, 532),
     ));
     // Twisted grass fibers — lashing for tools, bowstrings, fishing line.
-    // TODO(art): final icon — placeholder reuses the string cell (25,4) recolored.
-    items.push(stackable(
-        "Cord",
-        Sprite::new1x1(25, 4, color::get4(-1, 210, 320, 431)),
-    ));
+    items.push(stackable("Cord", (25, 4), get4(-1, 210, 320, 431)));
     // Knapped from 2 Stone in the personal crafting menu; the crude tool head.
-    // TODO(art): final icon — placeholder reuses the shard cell (23,4) recolored.
-    items.push(stackable(
-        "Sharp Stone",
-        Sprite::new1x1(23, 4, color::get4(-1, 111, 333, 444)),
-    ));
+    items.push(stackable("Sharp Stone", (23, 4), get4(-1, 111, 333, 444)));
     // Lets the player cross Deep Water while it's in the inventory (multi-level terrain).
-    // TODO(art): final icon — placeholder reuses the plank cell (28,4) recolored.
+    items.push(stackable("Raft", (28, 4), get4(-1, 210, 431, 321)));
+    items.push(stackable("Wood", (28, 4), get4(-1, 310, 532, 532)));
+    items.push(stackable("Stone", (2, 4), get4(-1, 111, 333, 555)));
+    items.push(stackable("Leather", (19, 4), get4(-1, 100, 211, 322)));
+    items.push(stackable("Wheat", (6, 4), get4(-1, 110, 330, 550)));
+    items.push(stackable("Key", (26, 4), get4(-1, -1, 444, 550)));
+    items.push(stackable("arrow", (13, 5), get4(-1, 111, 222, 430)));
+    items.push(stackable("string", (25, 4), color::WHITE));
+    items.push(stackable("Coal", (10, 4), get4(-1, 0, 111, 111)));
+    items.push(stackable("Iron Ore", (10, 4), get4(-1, 100, 322, 544)));
+    items.push(stackable("Lapis", (10, 4), get4(-1, 5, 115, 115)));
+    items.push(stackable("Gold Ore", (10, 4), get4(-1, 110, 440, 553)));
+    items.push(stackable("Iron", (11, 4), get4(-1, 100, 322, 544)));
+    items.push(stackable("Gold", (11, 4), get4(-1, 110, 330, 553)));
+    items.push(stackable("Rose", (0, 4), get4(-1, 100, 300, 500)));
+    items.push(stackable("GunPowder", (2, 4), get4(-1, 111, 222, 333)));
+    items.push(stackable("Slime", (10, 4), get4(-1, 10, 30, 50)));
+    items.push(stackable("glass", (12, 4), color::WHITE));
+    items.push(stackable("cloth", (1, 4), get4(-1, 25, 252, 141)));
+    items.push(stackable("gem", (13, 4), get4(-1, 101, 404, 545)));
+    items.push(stackable("Scale", (22, 4), get4(-1, 10, 30, 20)));
+    items.push(stackable("Shard", (23, 4), get4(-1, 222, 333, 444)));
+    // Thrown weapon: consumed on throw, lands as a pickup where it stops.
     items.push(stackable(
-        "Raft",
-        Sprite::new1x1(28, 4, color::get4(-1, 210, 431, 321)),
+        "Throwing Knife",
+        (23, 4),
+        get4(-1, 111, 444, 555),
     ));
+    // Anvil-forged trigger/gear assembly; the Crossbow's metal half.
     items.push(stackable(
-        "Wood",
-        Sprite::new1x1(28, 4, color::get4(-1, 310, 532, 532)),
-    ));
-    items.push(stackable(
-        "Stone",
-        Sprite::new1x1(2, 4, color::get4(-1, 111, 333, 555)),
-    ));
-    items.push(stackable(
-        "Leather",
-        Sprite::new1x1(19, 4, color::get4(-1, 100, 211, 322)),
-    ));
-    items.push(stackable(
-        "Wheat",
-        Sprite::new1x1(6, 4, color::get4(-1, 110, 330, 550)),
-    ));
-    items.push(stackable(
-        "Key",
-        Sprite::new1x1(26, 4, color::get4(-1, -1, 444, 550)),
-    ));
-    items.push(stackable(
-        "arrow",
-        Sprite::new1x1(13, 5, color::get4(-1, 111, 222, 430)),
-    ));
-    items.push(stackable("string", Sprite::new1x1(25, 4, color::WHITE)));
-    items.push(stackable(
-        "Coal",
-        Sprite::new1x1(10, 4, color::get4(-1, 0, 111, 111)),
-    ));
-    items.push(stackable(
-        "Iron Ore",
-        Sprite::new1x1(10, 4, color::get4(-1, 100, 322, 544)),
-    ));
-    items.push(stackable(
-        "Lapis",
-        Sprite::new1x1(10, 4, color::get4(-1, 5, 115, 115)),
-    ));
-    items.push(stackable(
-        "Gold Ore",
-        Sprite::new1x1(10, 4, color::get4(-1, 110, 440, 553)),
-    ));
-    items.push(stackable(
-        "Iron",
-        Sprite::new1x1(11, 4, color::get4(-1, 100, 322, 544)),
-    ));
-    items.push(stackable(
-        "Gold",
-        Sprite::new1x1(11, 4, color::get4(-1, 110, 330, 553)),
-    ));
-    items.push(stackable(
-        "Rose",
-        Sprite::new1x1(0, 4, color::get4(-1, 100, 300, 500)),
-    ));
-    items.push(stackable(
-        "GunPowder",
-        Sprite::new1x1(2, 4, color::get4(-1, 111, 222, 333)),
-    ));
-    items.push(stackable(
-        "Slime",
-        Sprite::new1x1(10, 4, color::get4(-1, 10, 30, 50)),
-    ));
-    items.push(stackable("glass", Sprite::new1x1(12, 4, color::WHITE)));
-    items.push(stackable(
-        "cloth",
-        Sprite::new1x1(1, 4, color::get4(-1, 25, 252, 141)),
-    ));
-    items.push(stackable(
-        "gem",
-        Sprite::new1x1(13, 4, color::get4(-1, 101, 404, 545)),
-    ));
-    items.push(stackable(
-        "Scale",
-        Sprite::new1x1(22, 4, color::get4(-1, 10, 30, 20)),
-    ));
-    items.push(stackable(
-        "Shard",
-        Sprite::new1x1(23, 4, color::get4(-1, 222, 333, 444)),
+        "Crossbow Mechanism",
+        (11, 4),
+        get4(-1, 100, 222, 433),
     ));
 
     // ClothingItem.getAllInstances()
-    items.push(clothing("Red Clothes", color::get4(-1, 100, 400, 500), 400));
-    items.push(clothing("Blue Clothes", color::get4(-1, 1, 4, 5), 4));
-    items.push(clothing("Green Clothes", color::get4(-1, 10, 40, 50), 40));
-    items.push(clothing(
-        "Yellow Clothes",
-        color::get4(-1, 110, 440, 550),
-        440,
-    ));
-    items.push(clothing("Black Clothes", color::get4(-1, 0, 111, 222), 111));
-    items.push(clothing(
-        "Orange Clothes",
-        color::get4(-1, 210, 520, 530),
-        520,
-    ));
-    items.push(clothing(
-        "Purple Clothes",
-        color::get4(-1, 102, 203, 405),
-        203,
-    ));
-    items.push(clothing("Cyan Clothes", color::get4(-1, 12, 23, 45), 23));
-    items.push(clothing("Reg Clothes", color::get4(-1, 111, 110, 210), 110));
+    items.push(clothing("Red Clothes", get4(-1, 100, 400, 500), 400));
+    items.push(clothing("Blue Clothes", get4(-1, 1, 4, 5), 4));
+    items.push(clothing("Green Clothes", get4(-1, 10, 40, 50), 40));
+    items.push(clothing("Yellow Clothes", get4(-1, 110, 440, 550), 440));
+    items.push(clothing("Black Clothes", get4(-1, 0, 111, 222), 111));
+    items.push(clothing("Orange Clothes", get4(-1, 210, 520, 530), 520));
+    items.push(clothing("Purple Clothes", get4(-1, 102, 203, 405), 203));
+    items.push(clothing("Cyan Clothes", get4(-1, 12, 23, 45), 23));
+    items.push(clothing("Reg Clothes", get4(-1, 111, 110, 210), 110));
 
     // ArmorItem.getAllInstances()
-    items.push(armor(
-        "Leather Armor",
-        Sprite::new1x1(3, 12, color::get4(-1, 100, 211, 322)),
-        0.3,
-        1,
-    ));
-    items.push(armor(
-        "Snake Armor",
-        Sprite::new1x1(3, 12, color::get4(-1, 10, 20, 30)),
-        0.4,
-        2,
-    ));
-    items.push(armor(
-        "Iron Armor",
-        Sprite::new1x1(3, 12, color::get4(-1, 100, 322, 544)),
-        0.5,
-        3,
-    ));
-    items.push(armor(
-        "Gold Armor",
-        Sprite::new1x1(3, 12, color::get4(-1, 110, 330, 553)),
-        0.7,
-        4,
-    ));
-    items.push(armor(
-        "Gem Armor",
-        Sprite::new1x1(3, 12, color::get4(-1, 101, 404, 545)),
-        1.0,
-        5,
-    ));
+    items.push(armor("Leather Armor", get4(-1, 100, 211, 322), 0.3, 1));
+    items.push(armor("Snake Armor", get4(-1, 10, 20, 30), 0.4, 2));
+    items.push(armor("Iron Armor", get4(-1, 100, 322, 544), 0.5, 3));
+    items.push(armor("Gold Armor", get4(-1, 110, 330, 553), 0.7, 4));
+    items.push(armor("Gem Armor", get4(-1, 101, 404, 545), 1.0, 5));
 
     // PotionItem.getAllInstances()
     for ptype in PotionType::VALUES {

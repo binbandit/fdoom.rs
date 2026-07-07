@@ -1,5 +1,5 @@
 //! Headless rendering smoke tests: draw into the software framebuffer with the real
-//! sprite sheet and dump PNGs to target/test-frames for visual inspection.
+//! sprite sheet and dump PNGs to target/verify for visual inspection.
 
 use std::sync::Arc;
 
@@ -7,27 +7,7 @@ use fdoom::gfx::{
     SpriteSheet, color, font,
     screen::{self, Screen},
 };
-
-fn dump_png(name: &str, s: &Screen) {
-    let dir = std::path::Path::new("target/test-frames");
-    std::fs::create_dir_all(dir).unwrap();
-    let file = std::fs::File::create(dir.join(name)).unwrap();
-    let mut enc = png::Encoder::new(
-        std::io::BufWriter::new(file),
-        screen::W as u32,
-        screen::H as u32,
-    );
-    enc.set_color(png::ColorType::Rgb);
-    enc.set_depth(png::BitDepth::Eight);
-    let mut writer = enc.write_header().unwrap();
-    let mut data = Vec::with_capacity((screen::W * screen::H * 3) as usize);
-    for &p in &s.pixels {
-        data.push(((p >> 16) & 0xff) as u8);
-        data.push(((p >> 8) & 0xff) as u8);
-        data.push((p & 0xff) as u8);
-    }
-    writer.write_image_data(&data).unwrap();
-}
+use fdoom::testutil::{save_png, verify_path};
 
 #[test]
 fn sheet_loads_and_text_renders() {
@@ -49,5 +29,11 @@ fn sheet_loads_and_text_renders() {
     let lit = s.pixels.iter().filter(|&&p| p != 0).count();
     assert!(lit > 500, "expected rendered pixels, got {lit}");
 
-    dump_png("font_smoke.png", &s);
+    save_png(
+        verify_path("font_smoke.png"),
+        &s.pixels,
+        screen::W as usize,
+        screen::H as usize,
+        1,
+    );
 }

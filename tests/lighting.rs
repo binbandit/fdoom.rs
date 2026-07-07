@@ -249,7 +249,7 @@ fn biome_ground_tint_shifts_the_palette() {
     let mut r = renderer();
     let noon = DAY_LENGTH / 4 + DAY_LENGTH / 8;
 
-    let mut shot = |g: &mut Game, r: &mut Renderer, biome, name: &str| {
+    let shot = |g: &mut Game, r: &mut Renderer, biome, name: &str| {
         let (tx, ty) = find_biome(g.world_seed, biome);
         {
             let p = g.player_mut();

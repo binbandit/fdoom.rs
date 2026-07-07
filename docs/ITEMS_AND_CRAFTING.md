@@ -48,6 +48,7 @@ bare tuple wrapping `Box<Entity>` as the shorthand implies):
 | `TileItem` | `count, model: String, valid_tiles: Vec<String>` | `TileItem` | `model`/`valid_tiles` are tile *names*, stored uppercase (see §10) |
 | `Torch` | `count, valid_tiles: Vec<String>` | `TorchItem` (a `TileItem` subclass with an empty model) | model is implicit: `Tiles::get_torch_tile` resolves the lit variant of whatever it's placed on |
 | `Bucket` | `count, filling: Fill` | `BucketItem` | `Fill::{Empty, Water, Lava}` |
+| `Medical` | `count, heal` | *(post-port, no Java origin)* | first-aid items (Bandage): restore `heal` **health** directly (contrast `Food`, which restores hunger); reflexive (`interacts_with_world()` false), costs 5 stamina, only usable while `health < MAX_HEALTH` |
 | `Tool` | `ttype: ToolType, level: i32, dur: i32` | `ToolItem` | the tier ladder, §2 |
 | `Furniture` | `furniture: Box<Entity>, placed: bool` | `FurnitureItem` | boxes a whole `Entity`; `placed` flips to `true` once placed (non-creative), which `is_depleted()` reads to clear the active-item slot |
 | `Book` | `book: Option<&'static str>, has_title_page: bool` | `BookItem` | `book = None` is the blank player-writable book |
@@ -55,8 +56,8 @@ bare tuple wrapping `Box<Entity>` as the shorthand implies):
 Common `Item` methods worth knowing before touching anything else in this doc:
 
 - `is_stackable()` / `count()` / `count_mut()` — backed by a single `count_ref()` match
-  arm that covers `Stackable | Unknown | Food | Armor | Clothing | Potion | TileItem |
-  Torch | Bucket`. **Note this list**: `Armor` and `Clothing` carry a `count` field (so
+  arm that covers `Stackable | Unknown | Food | Medical | Armor | Clothing | Potion |
+  TileItem | Torch | Bucket`. **Note this list**: `Armor` and `Clothing` carry a `count` field (so
   `is_stackable()` is true for them) even though in practice a player only ever wears one
   at a time — "stackable" here means "has a count field for save/inventory bookkeeping",
   not "the game lets you carry a meaningful stack of 40 iron armors". `Tool`, `Furniture`,
@@ -274,8 +275,8 @@ new armor material, follow this section's pattern (`armor()` helper + anvil/loom
 
 ## 3. Tool types (`src/item/tool_type.rs`)
 
-Eight `ToolType` variants (the task brief's "Shovel/Pickaxe/Sword/etc" is accurate as a
-sample; here is the full, verified list):
+Eleven `ToolType` variants — the eight Java originals plus the post-port survival
+weapons `Spear`/`Crossbow`/`Slingshot` (§3.1):
 
 | `ToolType` | Sprite row | Base durability | Primary use |
 |---|---|---|---|
@@ -287,11 +288,42 @@ sample; here is the full, verified list):
 | `Bow` | 5 | 20 | ranged attack (fires an `arrow` entity — see `player_behavior.rs`'s attack path); uses `TOOL_BOW_COLORS` instead of `TOOL_LEVEL_COLORS` for its sprite tint |
 | `FishingRod` | 6 | 16 | `interactOn` a `water` tile starts fishing (`go_fishing`, §7); does **not** get the 6-tier treatment — a single fixed-name "Fishing Rod" prototype |
 | `Claymore` | 7 | 34 | no tile interaction; heaviest attack-damage bonus (§2.2), craftable only by upgrading a same-tier Sword (§6) |
+| `Spear` | 2 *(placeholder — sword cell; TODO(art) wants 8)* | 30 | tiered reach weapon: melee sweep uses `ATTACK_DIST + 8` px; damage bonus `(level+1)*2 + rand(0..2+level)` (between Axe and Sword); **SHIFT-attack throws it** as a projectile that lands as a pickup, durability preserved (§3.1) |
+| `Crossbow` | 5 *(placeholder — bow cell; TODO(art) wants 9)* | 40 | single-tier (like FishingRod); fires an arrow at flat damage 7 (vs the Bow's `tool_level` 0..=5); `attack_time = 30` doubles as a re-cock delay — a click while it's still counting down is a dry trigger pull (§3.1) |
+| `Slingshot` | 5 *(placeholder — bow cell; TODO(art) wants 10)* | 18 | single-tier early ranged weapon; consumes one `Stone` item per shot, fires a short-range pellet at damage 0 (the arrow-vs-mob +3/+1 bonus is all it has) (§3.1) |
 
 `ToolType::name()` returns the exact string embedded in every tiered item's name
 (`"{tier} {name()}"`), so it is also what recipes/saves reference for that family (e.g.
 every `"Iron Pickaxe"` recipe cost/product string is built from `ToolType::Pickaxe.name()
-== "Pickaxe"` prefixed by a `TOOL_LEVEL_NAMES` entry).
+== "Pickaxe"` prefixed by a `TOOL_LEVEL_NAMES` entry). Single-prototype tools are the
+`ToolType::flat_name()` set — `Fishing Rod`, `Crossbow`, `Slingshot` — which
+`build_registry` pushes once at level 0 instead of running through the 6-tier loop.
+
+### 3.1 Survival weapons (post-port)
+
+All ranged/thrown weapons ride on the `Arrow` entity (`src/entity/projectile.rs`),
+extended with a `ProjectileStyle` (`Arrow`/`Spear`/`Knife`/`Pellet`), an optional
+`range_ticks` flight limit (`< 0` = unlimited, the plain-arrow behavior), and an optional
+`payload` — an `Item::get_data()` string dropped as an `ItemEntity` where the projectile
+lands (on hitting a mob, a blocking tile, or running out of range). Payloads are **not**
+persisted: a save taken mid-flight reloads the projectile as a plain arrow (flight lasts
+well under a second; accepted loss). Tuning constants live at the top of
+`src/entity/mob/player_behavior.rs` (`CROSSBOW_DAMAGE`, `SPEAR_RANGE_TICKS`, ...).
+
+| Weapon | Fire path | Ammo | Damage passed to the projectile | Recoverable? |
+|---|---|---|---|---|
+| Bow (Java) | attack key | 1 `arrow` | `tool_level` (0..=5) | no |
+| Crossbow | attack key, gated on `attack_time == 0` (30-tick re-cock) | 1 `arrow` | 7 | no |
+| Slingshot | attack key | 1 `Stone` | 0, range 12 ticks | no (stone spent) |
+| Throwing Knife | attack key while a `"Throwing Knife"` stack is held (it's a plain `Stackable`, matched by name in `attack()`) | itself (count −1) | 2, range 15 ticks | yes — lands as a `Throwing Knife_1` pickup |
+| Spear (thrown) | **SHIFT-attack** while a Spear is held (the whole active item is thrown) | itself | `2 + 2*tool_level`, range 16 ticks | yes — lands as a pickup with durability preserved via the payload data string |
+
+The SHIFT-attack chord needs special input handling: the plain `"attack"` binding never
+fires while SHIFT is held (modifier matching zeroes it), so the player tick checks the
+physical chords `"shift-space|shift-c"` explicitly — and only routes them to `attack()`
+while a Spear is the active item, leaving every other SHIFT combo untouched. All
+projectile hits reuse the arrow's `+3` vs-non-player / `+1` non-crit bonus (§ENTITIES
+10.2), so even a damage-0 pellet lands 3–4 on a mob.
 
 **Which tile interactions key off which `ToolType`** (grep `ToolType::` in
 `src/level/tile/*.rs` — this is the authoritative cross-reference for TERRAIN.md's dig
@@ -312,10 +344,11 @@ state machine, which only documents Shovel/Pickaxe on Dug Pit/Chasm):
 | `lava_brick.rs` | `Pickaxe` | → `lava` |
 | `depth.rs` (`DugPit`) | `Shovel` then `Pickaxe` | dig stages then open a Chasm (TERRAIN.md §4) |
 
-Tools that don't appear in this table (`Sword`, `Bow`, `Claymore`, `FishingRod` outside
-its own water check) have no `interact` dispatch arm on any tile — they only ever act on
-mobs (via `attack`/`get_attack_damage_bonus`, §2.2) or, for `FishingRod`, on the one
-`water` special case in `src/item/interact.rs` (§7).
+Tools that don't appear in this table (`Sword`, `Bow`, `Claymore`, `Spear`, `Crossbow`,
+`Slingshot`, `FishingRod` outside its own water check) have no `interact` dispatch arm on
+any tile — they only ever act on mobs (via `attack`/`get_attack_damage_bonus`, §2.2, or
+the projectile paths in §3.1) or, for `FishingRod`, on the one `water` special case in
+`src/item/interact.rs` (§7).
 
 ## 4. Inventories (`src/item/inventory.rs`)
 
@@ -546,6 +579,33 @@ the actual `Recipe::new` calls in `Recipes::new()` (`src/item/recipe.rs`):
                     shard_15 — consumes a finished Iron Sword, not raw
                     materials)
 ```
+
+**Survival-weapons/food additions (post-port)** — the same station progression extended:
+
+```
+  hand (personal craft):
+    Crude Spear_1      <- Stick_2, Cord_1, Sharp Stone_1
+    Throwing Knife_1   <- Sharp Stone_1, Stick_1, Cord_1
+    Slingshot_1        <- Stick_2, Cord_2            (fires Stone items)
+    Bandage_1          <- Cord_2, Grass Fibers_2     (Medical: +3 health)
+    Jack-O-Lantern_1   <- Pumpkin_1, Torch_1         (placeable light, LanternType::Jacko)
+    Fruit Medley_1     <- Berry_2, Apple_1           (no-cook food, heal 3)
+  workbench:
+    Wood Spear_1  <- Wood_5, Stick_2, Cord_1     Rock Spear_1 <- Stone_5, Stick_2, Cord_1
+    Crossbow_1    <- Wood_5, Stick_2, Cord_2, Crossbow Mechanism_1
+  anvil:
+    Crossbow Mechanism_1 <- iron_3               (the crossbow's forged half)
+    Iron/Gold/Gem Spear_1 <- Wood_5 + iron_5 / gold_5 / gem_50
+  oven AND furnace:
+    Cooked Mushroom_1 <- Mushroom_1, coal_1
+```
+
+Registered forage foods (world spawning/drops belong to the flora work — these exact
+names are the contract): `Berry` (heal 1), `Mushroom` (1), `Apple` (1, pre-existing),
+`Cactus Fruit` (1), `Coconut` (2), `Cooked Mushroom` (3), `Pumpkin` (2), `Fruit Medley`
+(3). **Note for the flora work**: the `pumpkin` tile (`src/level/tile/pumpkin.rs`)
+currently has no `hurt_by`/`interact` drop path — the `Pumpkin` *item* is registered and
+recipe-ready, but nothing in the world drops it yet.
 
 Every recipe quoted above is copied verbatim from `Recipes::new()` — no quantities were
 invented. Note the "no station should conjure a finished wood/metal tool from raw
@@ -799,6 +859,7 @@ the mechanic lives entirely in the tile module).
 | `tests/crafting_chain.rs` (`personal_crafting_offers_the_survival_chain`) | Personal (`craft`) crafting offers exactly the bare-handed chain (Cord, Sharp Stone, Stick, Crude Axe, Crude Pickaxe, Fishing Rod, Workbench) and does **not** offer any `Wood *` tool; every `Wood *` tool's Workbench recipe requires Cord. |
 | `tests/crafting_chain.rs` (`early_loop_crafts_a_crude_axe`) | End-to-end: gathered Grass Fibers/Stone/Wood craft (via the personal `craft` list) into Stick → Cord → Sharp Stone → Crude Axe, consuming exact quantities (1 Wood → 2 Sticks, one consumed by the axe, one left over); asserts the resulting item is `ItemKind::Tool { ttype: Axe, level: 0, .. }` with positive durability. |
 | `tests/crafting_chain.rs` (`crude_axe_outchops_fists_and_grass_yields_fibers`) | A Crude Axe interact deals more tile damage than a bare-fist `hurt_by` roll, pays durability (`dur < ToolType::Axe.durability()` afterward), and punching Tall Grass bare-handed yields ≥2 `Grass Fibers` `ItemEntity` drops. |
+| `tests/weapons_and_food.rs` | The survival-weapons wave: new recipes sit at the intended stations and every one crafts headlessly from exactly its listed costs; the forage foods resolve with the agreed names/heal values; Crossbow/Slingshot/Throwing Knife each damage a zombie in a live-fire headless world; the spear SHIFT-throw lands as a pickup and round-trips with durability intact; a Bandage heals 3 health (not hunger) and is consumed. |
 | `tests/multi_level_terrain.rs` (`deep_water_needs_a_raft`) | `deep_water_may_pass` blocks a raftless player on Deep Water and allows one with a `Raft` item added to inventory (§8). |
 | `tests/save_load_roundtrip.rs` | Inventory save/load round-trips item names + counts + the active-item-becomes-slot-0 convention (asserts a saved `Wood Pickaxe` active item and a `Wood_10` stack reload correctly by name and count). |
 | `tests/keymap_check.rs` | `CRAFT`/`INVENTORY` key mappings resolve and actually open their respective displays in a running `Game` (`e_opens_inventory_in_game`; the analogous craft-key assertion lives alongside it). |

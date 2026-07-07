@@ -1,4 +1,13 @@
 //! Port of `fdoom.item.Recipe` and `fdoom.item.Recipes`.
+//!
+//! Adding a recipe is one line in the right station list in [`Recipes::new`]:
+//!
+//! ```text
+//! r("Ruby Ring", "Ruby*2 + gold"),
+//! ```
+//!
+//! See [`Recipe::parse`] for the spec syntax; docs/ADDING_CONTENT.md for the
+//! progression rules on which station a recipe belongs at.
 
 use crate::core::game::Game;
 use crate::item::{Inventory, Item, registry};
@@ -14,6 +23,8 @@ pub struct Recipe {
 
 impl Recipe {
     /// Java `new Recipe(createdItem, reqItems...)` — "Name_amount" strings.
+    /// This is the wire format (saves/registry lookups); recipe *declarations*
+    /// read better through [`Recipe::parse`].
     pub fn new(created_item: &str, req_items: &[&str]) -> Recipe {
         let sep: Vec<&str> = created_item.split('_').collect();
         let product = sep[0].to_uppercase();
@@ -37,6 +48,39 @@ impl Recipe {
             amount,
             can_craft: false,
         }
+    }
+
+    /// A recipe from a compact spec: costs are `+`-separated, `*N` sets an amount
+    /// (default 1). Sugar over [`Recipe::new`] — identical matching and the same
+    /// `"Name_count"` wire format underneath. Names are case-insensitive.
+    ///
+    /// ```
+    /// # use fdoom::item::Recipe;
+    /// Recipe::parse("Crude Spear", "Stick*2 + Cord + Sharp Stone");
+    /// Recipe::parse("Stick*2", "Wood"); // one Wood yields two Sticks
+    /// ```
+    pub fn parse(product: &str, costs: &str) -> Recipe {
+        fn part(s: &str) -> (&str, i32) {
+            match s.split_once('*') {
+                Some((name, n)) => (
+                    name.trim(),
+                    n.trim()
+                        .parse()
+                        .unwrap_or_else(|_| panic!("bad amount in recipe part {s:?}")),
+                ),
+                None => (s.trim(), 1),
+            }
+        }
+        let (pname, pamt) = part(product);
+        let costs: Vec<String> = costs
+            .split('+')
+            .map(|c| {
+                let (name, n) = part(c);
+                format!("{name}_{n}")
+            })
+            .collect();
+        let cost_refs: Vec<&str> = costs.iter().map(String::as_str).collect();
+        Recipe::new(&format!("{pname}_{pamt}"), &cost_refs)
     }
 
     pub fn get_product(&self, g: &Game) -> Item {
@@ -99,7 +143,7 @@ impl Recipe {
     }
 }
 
-/// Java `Recipes` — the static recipe lists.
+/// Java `Recipes` — the static recipe lists, one per crafting station.
 pub struct Recipes {
     pub anvil: Vec<Recipe>,
     pub oven: Vec<Recipe>,
@@ -116,188 +160,161 @@ impl Default for Recipes {
     }
 }
 
+/// Shorthand for [`Recipe::parse`] inside the tables below.
+fn r(product: &str, costs: &str) -> Recipe {
+    Recipe::parse(product, costs)
+}
+
 impl Recipes {
     pub fn new() -> Recipes {
-        let mut craft = Vec::new();
-        let mut workbench = Vec::new();
-        let mut loom = Vec::new();
-        let mut anvil = Vec::new();
-        let mut furnace = Vec::new();
-        let mut oven = Vec::new();
-        let mut enchant = Vec::new();
-
         // Personal crafting (no station): the bare-handed survival chain.
         // Punch tall grass for fibers (and the odd loose stone), punch trees for
         // sticks, then: fibers -> cord, knap stone -> sharp stone, lash the three
         // together into crude tools. Everything past crude needs the workbench.
-        craft.push(Recipe::new("Cord_1", &["Grass Fibers_3"]));
-        craft.push(Recipe::new("Sharp Stone_1", &["Stone_2"]));
-        craft.push(Recipe::new("Stick_2", &["Wood_1"]));
-        craft.push(Recipe::new(
-            "Crude Axe_1",
-            &["Stick_1", "Cord_1", "Sharp Stone_1"],
-        ));
-        craft.push(Recipe::new(
-            "Crude Pickaxe_1",
-            &["Stick_1", "Cord_1", "Sharp Stone_1"],
-        ));
-        craft.push(Recipe::new("Fishing Rod_1", &["Stick_1", "Cord_2"]));
-        craft.push(Recipe::new("Workbench_1", &["Wood_10", "Stone_2"]));
-        craft.push(Recipe::new("Torch_2", &["Wood_1", "coal_1"]));
-        craft.push(Recipe::new("Grass Seeds_1", &["seeds_1", "Flower_2"]));
-        craft.push(Recipe::new("plank_2", &["Wood_1"]));
-        craft.push(Recipe::new("Plank Wall_1", &["plank_3"]));
-        craft.push(Recipe::new("Wood Door_1", &["plank_5"]));
-
-        workbench.push(Recipe::new("Torch_2", &["Wood_1", "coal_1"]));
-        workbench.push(Recipe::new("Lantern_1", &["Wood_8", "slime_4", "glass_3"]));
-        workbench.push(Recipe::new("Stone Brick_2", &["Stone_2"]));
-        workbench.push(Recipe::new("Stone Wall_1", &["Stone Brick_3"]));
-        workbench.push(Recipe::new("Stone Door_1", &["Stone Brick_5"]));
-        workbench.push(Recipe::new("Oven_1", &["Stone_15"]));
-        workbench.push(Recipe::new("Furnace_1", &["Stone_20"]));
-        workbench.push(Recipe::new(
-            "Enchanter_1",
-            &["Wood_5", "String_2", "Lapis_10"],
-        ));
-        workbench.push(Recipe::new("Chest_1", &["Wood_20"]));
-        workbench.push(Recipe::new("Anvil_1", &["iron_5"]));
-        workbench.push(Recipe::new("Tnt_1", &["Gunpowder_10", "Sand_8"]));
-        workbench.push(Recipe::new("Loom_1", &["Wood_10", "Wool_5"]));
-        // (Fishing Rod moved to personal crafting: Stick + Cord.)
-
-        loom.push(Recipe::new("String_2", &["Wool_1"]));
-        loom.push(Recipe::new("red wool_1", &["Wool_1", "rose_1"]));
-        loom.push(Recipe::new("blue wool_1", &["Wool_1", "Lapis_1"]));
-        loom.push(Recipe::new("green wool_1", &["Wool_1", "Cactus_1"]));
-        loom.push(Recipe::new("yellow wool_1", &["Wool_1", "Flower_1"]));
-        loom.push(Recipe::new("black wool_1", &["Wool_1", "coal_1"]));
-        loom.push(Recipe::new("Bed_1", &["Wood_5", "Wool_3"]));
-
-        loom.push(Recipe::new("blue clothes_1", &["cloth_5", "Lapis_1"]));
-        loom.push(Recipe::new("green clothes_1", &["cloth_5", "Cactus_1"]));
-        loom.push(Recipe::new("yellow clothes_1", &["cloth_5", "Flower_1"]));
-        loom.push(Recipe::new("black clothes_1", &["cloth_5", "coal_1"]));
-        loom.push(Recipe::new(
-            "orange clothes_1",
-            &["cloth_5", "rose_1", "Flower_1"],
-        ));
-        loom.push(Recipe::new(
-            "purple clothes_1",
-            &["cloth_5", "Lapis_1", "rose_1"],
-        ));
-        loom.push(Recipe::new(
-            "cyan clothes_1",
-            &["cloth_5", "Lapis_1", "Cactus_1"],
-        ));
-        loom.push(Recipe::new("reg clothes_1", &["cloth_5"]));
+        let craft = vec![
+            r("Cord", "Grass Fibers*3"),
+            r("Sharp Stone", "Stone*2"),
+            r("Stick*2", "Wood"),
+            r("Crude Axe", "Stick + Cord + Sharp Stone"),
+            r("Crude Pickaxe", "Stick + Cord + Sharp Stone"),
+            r("Crude Spear", "Stick*2 + Cord + Sharp Stone"),
+            r("Throwing Knife", "Sharp Stone + Stick + Cord"),
+            r("Slingshot", "Stick*2 + Cord*2"),
+            r("Bandage", "Cord*2 + Grass Fibers*2"),
+            r("Fishing Rod", "Stick + Cord*2"),
+            r("Workbench", "Wood*10 + Stone*2"),
+            // carve a pumpkin around a torch — a placeable ember-light
+            r("Jack-O-Lantern", "Pumpkin + Torch"),
+            // no-cook trail food: mashed forage
+            r("Fruit Medley", "Berry*2 + Apple"),
+            r("Torch*2", "Wood + coal"),
+            r("Grass Seeds", "seeds + Flower*2"),
+            r("plank*2", "Wood"),
+            r("Plank Wall", "plank*3"),
+            r("Wood Door", "plank*5"),
+        ];
 
         // Verbose assembly: wood/rock tools are hafted (sticks) and lashed (cord),
         // not conjured from raw logs. Bows take an extra cord for the string.
-        workbench.push(Recipe::new(
-            "Wood Sword_1",
-            &["Wood_5", "Stick_2", "Cord_1"],
-        ));
-        workbench.push(Recipe::new("Wood Axe_1", &["Wood_5", "Stick_2", "Cord_1"]));
-        // crossing deep water (multi-level terrain)
-        workbench.push(Recipe::new("Raft_1", &["Wood_10", "Cord_2"]));
-        workbench.push(Recipe::new("Wood Hoe_1", &["Wood_5", "Stick_2", "Cord_1"]));
-        workbench.push(Recipe::new(
-            "Wood Pickaxe_1",
-            &["Wood_5", "Stick_2", "Cord_1"],
-        ));
-        workbench.push(Recipe::new(
-            "Wood Shovel_1",
-            &["Wood_5", "Stick_2", "Cord_1"],
-        ));
-        workbench.push(Recipe::new("Wood Bow_1", &["Wood_5", "Stick_2", "Cord_2"]));
-        workbench.push(Recipe::new(
-            "Rock Sword_1",
-            &["Stone_5", "Stick_2", "Cord_1"],
-        ));
-        workbench.push(Recipe::new("Rock Axe_1", &["Stone_5", "Stick_2", "Cord_1"]));
-        workbench.push(Recipe::new("Rock Hoe_1", &["Stone_5", "Stick_2", "Cord_1"]));
-        workbench.push(Recipe::new(
-            "Rock Pickaxe_1",
-            &["Stone_5", "Stick_2", "Cord_1"],
-        ));
-        workbench.push(Recipe::new(
-            "Rock Shovel_1",
-            &["Stone_5", "Stick_2", "Cord_1"],
-        ));
-        workbench.push(Recipe::new("Rock Bow_1", &["Wood_5", "Stone_5", "Cord_2"]));
+        // (Fishing Rod moved to personal crafting: Stick + Cord.)
+        let workbench = vec![
+            r("Torch*2", "Wood + coal"),
+            r("Lantern", "Wood*8 + slime*4 + glass*3"),
+            r("Stone Brick*2", "Stone*2"),
+            r("Stone Wall", "Stone Brick*3"),
+            r("Stone Door", "Stone Brick*5"),
+            r("Oven", "Stone*15"),
+            r("Furnace", "Stone*20"),
+            r("Enchanter", "Wood*5 + String*2 + Lapis*10"),
+            r("Chest", "Wood*20"),
+            r("Anvil", "iron*5"),
+            r("Tnt", "Gunpowder*10 + Sand*8"),
+            r("Loom", "Wood*10 + Wool*5"),
+            r("Wood Sword", "Wood*5 + Stick*2 + Cord"),
+            r("Wood Axe", "Wood*5 + Stick*2 + Cord"),
+            // crossing deep water (multi-level terrain)
+            r("Raft", "Wood*10 + Cord*2"),
+            r("Wood Hoe", "Wood*5 + Stick*2 + Cord"),
+            r("Wood Pickaxe", "Wood*5 + Stick*2 + Cord"),
+            r("Wood Shovel", "Wood*5 + Stick*2 + Cord"),
+            r("Wood Bow", "Wood*5 + Stick*2 + Cord*2"),
+            r("Rock Sword", "Stone*5 + Stick*2 + Cord"),
+            r("Rock Axe", "Stone*5 + Stick*2 + Cord"),
+            r("Rock Hoe", "Stone*5 + Stick*2 + Cord"),
+            r("Rock Pickaxe", "Stone*5 + Stick*2 + Cord"),
+            r("Rock Shovel", "Stone*5 + Stick*2 + Cord"),
+            r("Rock Bow", "Wood*5 + Stone*5 + Cord*2"),
+            r("Wood Spear", "Wood*5 + Stick*2 + Cord"),
+            r("Rock Spear", "Stone*5 + Stick*2 + Cord"),
+            // assembled weapon: wooden stock + lashings around an anvil-forged mechanism
+            r("Crossbow", "Wood*5 + Stick*2 + Cord*2 + Crossbow Mechanism"),
+            r("arrow*3", "Wood*2 + Stone*2"),
+            r("Leather Armor", "leather*10"),
+            r("Snake Armor", "scale*15"),
+        ];
 
-        workbench.push(Recipe::new("arrow_3", &["Wood_2", "Stone_2"]));
-        workbench.push(Recipe::new("Leather Armor_1", &["leather_10"]));
-        workbench.push(Recipe::new("Snake Armor_1", &["scale_15"]));
+        let loom = vec![
+            r("String*2", "Wool"),
+            r("red wool", "Wool + rose"),
+            r("blue wool", "Wool + Lapis"),
+            r("green wool", "Wool + Cactus"),
+            r("yellow wool", "Wool + Flower"),
+            r("black wool", "Wool + coal"),
+            r("Bed", "Wood*5 + Wool*3"),
+            r("blue clothes", "cloth*5 + Lapis"),
+            r("green clothes", "cloth*5 + Cactus"),
+            r("yellow clothes", "cloth*5 + Flower"),
+            r("black clothes", "cloth*5 + coal"),
+            r("orange clothes", "cloth*5 + rose + Flower"),
+            r("purple clothes", "cloth*5 + Lapis + rose"),
+            r("cyan clothes", "cloth*5 + Lapis + Cactus"),
+            r("reg clothes", "cloth*5"),
+            r("Leather Armor", "leather*10"),
+        ];
 
-        loom.push(Recipe::new("Leather Armor_1", &["leather_10"]));
+        let anvil = vec![
+            r("Iron Armor", "iron*10"),
+            r("Gold Armor", "gold*10"),
+            r("Gem Armor", "gem*65"),
+            r("Empty Bucket", "iron*5"),
+            r("Iron Lantern", "iron*8 + slime*5 + glass*4"),
+            r("Gold Lantern", "gold*10 + slime*5 + glass*4"),
+            r("Iron Sword", "Wood*5 + iron*5"),
+            r("Iron Claymore", "Iron Sword + shard*15"),
+            r("Iron Axe", "Wood*5 + iron*5"),
+            r("Iron Hoe", "Wood*5 + iron*5"),
+            r("Iron Pickaxe", "Wood*5 + iron*5"),
+            r("Iron Shovel", "Wood*5 + iron*5"),
+            r("Iron Bow", "Wood*5 + iron*5 + string*2"),
+            r("Iron Spear", "Wood*5 + iron*5"),
+            // the crossbow's forged trigger/gear half; assembled at the workbench
+            r("Crossbow Mechanism", "iron*3"),
+            r("Gold Sword", "Wood*5 + gold*5"),
+            r("Gold Claymore", "Gold Sword + shard*15"),
+            r("Gold Axe", "Wood*5 + gold*5"),
+            r("Gold Hoe", "Wood*5 + gold*5"),
+            r("Gold Pickaxe", "Wood*5 + gold*5"),
+            r("Gold Shovel", "Wood*5 + gold*5"),
+            r("Gold Bow", "Wood*5 + gold*5 + string*2"),
+            r("Gold Spear", "Wood*5 + gold*5"),
+            r("Gem Sword", "Wood*5 + gem*50"),
+            r("Gem Claymore", "Gem Sword + shard*15"),
+            r("Gem Axe", "Wood*5 + gem*50"),
+            r("Gem Hoe", "Wood*5 + gem*50"),
+            r("Gem Pickaxe", "Wood*5 + gem*50"),
+            r("Gem Shovel", "Wood*5 + gem*50"),
+            r("Gem Bow", "Wood*5 + gem*50 + string*2"),
+            r("Gem Spear", "Wood*5 + gem*50"),
+        ];
 
-        anvil.push(Recipe::new("Iron Armor_1", &["iron_10"]));
-        anvil.push(Recipe::new("Gold Armor_1", &["gold_10"]));
-        anvil.push(Recipe::new("Gem Armor_1", &["gem_65"]));
-        anvil.push(Recipe::new("Empty Bucket_1", &["iron_5"]));
-        anvil.push(Recipe::new(
-            "Iron Lantern_1",
-            &["iron_8", "slime_5", "glass_4"],
-        ));
-        anvil.push(Recipe::new(
-            "Gold Lantern_1",
-            &["gold_10", "slime_5", "glass_4"],
-        ));
-        anvil.push(Recipe::new("Iron Sword_1", &["Wood_5", "iron_5"]));
-        anvil.push(Recipe::new(
-            "Iron Claymore_1",
-            &["Iron Sword_1", "shard_15"],
-        ));
-        anvil.push(Recipe::new("Iron Axe_1", &["Wood_5", "iron_5"]));
-        anvil.push(Recipe::new("Iron Hoe_1", &["Wood_5", "iron_5"]));
-        anvil.push(Recipe::new("Iron Pickaxe_1", &["Wood_5", "iron_5"]));
-        anvil.push(Recipe::new("Iron Shovel_1", &["Wood_5", "iron_5"]));
-        anvil.push(Recipe::new("Iron Bow_1", &["Wood_5", "iron_5", "string_2"]));
-        anvil.push(Recipe::new("Gold Sword_1", &["Wood_5", "gold_5"]));
-        anvil.push(Recipe::new(
-            "Gold Claymore_1",
-            &["Gold Sword_1", "shard_15"],
-        ));
-        anvil.push(Recipe::new("Gold Axe_1", &["Wood_5", "gold_5"]));
-        anvil.push(Recipe::new("Gold Hoe_1", &["Wood_5", "gold_5"]));
-        anvil.push(Recipe::new("Gold Pickaxe_1", &["Wood_5", "gold_5"]));
-        anvil.push(Recipe::new("Gold Shovel_1", &["Wood_5", "gold_5"]));
-        anvil.push(Recipe::new("Gold Bow_1", &["Wood_5", "gold_5", "string_2"]));
-        anvil.push(Recipe::new("Gem Sword_1", &["Wood_5", "gem_50"]));
-        anvil.push(Recipe::new("Gem Claymore_1", &["Gem Sword_1", "shard_15"]));
-        anvil.push(Recipe::new("Gem Axe_1", &["Wood_5", "gem_50"]));
-        anvil.push(Recipe::new("Gem Hoe_1", &["Wood_5", "gem_50"]));
-        anvil.push(Recipe::new("Gem Pickaxe_1", &["Wood_5", "gem_50"]));
-        anvil.push(Recipe::new("Gem Shovel_1", &["Wood_5", "gem_50"]));
-        anvil.push(Recipe::new("Gem Bow_1", &["Wood_5", "gem_50", "string_2"]));
+        let furnace = vec![
+            r("iron", "iron Ore*4 + coal"),
+            r("gold", "gold Ore*4 + coal"),
+            r("glass", "sand*4 + coal"),
+            // roast forage — available at either heat station (also in the oven list)
+            r("Cooked Mushroom", "Mushroom + coal"),
+        ];
 
-        furnace.push(Recipe::new("iron_1", &["iron Ore_4", "coal_1"]));
-        furnace.push(Recipe::new("gold_1", &["gold Ore_4", "coal_1"]));
-        furnace.push(Recipe::new("glass_1", &["sand_4", "coal_1"]));
+        let oven = vec![
+            r("cooked pork", "raw pork + coal"),
+            r("steak", "raw beef + coal"),
+            r("cooked fish", "raw fish + coal"),
+            r("bread", "wheat*4"),
+            r("Cooked Mushroom", "Mushroom + coal"),
+        ];
 
-        oven.push(Recipe::new("cooked pork_1", &["raw pork_1", "coal_1"]));
-        oven.push(Recipe::new("steak_1", &["raw beef_1", "coal_1"]));
-        oven.push(Recipe::new("cooked fish_1", &["raw fish_1", "coal_1"]));
-        oven.push(Recipe::new("bread_1", &["wheat_4"]));
-
-        enchant.push(Recipe::new("Gold Apple_1", &["apple_1", "gold_8"]));
-        enchant.push(Recipe::new("potion_1", &["glass_1", "Lapis_3"]));
-        enchant.push(Recipe::new("speed potion_1", &["potion_1", "Cactus_5"]));
-        enchant.push(Recipe::new("light potion_1", &["potion_1", "slime_5"]));
-        enchant.push(Recipe::new("swim potion_1", &["potion_1", "raw fish_5"]));
-        enchant.push(Recipe::new(
-            "haste potion_1",
-            &["potion_1", "Wood_5", "Stone_5"],
-        ));
-        enchant.push(Recipe::new("lava potion_1", &["potion_1", "Lava Bucket_1"]));
-        enchant.push(Recipe::new("energy potion_1", &["potion_1", "gem_25"]));
-        enchant.push(Recipe::new("regen potion_1", &["potion_1", "Gold Apple_1"]));
-        enchant.push(Recipe::new(
-            "Health Potion_1",
-            &["potion_1", "GunPowder_2", "Leather Armor_1"],
-        ));
+        let enchant = vec![
+            r("Gold Apple", "apple + gold*8"),
+            r("potion", "glass + Lapis*3"),
+            r("speed potion", "potion + Cactus*5"),
+            r("light potion", "potion + slime*5"),
+            r("swim potion", "potion + raw fish*5"),
+            r("haste potion", "potion + Wood*5 + Stone*5"),
+            r("lava potion", "potion + Lava Bucket"),
+            r("energy potion", "potion + gem*25"),
+            r("regen potion", "potion + Gold Apple"),
+            r("Health Potion", "potion + GunPowder*2 + Leather Armor"),
+        ];
 
         Recipes {
             anvil,

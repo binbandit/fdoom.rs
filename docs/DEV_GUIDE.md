@@ -20,9 +20,14 @@ Or via [`just`](https://github.com/casey/just):
 ```sh
 just run / run-debug / test
 just check          # fmt --check + clippy -D warnings + test (run before pushing)
+just seed 42        # create + enter a fresh world with seed 42 (windowed, throwaway saves)
+just worldview seed=123   # world-inspection map window (see below)
+just biome-map 42   # headless biome overview PNG for a seed (target/verify/)
 just demo-title     # scripted run: screenshot the title screen into target/verify/
 just demo-world     # scripted run: generate a world named PIT, screenshot gameplay
-just worldview seed=123   # world-inspection map window (see below)
+just shots          # run all visual test harnesses, upscale everything in target/verify
+just soak           # long randomized gameplay soak (release build)
+just sheet          # regenerate assets/sprites.png via artgen and open it
 just upscale        # 3x-upscale target/verify PNGs for easier viewing
 just clean-saves    # DELETE all saves + preferences (~/fdoom)
 ```
@@ -125,41 +130,53 @@ The dump also prints per-kind structure counts for the rendered rect to stdout.
 ## Headless testing
 
 The game core never touches the platform layer, so tests can build a `Game`, generate a
-world, and tick it — no window, no audio. Templates:
-
-- `tests/keymap_check.rs` — smallest full-game test: build, init world, inject keys.
-- `tests/display_flow.rs` — display-stack behavior (open/close menus).
-- `tests/headless_render.rs` — render into a `Screen` and dump PNGs to
-  `target/test-frames/`.
-- `tests/save_load_roundtrip.rs`, `tests/level_gen_determinism.rs` — save format and
-  world-gen regression patterns.
-
-The boilerplate:
+world, and tick it — no window, no audio. **Start from `fdoom::testutil`** — it owns
+the boot boilerplate every test used to copy-paste:
 
 ```rust
-let tmp = std::env::temp_dir().join("fdoom_test_mything");
-let _ = std::fs::remove_dir_all(&tmp);
-let mut g = fdoom::core::game::Game::new(true, /* has_gui= */ false, tmp);
-fdoom::core::world::reset_game(&mut g, true);
-g.settings.set("size", 128);
-g.world_name = "dbg".into();
-fdoom::core::world::init_world(&mut g);
+use fdoom::testutil::TestWorld;
 
-g.tick(); // IMPORTANT — see below
+let mut tw = TestWorld::infinite().seed(42).build(); // world made, first tick done
+// .creative() / .debug() / .name("mytest") as needed
 
-// drive input like the platform layer would:
-g.input.key_toggled("E", true);
-g.tick();
-g.input.key_toggled("E", false);
+tw.place("tall grass", 1, 0);          // stage a tile next to the player
+assert!(tw.hit(1, 0, 1));              // bare-handed attack path
+tw.interact_with("Crude Axe", 1, 0);   // tool-interact path (stamina/durability)
+tw.give("Wood", 10);                   // registry items into the inventory
+tw.press("E");                         // tap a key like the platform layer would
+tw.goto_biome(Biome::Marsh);           // teleport + stream chunks
+tw.screenshot("mything.png");          // headless frame -> target/verify/
+assert!(tw.display.menu_active());     // TestWorld derefs to Game for everything else
 ```
 
-**Tick once after `init_world` before touching the player.** Freshly spawned entities
-(including the player) sit in the level's `entities_to_add` queue until the first
-`tick_level` drains them into the arena; before that, `g.entities.take(g.player_id)`
-returns `None` (though `g.player()` / `g.try_player()` do look through the queues).
+More harness pieces (see `src/testutil.rs` for the full API):
 
-`has_gui = false` gives you a silent `SoundPlayer` and skips the focus handling; `debug
-= true` enables the debug-gated key bindings in `InputHandler`.
+- `TestWorld::infinite().build().g` moves the plain `Game` out when a test wants to
+  drive it directly.
+- `bare_game("name")` — a `Game` with the player but **no world**: registry/recipe
+  checks and save/load tests that fabricate their own levels.
+- `tick_recover()` — tick + close menus + respawn: for soak loops that must keep
+  the level ticking through deaths and transitions.
+- `find_biome`, `find_recipe`, `renderer`, `save_png`, `verify_path` — the shared
+  free helpers.
+
+Templates: `tests/keymap_check.rs` (smallest), `tests/flora_gen.rs` (tile staging +
+drops), `tests/gameplay_soak.rs` (long loops), `tests/lighting.rs` (custom rendering),
+`tests/save_load_roundtrip.rs` / `tests/level_gen_determinism.rs` (save format and
+world-gen regression patterns).
+
+Details the harness already handles, for when you go under the hood:
+
+- **Tick once after `init_world` before touching the player** (the builder does).
+  Freshly spawned entities sit in the level's `entities_to_add` queue until the first
+  `tick_level` drains them into the arena; before that, `g.entities.take(g.player_id)`
+  returns `None` (though `g.player()` / `g.try_player()` do look through the queues).
+- **Pin the clock before jumping it.** New worlds spawn at a seed-random time of day;
+  the builder resets to morning-0 so `set_time`/`change_time_of_day` jumps never read
+  as a midnight wrap to the event scheduler.
+- `has_gui = false` gives you a silent `SoundPlayer` and skips focus handling
+  (`TestWorld::render` flips it back on so frames draw); `debug = true` enables the
+  debug-gated key bindings in `InputHandler`.
 
 ## Debug cheat keys
 

@@ -1,42 +1,20 @@
-//! Visual check: teleport across biomes in an infinite world and dump rendered frames.
+//! Visual checks: rendered frames across biomes, plus a biome overview map.
+//! PNGs land in target/verify (`just shots` / `just biome-map <seed>`).
 
-use std::sync::Arc;
-
-use fdoom::core::renderer::Renderer;
-use fdoom::core::{game::Game, world};
-use fdoom::gfx::SpriteSheet;
 use fdoom::level::infinite_gen::{Biome, biome_at};
+use fdoom::testutil::{TestWorld, save_png, verify_path};
 
-fn find_biome(seed: i64, want: Biome) -> Option<(i32, i32)> {
-    for r in 0i32..600 {
-        let ring = r * 8;
-        for dy in (-ring..=ring).step_by(8) {
-            for dx in (-ring..=ring).step_by(8) {
-                if (dx.abs() == ring || dy.abs() == ring) && biome_at(seed, dx, dy) == want {
-                    return Some((dx, dy));
-                }
-            }
-        }
-    }
-    None
+/// Seed override for `just biome-map <seed>`; tests default to the pinned seed.
+fn env_seed() -> i64 {
+    std::env::var("FDOOM_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20260707)
 }
 
 #[test]
 fn frames_across_biomes() {
-    let tmp = std::env::temp_dir().join("fdoom_biome_frames");
-    let _ = std::fs::remove_dir_all(&tmp);
-    let mut g = Game::new(false, false, tmp);
-    world::reset_game(&mut g, true);
-    g.settings.set("worldtype", "Infinite");
-    g.world_name = "biomes".into();
-    g.world_seed = 20260707;
-    world::init_world(&mut g);
-    g.tick();
-    g.has_gui = true; // let the renderer draw in headless mode
-
-    let mut r = Renderer::new(Arc::new(SpriteSheet::from_png(fdoom::assets::SPRITES_PNG)));
-    let seed = g.world_seed;
-
+    let mut tw = TestWorld::infinite().name("biomes").build();
     for (biome, name) in [
         (Biome::Tundra, "tundra"),
         (Biome::Desert, "desert"),
@@ -45,37 +23,50 @@ fn frames_across_biomes() {
         (Biome::Mountains, "mountains"),
         (Biome::Beach, "beach"),
     ] {
-        let Some((tx, ty)) = find_biome(seed, biome) else {
-            panic!("no {name} within range");
-        };
-        {
-            let p = g.player_mut();
-            p.c.x = tx * 16 + 8;
-            p.c.y = ty * 16 + 8;
-        }
-        for _ in 0..6 {
-            g.tick(); // stream chunks + settle
-        }
-        r.render(&mut g);
-        let dir = std::path::Path::new("target/verify");
-        std::fs::create_dir_all(dir).unwrap();
-        let file = std::fs::File::create(dir.join(format!("biome_{name}.png"))).unwrap();
-        let mut enc = png::Encoder::new(
-            std::io::BufWriter::new(file),
-            fdoom::gfx::screen::W as u32,
-            fdoom::gfx::screen::H as u32,
-        );
-        enc.set_color(png::ColorType::Rgb);
-        enc.set_depth(png::BitDepth::Eight);
-        let mut w = enc.write_header().unwrap();
-        let mut data = Vec::new();
-        for &p in &r.screen.pixels {
-            data.extend_from_slice(&[
-                ((p >> 16) & 0xff) as u8,
-                ((p >> 8) & 0xff) as u8,
-                (p & 0xff) as u8,
-            ]);
-        }
-        w.write_image_data(&data).unwrap();
+        tw.goto_biome(biome);
+        tw.screenshot(&format!("biome_{name}.png"));
     }
+}
+
+/// One pixel per 4x4 tiles over a 4096-tile square around the origin — the "where is
+/// everything" map for a seed. `FDOOM_SEED=<n>` picks the seed (`just biome-map <n>`).
+#[test]
+fn biome_map_overview() {
+    let seed = env_seed();
+    const STEP: i32 = 4; // tiles per pixel
+    const HALF: i32 = 2048; // tiles from origin to each edge
+    let size = (2 * HALF / STEP) as usize;
+
+    let color = |b: Biome| -> i32 {
+        match b {
+            Biome::DeepOcean => 0x0a2a55,
+            Biome::Ocean => 0x1c4f8f,
+            Biome::Beach => 0xe8d9a0,
+            Biome::Desert => 0xd9b95c,
+            Biome::Savanna => 0xb5a542,
+            Biome::Plains => 0x7cb548,
+            Biome::Forest => 0x2e7031,
+            Biome::Marsh => 0x4a6b4f,
+            Biome::Tundra => 0xdfe8ef,
+            Biome::Mountains => 0x8a8f96,
+        }
+    };
+
+    let mut pixels = vec![0i32; size * size];
+    for py in 0..size {
+        for px in 0..size {
+            let (x, y) = (-HALF + px as i32 * STEP, -HALF + py as i32 * STEP);
+            pixels[px + py * size] = color(biome_at(seed, x, y));
+        }
+    }
+    // crosshair at the spawn origin
+    let mid = size / 2;
+    for d in 0..size {
+        pixels[mid + d * size] ^= 0x202020;
+        pixels[d + mid * size] ^= 0x202020;
+    }
+
+    let path = verify_path(&format!("biome_map_{seed}.png"));
+    save_png(&path, &pixels, size, size, 1);
+    println!("biome map for seed {seed}: {}", path.display());
 }

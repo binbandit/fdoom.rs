@@ -1,34 +1,25 @@
 //! Save/load round-trip tests: fabricate game state, save it with the Java-compatible
 //! writers, load it back into a fresh headless `Game`, and assert the state survives.
 
-use std::path::{Path, PathBuf};
-
 use fdoom::core::game::Game;
 use fdoom::entity::EntityKind;
 use fdoom::item::PotionType;
 use fdoom::saveload::{load, save};
+use fdoom::testutil::bare_game;
 
-fn temp_game_dir(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// A headless game with the main player created (as `Game.main` does before loading).
-fn new_game(dir: &Path) -> Game {
-    let mut g = Game::new(false, false, dir.to_path_buf());
-    let mut player = fdoom::entity::mob::player::new(&g, None);
-    player.c.eid = 0; // Java main() gives the main player eid 0
-    g.entities.put_back(player);
-    g
+/// A second `Game` over the same save dir (to load back what the first one saved).
+fn reopen(g: &Game) -> Game {
+    let mut g2 = Game::new(false, false, g.game_dir.clone());
+    let mut player = fdoom::entity::mob::player::new(&g2, None);
+    player.c.eid = 0;
+    g2.entities.put_back(player);
+    g2
 }
 
 #[test]
 fn prefs_roundtrip() {
-    let dir = temp_game_dir("prefs_roundtrip");
-
-    let mut g1 = new_game(&dir);
+    let mut g1 = bare_game("prefs_roundtrip");
+    let dir = g1.game_dir.clone();
     g1.settings.set("sound", false);
     g1.settings.set("autosave", true);
     g1.settings.set("fps", 90);
@@ -55,7 +46,7 @@ fn prefs_roundtrip() {
     let unlocks = std::fs::read_to_string(dir.join(format!("Unlocks{}", save::EXTENSION))).unwrap();
     assert_eq!(unlocks, "AirSkin,");
 
-    let mut g2 = new_game(&dir);
+    let mut g2 = reopen(&g1);
     load::load_prefs(&mut g2);
 
     assert!(!g2.settings.get("sound").as_bool());
@@ -67,8 +58,8 @@ fn prefs_roundtrip() {
 
 #[test]
 fn world_roundtrip() {
-    let dir = temp_game_dir("world_roundtrip");
-    let mut g1 = new_game(&dir);
+    let mut g1 = bare_game("world_roundtrip");
+    let dir = g1.game_dir.clone();
 
     /* ---------------------------- fabricate a world ---------------------------- */
 
@@ -190,7 +181,7 @@ fn world_roundtrip() {
 
     /* ----------------------------------- load ----------------------------------- */
 
-    let mut g2 = new_game(&dir);
+    let mut g2 = reopen(&g1);
     load::load_world_named(&mut g2, "testworld");
 
     // game data

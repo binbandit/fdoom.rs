@@ -13,6 +13,7 @@ pub mod platform;
 pub mod rng;
 pub mod saveload;
 pub mod screen;
+pub mod testutil;
 
 use std::sync::Arc;
 

@@ -3,31 +3,22 @@
 //! arena for that very tick, and `write_player`'s `g.player()` blew up. The save is
 //! now deferred to `Game::tick` (`g.pending_save`).
 
+use fdoom::testutil::TestWorld;
+
 #[test]
 fn save_hotkey_saves_without_panicking() {
-    let tmp = std::env::temp_dir().join("fdoom_test_save_hotkey");
-    let _ = std::fs::remove_dir_all(&tmp);
-    let mut g = fdoom::core::game::Game::new(true, false, tmp.clone());
-    fdoom::core::world::reset_game(&mut g, true);
-    g.settings.set("size", 128);
-    g.world_name = "hotkey".into();
-    fdoom::core::world::init_world(&mut g);
-    g.tick(); // drain add queues so the player is live in the arena
+    let mut tw = TestWorld::infinite().debug().name("hotkey").build();
 
-    // press R during ordinary gameplay (no menu open)
-    g.input.key_toggled("R", true);
-    g.tick(); // player tick sees the click and defers the save
-    g.input.key_toggled("R", false);
-    g.tick(); // Game::tick services the deferred save (this used to panic)
-    for _ in 0..5 {
-        g.tick(); // a few more ticks: saving must unwind cleanly
-    }
+    // press R during ordinary gameplay (no menu open); the player tick defers the
+    // save, the next Game::tick services it (this used to panic)
+    tw.press("R");
+    tw.tick_n(5); // a few more ticks: saving must unwind cleanly
     assert!(
-        !g.saving,
+        !tw.saving,
         "saving flag should clear once the save completes"
     );
 
-    let save_dir = tmp.join("saves").join("hotkey");
+    let save_dir = tw.game_dir.join("saves").join("hotkey");
     assert!(
         save_dir.join("Game.miniplussave").exists(),
         "Game save file missing at {save_dir:?}"

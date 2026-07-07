@@ -4,40 +4,13 @@
 //! crater stamping/cooling, Whisper Fog marsh spawn pressure, Caravan supply drops,
 //! and the real-calendar seasonal layer (mocked dates).
 
-use std::path::{Path, PathBuf};
-
 use fdoom::core::events::{self, Season, WorldEvent};
 use fdoom::core::game::Game;
 use fdoom::core::updater::{DAY_LENGTH, Time};
-use fdoom::core::world;
 use fdoom::entity::EntityKind;
-use fdoom::level::infinite_gen::{Biome, biome_at};
+use fdoom::level::infinite_gen::Biome;
 use fdoom::level::tile::{TileKind, dispatch};
-
-fn temp_game_dir(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// A headless game with the main player created (as `Game.main` does before world init).
-fn new_game(dir: &Path) -> Game {
-    let mut g = Game::new(false, false, dir.to_path_buf());
-    let mut player = fdoom::entity::mob::player::new(&g, None);
-    player.c.eid = 0;
-    g.entities.put_back(player);
-    g
-}
-
-/// Build a fresh 128x128 world for the given seed.
-fn make_world(g: &mut Game, seed: i64) {
-    world::reset_game(g, false);
-    g.settings.set("size", 128);
-    g.settings.set("autosave", false);
-    g.world_seed = seed;
-    world::init_world(g);
-}
+use fdoom::testutil::{TestWorld, bare_game, find_biome};
 
 /// First day >= `from` whose event matches `want`.
 fn find_event_day(seed: i64, from: i32, want: Option<WorldEvent>) -> i32 {
@@ -50,21 +23,6 @@ fn find_event_day(seed: i64, from: i32, want: Option<WorldEvent>) -> i32 {
 /// actual Halloween/Christmas window from the host clock.
 fn pin_calm_date(g: &mut Game) {
     g.events.date_override = Some((6, 15));
-}
-
-/// Nearest tile whose biome is `want` (spiral search, mirrors tests/biome_frames.rs).
-fn find_biome(seed: i64, want: Biome) -> (i32, i32) {
-    for r in 0i32..600 {
-        let ring = r * 8;
-        for dy in (-ring..=ring).step_by(8) {
-            for dx in (-ring..=ring).step_by(8) {
-                if (dx.abs() == ring || dy.abs() == ring) && biome_at(seed, dx, dy) == want {
-                    return (dx, dy);
-                }
-            }
-        }
-    }
-    panic!("no {want:?} biome within range for seed {seed:#x}");
 }
 
 /* ----------------------------------- pure schedule ---------------------------------- */
@@ -159,8 +117,7 @@ fn quiet_week_window_math() {
 
 #[test]
 fn day_counter_wraps_and_dusk_cue_fires() {
-    let dir = temp_game_dir("world_events_clock");
-    let mut g = new_game(&dir);
+    let mut g = bare_game("world_events_clock");
     let seed = 0x00C0FFEE_i64;
     g.world_seed = seed;
     pin_calm_date(&mut g);
@@ -218,10 +175,8 @@ fn grave_broken(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
 
 #[test]
 fn hollow_night_greatly_accelerates_grave_decay() {
-    let dir = temp_game_dir("world_events_hollow");
     let seed = 0x00C0FFEE_i64;
-    let mut g = new_game(&dir);
-    make_world(&mut g, seed);
+    let mut g = TestWorld::infinite().seed(seed).build().g;
 
     g.events.day_number = find_event_day(seed, 1, Some(WorldEvent::HollowNight));
     g.change_time_of_day(Time::Night);
@@ -248,10 +203,8 @@ fn hollow_night_greatly_accelerates_grave_decay() {
 
 #[test]
 fn quiet_week_suppresses_grave_decay() {
-    let dir = temp_game_dir("world_events_quiet");
     let seed = 0x00C0FFEE_i64;
-    let mut g = new_game(&dir);
-    make_world(&mut g, seed);
+    let mut g = TestWorld::infinite().seed(seed).build().g;
 
     // A day inside a quiet week that is not itself a Hollow Night (acceleration would
     // otherwise mask the suppression).
@@ -284,10 +237,8 @@ fn quiet_week_suppresses_grave_decay() {
 
 #[test]
 fn aurora_pauses_mob_spawning() {
-    let dir = temp_game_dir("world_events_aurora");
     let seed = 0x5EED_5EED_i64;
-    let mut g = new_game(&dir);
-    make_world(&mut g, seed);
+    let mut g = TestWorld::infinite().seed(seed).build().g;
     let lvl = g.current_level;
 
     // Aurora night: try_spawn must add nothing, ever.
@@ -351,8 +302,7 @@ fn civil_date_conversion_anchors() {
 
 #[test]
 fn mocked_date_drives_season_and_veil_cue() {
-    let dir = temp_game_dir("world_events_season");
-    let mut g = new_game(&dir);
+    let mut g = bare_game("world_events_season");
     let seed = 0x00C0FFEE_i64;
     g.world_seed = seed;
     g.events.date_override = Some((10, 25));
@@ -467,10 +417,8 @@ fn count_lava_ore(g: &Game, lvl: usize, cx: i32, cy: i32, r: i32) -> (usize, usi
 
 #[test]
 fn ember_rain_stamps_craters_that_cool_at_dawn() {
-    let dir = temp_game_dir("world_events_ember");
     let seed = 0x00C0FFEE_i64;
-    let mut g = new_game(&dir);
-    make_world(&mut g, seed);
+    let mut g = TestWorld::infinite().seed(seed).build().g;
     pin_calm_date(&mut g);
 
     g.events.day_number = find_event_day(seed, 1, Some(WorldEvent::EmberRain));
@@ -519,10 +467,8 @@ fn queued_item_drops(g: &Game, lvl: usize) -> usize {
 
 #[test]
 fn caravan_drops_supplies_near_a_trail() {
-    let dir = temp_game_dir("world_events_caravan");
     let seed = 0x00C0FFEE_i64;
-    let mut g = new_game(&dir);
-    make_world(&mut g, seed);
+    let mut g = TestWorld::infinite().seed(seed).build().g;
     pin_calm_date(&mut g);
 
     g.events.day_number = find_event_day(seed, 1, Some(WorldEvent::Caravan));
@@ -587,10 +533,8 @@ fn caravan_drops_supplies_near_a_trail() {
 
 #[test]
 fn whisper_fog_doubles_marsh_spawn_pressure() {
-    let dir = temp_game_dir("world_events_whisper");
     let seed = 0x5EED_5EED_i64;
-    let mut g = new_game(&dir);
-    make_world(&mut g, seed);
+    let mut g = TestWorld::infinite().seed(seed).build().g;
     pin_calm_date(&mut g);
     let lvl = g.current_level;
 

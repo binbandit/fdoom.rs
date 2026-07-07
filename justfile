@@ -39,6 +39,40 @@ demo-world:
     FDOOM_DEMO="wait:220;key:ENTER;wait:5;type:P;type:I;type:T;wait:2;key:DOWN;wait:2;key:DOWN;wait:2;shot:{{verify_dir}}/gen_menu.png;key:ENTER;wait:600;shot:{{verify_dir}}/world.png;quit" \
         cargo run -- --savedir "{{verify_dir}}/demo-save"
 
+# Keeps running after the world loads so you can play it; uses a throwaway save dir.
+# Create and enter a fresh world with the given numeric seed (windowed).
+seed n:
+    #!/usr/bin/env sh
+    set -e
+    rm -rf "{{verify_dir}}/seed-save"
+    script="wait:220;key:ENTER;wait:5"
+    for c in $(printf 'SEED{{n}}' | fold -w1); do script="$script;type:$c"; done
+    script="$script;wait:2;key:DOWN;wait:2"
+    for c in $(printf '%s' "{{n}}" | fold -w1); do script="$script;type:$c"; done
+    script="$script;wait:2;key:DOWN;wait:2;key:ENTER"
+    FDOOM_DEMO="$script" cargo run -- --savedir "{{verify_dir}}/seed-save"
+
+# 1 px per 4 tiles over a 4096-tile square, crosshair at the origin; for an
+# interactive view use `just worldview <seed>`.
+# Render the biome overview map for a seed (headless PNG in target/verify).
+biome-map seed:
+    FDOOM_SEED={{seed}} cargo test --test biome_frames biome_map_overview -- --nocapture
+    @echo "map: {{verify_dir}}/biome_map_{{seed}}.png"
+
+# Regenerate the sprite sheet from artgen and open it.
+sheet:
+    cargo run --bin artgen
+    open assets/sprites.png 2>/dev/null || xdg-open assets/sprites.png
+
+# Long randomized gameplay soak (release build: thousands of ticks across seeds).
+soak:
+    cargo test --release --test gameplay_soak -- --nocapture
+
+# Run every visual test harness, then upscale everything in target/verify.
+shots:
+    cargo test --test biome_frames --test lighting --test hud_qol --test headless_render --test tides
+    just upscale
+
 # Upscale target/verify PNGs 3x (288x192 is squint-sized) into *_3x.png copies.
 upscale:
     #!/usr/bin/env sh

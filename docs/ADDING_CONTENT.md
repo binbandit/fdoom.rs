@@ -1,8 +1,9 @@
 # Adding Content
 
-Step-numbered recipes, verified against the code. Where a recipe has many touch points,
-they are listed exhaustively — that is the honest current cost, and this document doubles
-as the spec for the planned ergonomics refactor (a new tile or mob should eventually be
+Step-numbered recipes, verified against the code. Items and crafting recipes are now
+one-line changes; where a recipe still has many touch points (tiles, mobs), they are
+listed exhaustively — that is the honest current cost, and this document doubles as
+the spec for the remaining ergonomics work (a new tile or mob should eventually be
 1–2 touch points, not 6+).
 
 General rules:
@@ -20,14 +21,15 @@ General rules:
 All in `src/item/registry.rs`, inside `build_registry` (list order = creative-inventory
 order; keep the new item next to its family):
 
-1. Add a push using the family helper:
+1. Add a push using the family helper — name, sheet cell `(x, y)`, `get4` palette:
    ```rust
-   items.push(stackable("Ruby", Sprite::new1x1(10, 4, color::get4(-1, 400, 500, 511))));
+   items.push(stackable("Ruby", (10, 4), get4(-1, 400, 500, 511)));
    // or
-   items.push(food("Carrot", Sprite::new1x1(9, 4, color::get4(-1, 210, 430, 540)), 2));
+   items.push(food("Carrot", (9, 4), get4(-1, 210, 430, 540), 2));
    ```
-   `food(name, sprite, heal)` restores `heal` hunger points when eaten; `armor`,
-   `clothing`, and `tile_item` helpers sit right next to them for those families.
+   `food(name, cell, colors, heal)` restores `heal` hunger points when eaten;
+   `medical`, `armor`, `clothing`, `tile_item`, and `book` helpers sit right next to
+   them for those families.
 2. Make it obtainable: a crafting recipe (next section), a mob drop
    (`mobai_drop_items` in the mob's `die`), a tile drop (the tile's `hurt_by`), or a
    chest loot table (`src/entity/furniture/dungeon_chest*.rs` / `structure.rs`).
@@ -54,12 +56,15 @@ order; keep the new item next to its family):
 
 In `Recipes::new()` in `src/item/recipe.rs`:
 
-1. Push onto the list for the station that should offer it — `craft` (personal
+1. Add one line to the list for the station that should offer it — `craft` (personal
    crafting, `Z`), `workbench`, `loom`, `oven`, `furnace`, `anvil`, or `enchant`:
    ```rust
-   workbench.push(Recipe::new("Ruby Ring_1", &["Ruby_2", "gold_1"]));
+   r("Ruby Ring", "Ruby*2 + gold"),
    ```
-   Format: `"Product_amount"`, costs `"Item_amount"`. Duplicate cost entries are summed.
+   Costs are `+`-separated; `*N` sets an amount (default 1) on the product or a cost
+   — `r("Stick*2", "Wood")` means one Wood yields two Sticks. Duplicate cost entries
+   are summed. (`r` is `Recipe::parse`; the Java `"Name_amount"` wire format lives on
+   underneath in `Recipe::new` and in save files.)
 2. The product and every cost must be real item names from `build_registry`
    (case-insensitive). A typo won't fail the build — it crafts an `UnknownItem` /
    never becomes craftable — but `tests/crafting_chain.rs` sweeps every recipe's
@@ -73,7 +78,7 @@ In `Recipes::new()` in `src/item/recipe.rs`:
      wood/metal-tier tool from raw materials.
    - **Workbench and up** is for assembled goods. Tool recipes stay verbose: a
      handle (Sticks), a lashing (Cord), and the head material (Wood/Stone/metal).
-     Follow the `Wood Axe = Wood_5 + Stick_2 + Cord_1` pattern for new tiers.
+     Follow the `r("Wood Axe", "Wood*5 + Stick*2 + Cord")` pattern for new tiers.
 
 ## New tile
 
@@ -108,7 +113,7 @@ the count the planned refactor should collapse.) Example: a "Mud" tile.
    variants at `on_tile.id + 128`) and never renumber existing ids (levels in memory
    index by id). Saves store tile *names*, so new ids need no migration.
 5. Get it into the world: world gen (`src/level/level_gen.rs`) and/or a placeable item —
-   `tile_item("Mud", sprite, "mud", &["hole", "water"])` in `build_registry`
+   `tile_item("Mud", (2, 4), get4(...), "mud", &["hole", "water"])` in `build_registry`
    (`model` = tile name to place, `valid_tiles` = names it can be placed on).
 6. Verify: `--debug`, `SHIFT-G`, place it; check walking on/into it and hitting it.
 
@@ -148,8 +153,9 @@ enemy "Ghoul".
    - a spawner: the `FurnitureItem` block of `build_registry` in `src/item/registry.rs`
      (also gets it into the creative inventory),
    - structures/world gen: `src/core/world.rs` (`generate_spawner_structures`).
-7. Verify headlessly (spawn one next to the player, tick, assert it moves/hurts — see
-   DEV_GUIDE "Headless testing") and visually via a demo run.
+7. Verify headlessly with the test harness (spawn one next to the player, tick, assert
+   it moves/hurts — `TestWorld` in DEV_GUIDE "Headless testing") and visually via a
+   demo run.
 
 ## New sound
 

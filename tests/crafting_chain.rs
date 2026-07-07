@@ -2,57 +2,21 @@
 //! grass fibers -> cord, knapped stone -> sharp stone, stick + cord + sharp stone ->
 //! crude tools — plus a registry-integrity sweep over every recipe in every station.
 
-use std::path::{Path, PathBuf};
-
-use fdoom::core::game::Game;
-use fdoom::core::world;
-use fdoom::entity::{Direction, EntityKind};
+use fdoom::entity::EntityKind;
 use fdoom::item::{ItemKind, Recipe, ToolType, registry};
-use fdoom::level::tile::dispatch;
-
-fn temp_game_dir(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// A headless game with the main player created (as `Game.main` does before world init).
-fn new_game(dir: &Path) -> Game {
-    let mut g = Game::new(false, false, dir.to_path_buf());
-    let mut player = fdoom::entity::mob::player::new(&g, None);
-    player.c.eid = 0;
-    g.entities.put_back(player);
-    g
-}
-
-fn make_world(g: &mut Game, seed: i64) {
-    world::reset_game(g, false);
-    g.settings.set("size", 128);
-    g.settings.set("autosave", false);
-    g.world_seed = seed;
-    world::init_world(g);
-}
+use fdoom::testutil::{TestWorld, bare_game, find_recipe};
 
 /// True when a registry lookup for `name` resolves to a real item (not `UnknownItem`).
-fn resolves(g: &Game, name: &str) -> bool {
+fn resolves(g: &fdoom::core::game::Game, name: &str) -> bool {
     registry::get_opt(g, name, true)
         .is_some_and(|item| !matches!(item.kind, ItemKind::Unknown { .. }))
-}
-
-fn find_recipe<'a>(recipes: &'a [Recipe], product: &str) -> &'a Recipe {
-    recipes
-        .iter()
-        .find(|r| r.product_name().eq_ignore_ascii_case(product))
-        .unwrap_or_else(|| panic!("recipe for {product:?} not found"))
 }
 
 /// Every recipe's product and every cost must resolve in the item registry —
 /// a typo'd name silently crafts an UnknownItem, so catch it here.
 #[test]
 fn all_recipe_names_resolve_in_registry() {
-    let dir = temp_game_dir("crafting_registry");
-    let g = new_game(&dir);
+    let g = bare_game("crafting_registry");
     let recipes = g.recipes.clone();
     let stations: [(&str, &[Recipe]); 7] = [
         ("craft", &recipes.craft),
@@ -86,8 +50,7 @@ fn all_recipe_names_resolve_in_registry() {
 /// The survival chain must live in *personal* crafting (no station, no tools).
 #[test]
 fn personal_crafting_offers_the_survival_chain() {
-    let dir = temp_game_dir("crafting_personal");
-    let g = new_game(&dir);
+    let g = bare_game("crafting_personal");
     for product in [
         "Cord",
         "Sharp Stone",
@@ -128,22 +91,15 @@ fn personal_crafting_offers_the_survival_chain() {
 /// 3 fibers -> cord, 2 stone -> sharp stone, then lash them into a crude axe.
 #[test]
 fn early_loop_crafts_a_crude_axe() {
-    let dir = temp_game_dir("crafting_loop");
-    let mut g = new_game(&dir);
-    make_world(&mut g, 0x5EED);
+    let mut tw = TestWorld::infinite().seed(0x5EED).build();
 
     // Gathered bare-handed: fibers + pebbles from tall grass, wood from a punched tree.
-    let fibers = registry::get(&g, "Grass Fibers_3");
-    let stone = registry::get(&g, "Stone_2");
-    let wood = registry::get(&g, "Wood_1");
+    tw.give("Grass Fibers", 3);
+    tw.give("Stone", 2);
+    tw.give("Wood", 1);
 
-    let crafted = g
-        .with_entity(0, |e, g| {
-            let inv = &mut e.player_mut().inventory;
-            inv.add(fibers);
-            inv.add(stone);
-            inv.add(wood);
-
+    let crafted =
+        tw.g.with_entity(0, |e, g| {
             for product in ["Stick", "Cord", "Sharp Stone", "Crude Axe"] {
                 let recipe = find_recipe(&g.recipes.craft, product).clone();
                 assert!(
@@ -177,42 +133,28 @@ fn early_loop_crafts_a_crude_axe() {
 /// yields fibers when broken with no tool at all.
 #[test]
 fn crude_axe_outchops_fists_and_grass_yields_fibers() {
-    let dir = temp_game_dir("crafting_chop");
-    let mut g = new_game(&dir);
-    make_world(&mut g, 0x5EED);
-
-    let lvl = g.current_level;
-    let (px, py) = {
-        let p = g.player();
-        (p.c.x >> 4, p.c.y >> 4)
-    };
-    let (tx, ty) = (px + 1, py);
+    let mut tw = TestWorld::infinite().seed(0x5EED).build();
+    let lvl = tw.current_level;
 
     // Fist: the bare-hand attack path hurts the tile with 1-3 damage.
-    g.set_tile_named(lvl, tx, ty, "tree");
-    let tree = g.tile_at(lvl, tx, ty);
-    g.with_entity(0, |e, g| {
-        let dmg = g.random.next_int_bound(3) + 1; // player_behavior's bare-hand roll
-        dispatch::hurt_by(g, &tree, lvl, tx, ty, e, dmg, Direction::Down);
-    });
-    let fist_damage = g.level(lvl).get_data(tx, ty);
+    let (tx, ty) = tw.place("tree", 1, 0);
+    let dmg = tw.random.next_int_bound(3) + 1; // player_behavior's bare-hand roll
+    tw.hit(1, 0, dmg);
+    let fist_damage = tw.level(lvl).get_data(tx, ty);
     assert!(
         (1..=3).contains(&fist_damage),
         "fist damage out of range: {fist_damage}"
     );
 
     // Crude axe: the tool interact path (pays stamina + durability).
-    g.set_tile_named(lvl, tx, ty, "tree"); // fresh tree, damage 0
-    let tree = g.tile_at(lvl, tx, ty);
-    let mut axe = registry::get(&g, "Crude Axe");
-    let used = g
-        .with_entity(0, |e, g| {
-            e.player_mut().stamina = 10;
-            dispatch::interact(g, &tree, lvl, tx, ty, e, &mut axe, Direction::Down)
-        })
-        .expect("player entity missing");
-    assert!(used, "crude axe did not interact with the tree");
-    let axe_damage = g.level(lvl).get_data(tx, ty);
+    tw.place("tree", 1, 0); // fresh tree, damage 0
+    tw.player_mut().player_mut().stamina = 10;
+    let mut axe = registry::get(&tw, "Crude Axe");
+    assert!(
+        tw.interact_item(&mut axe, 1, 0),
+        "crude axe did not interact with the tree"
+    );
+    let axe_damage = tw.level(lvl).get_data(tx, ty);
     assert!(
         axe_damage > fist_damage,
         "crude axe ({axe_damage}) should out-damage fists ({fist_damage})"
@@ -222,13 +164,10 @@ fn crude_axe_outchops_fists_and_grass_yields_fibers() {
     }
 
     // Tall grass breaks bare-handed into (at least) two fibers.
-    g.set_tile_named(lvl, tx, ty, "Tall Grass");
-    let grass = g.tile_at(lvl, tx, ty);
-    g.with_entity(0, |e, g| {
-        dispatch::hurt_by(g, &grass, lvl, tx, ty, e, 1, Direction::Down);
-    });
-    assert_eq!(g.tile_at(lvl, tx, ty).name, "GRASS");
-    let fiber_drops = g
+    tw.place("Tall Grass", 1, 0);
+    tw.hit(1, 0, 1);
+    assert_eq!(tw.tile_at(lvl, tx, ty).name, "GRASS");
+    let fiber_drops = tw
         .level(lvl)
         .entities_to_add
         .iter()
