@@ -7,7 +7,7 @@ use fdoom::level::infinite_gen::{self, Biome, biome_at};
 use fdoom::level::structures_gen::{
     ALL_KINDS, MAX_RADIUS, Placement, StructureKind, TRAIL_JITTER, TRAIL_RANGE, boulder_at,
     chest_positions, kind_radius, placement_in_cell, placements_in_rect, structure_writes,
-    trail_writes, trails_in_rect,
+    trail_writes, trails_in_rect, variant_count, variant_of,
 };
 use fdoom::level::tile::Tiles;
 use std::collections::{HashMap, HashSet};
@@ -124,10 +124,11 @@ fn cemetery_stamps_real_gravestone_tiles() {
     let grave = tiles.get("Grave stone").id;
     let fence = tiles.get("Fence").id;
     let dirt = tiles.get("Dirt").id;
+    // the fenced layout (variant 0) — the other variants have their own signatures
     let p = scan_placements(SEED, StructureKind::Cemetery, 8192)
         .into_iter()
-        .next()
-        .expect("no cemetery within 16k x 16k");
+        .find(|p| variant_of(SEED, *p) == 0)
+        .expect("no fenced cemetery within 16k x 16k");
     let writes = structure_writes(SEED, p, &tiles);
     let graves = writes.iter().filter(|w| w.2 == grave).count();
     assert!(graves >= 4, "cemetery has only {graves} graves");
@@ -149,11 +150,12 @@ fn cemetery_stamps_real_gravestone_tiles() {
 #[test]
 fn signature_tiles_present_for_each_kind() {
     let tiles = Tiles::new();
+    // variant-agnostic signatures: every layout of a kind stamps these
     let expectations: &[(StructureKind, &str)] = &[
-        (StructureKind::Ruins, "Stone Wall"),
+        (StructureKind::Ruins, "Stone Bricks"),
         (StructureKind::Cemetery, "Grave stone"),
         (StructureKind::StandingStones, "Rock"),
-        (StructureKind::Camp, "Wood Planks"),
+        (StructureKind::Camp, "torch dirt"),
     ];
     for &(kind, tile_name) in expectations {
         let want = tiles.get(tile_name).id;
@@ -168,6 +170,210 @@ fn signature_tiles_present_for_each_kind() {
             "{kind:?} chunk ({cx}, {cy}) missing its {tile_name} tiles"
         );
     }
+}
+
+/* --------------------------------- layout variants -------------------------------- */
+
+/// Seeds swept when hunting for a specific (kind, variant) instance.
+const VARIANT_SEEDS: [i64; 4] = [SEED, 1, 99, 4242];
+
+/// First placement of `kind` with layout `variant` across the seed sweep.
+fn find_variant(kind: StructureKind, variant: u32) -> (i64, Placement) {
+    VARIANT_SEEDS
+        .iter()
+        .find_map(|&s| {
+            scan_placements(s, kind, 16384)
+                .into_iter()
+                .find(|p| variant_of(s, *p) == variant)
+                .map(|p| (s, p))
+        })
+        .unwrap_or_else(|| panic!("{kind:?} variant {variant}: none across the seed sweep"))
+}
+
+/// Blueprint as a last-write-wins map, exactly as stamping applies it.
+fn last_writes(seed: i64, p: Placement, tiles: &Tiles) -> HashMap<(i32, i32), u8> {
+    let mut last = HashMap::new();
+    for (x, y, t) in structure_writes(seed, p, tiles) {
+        last.insert((x, y), t);
+    }
+    last
+}
+
+#[test]
+fn every_variant_occurs_with_its_signature_tiles() {
+    let tiles = Tiles::new();
+    let id = |n: &str| tiles.get(n).id;
+    let (wall, fence, rock, planks, wool, water, flower, torch) = (
+        id("Stone Wall"),
+        id("Fence"),
+        id("rock"),
+        id("Wood Planks"),
+        id("Wool"),
+        id("water"),
+        id("flower"),
+        id("torch dirt"),
+    );
+    let tufts: Vec<u8> = ["small grass", "medium grass", "tall grass"]
+        .iter()
+        .map(|n| id(n))
+        .collect();
+
+    for kind in ALL_KINDS {
+        for v in 0..variant_count(kind) {
+            let (s, p) = find_variant(kind, v);
+            let last = last_writes(s, p, &tiles);
+            assert_eq!(
+                last,
+                last_writes(s, p, &tiles),
+                "{kind:?} v{v} blueprint must be deterministic"
+            );
+            let count = |t: u8| last.values().filter(|&&x| x == t).count();
+            let rel = |dx: i32, dy: i32| last.get(&(p.x + dx, p.y + dy)).copied();
+            let ctx = format!("{kind:?} v{v} at ({}, {}) seed {s}", p.x, p.y);
+            match (kind, v) {
+                (StructureKind::Ruins, 0) => {
+                    assert!(count(wall) >= 4, "{ctx}: too few walls");
+                    // a full rectangle: every bounding-box corner is written
+                    let xs: Vec<i32> = last.keys().map(|k| k.0).collect();
+                    let ys: Vec<i32> = last.keys().map(|k| k.1).collect();
+                    let (x0, x1) = (*xs.iter().min().unwrap(), *xs.iter().max().unwrap());
+                    let (y0, y1) = (*ys.iter().min().unwrap(), *ys.iter().max().unwrap());
+                    for c in [(x0, y0), (x1, y0), (x0, y1), (x1, y1)] {
+                        assert!(last.contains_key(&c), "{ctx}: square room missing corner");
+                    }
+                }
+                (StructureKind::Ruins, 1) => {
+                    assert!(count(wall) >= 6, "{ctx}: too few walls");
+                    // the L: hall + wing present, the SE notch empty
+                    assert!(
+                        rel(5, 5).is_none(),
+                        "{ctx}: L-shape must miss its SE corner"
+                    );
+                    assert!(rel(5, -5).is_some(), "{ctx}: hall NE corner missing");
+                    assert!(rel(-5, 5).is_some(), "{ctx}: wing SW corner missing");
+                }
+                (StructureKind::Ruins, 2) => {
+                    assert!(count(wall) >= 6, "{ctx}: too few walls");
+                    // circular footprint: no bounding-box corners
+                    for c in [(5, 5), (-5, 5), (5, -5), (-5, -5)] {
+                        assert!(rel(c.0, c.1).is_none(), "{ctx}: tower has a square corner");
+                    }
+                }
+                (StructureKind::Cemetery, 0) => {
+                    assert!(count(fence) >= 4, "{ctx}: fenced plot has no fence");
+                    assert_eq!(count(wall), 0, "{ctx}: fenced plot has stone walls");
+                }
+                (StructureKind::Cemetery, 1) => {
+                    assert_eq!(count(fence), 0, "{ctx}: overgrown plot has a fence");
+                    assert_eq!(count(wall), 0, "{ctx}: overgrown plot has walls");
+                    let tuft_n = last.values().filter(|t| tufts.contains(t)).count();
+                    assert!(tuft_n >= 3, "{ctx}: only {tuft_n} grass tufts");
+                }
+                (StructureKind::Cemetery, 2) => {
+                    assert!(count(wall) >= 6, "{ctx}: walled plot has too few walls");
+                    assert_eq!(count(fence), 0, "{ctx}: walled plot has a fence");
+                }
+                (StructureKind::StandingStones, 0) => {
+                    assert!(count(rock) >= 5, "{ctx}: ring has too few stones");
+                    assert_eq!(rel(0, 0), Some(flower), "{ctx}: no center flower");
+                }
+                (StructureKind::StandingStones, 1) => {
+                    // every stone of the avenue lies on one line through the origin
+                    let rocks: Vec<(i32, i32)> = last
+                        .iter()
+                        .filter(|&(_, &t)| t == rock)
+                        .map(|(&(x, y), _)| (x - p.x, y - p.y))
+                        .collect();
+                    assert!(rocks.len() >= 4, "{ctx}: only {} stones", rocks.len());
+                    let (dx0, dy0) = rocks[0];
+                    for &(dx, dy) in &rocks {
+                        assert_eq!(
+                            dx * dy0,
+                            dy * dx0,
+                            "{ctx}: stone ({dx}, {dy}) off the alignment"
+                        );
+                    }
+                }
+                (StructureKind::StandingStones, 2) => {
+                    for c in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                        assert_eq!(rel(c.0, c.1), Some(rock), "{ctx}: dolmen 2x2 broken");
+                    }
+                    assert_eq!(rel(-1, -1), Some(flower), "{ctx}: no offering flower");
+                }
+                (StructureKind::Camp, 0) => {
+                    assert!(count(planks) >= 4, "{ctx}: no lean-to");
+                    assert_eq!(count(wool), 0, "{ctx}: lean-to camp has a bedroll");
+                    assert_eq!(rel(0, 0), Some(torch), "{ctx}: fire out");
+                }
+                (StructureKind::Camp, 1) => {
+                    assert_eq!(count(wool), 2, "{ctx}: bedroll strip wrong");
+                    assert_eq!(count(planks), 0, "{ctx}: cold camp has a lean-to");
+                    assert!(count(rock) >= 3, "{ctx}: fire ring missing");
+                    assert_eq!(rel(0, 0), Some(torch), "{ctx}: fire out");
+                }
+                (StructureKind::Village, 0) => {
+                    assert_eq!(rel(0, 0), Some(water), "{ctx}: no well");
+                    assert!(count(wall) >= 10, "{ctx}: too few walls");
+                    assert!(count(planks) >= 20, "{ctx}: too few plank floors");
+                }
+                (StructureKind::Village, 1) => {
+                    assert_eq!(rel(0, 0), Some(water), "{ctx}: no well");
+                    // both road arms mostly present (12% worn-away gaps)
+                    let across = (-17..=17).filter(|&d| rel(d, 0).is_some()).count();
+                    let down = (-17..=17).filter(|&d| rel(0, d).is_some()).count();
+                    assert!(across >= 24, "{ctx}: east-west road only {across} tiles");
+                    assert!(down >= 24, "{ctx}: north-south road only {down} tiles");
+                }
+                _ => unreachable!("unexpected variant {v} for {kind:?}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn ruins_chests_sit_on_sound_floor_in_every_shape() {
+    let tiles = Tiles::new();
+    let brick = tiles.get("Stone Bricks").id;
+    for v in 0..variant_count(StructureKind::Ruins) {
+        let (s, p) = VARIANT_SEEDS
+            .iter()
+            .find_map(|&s| {
+                scan_placements(s, StructureKind::Ruins, 16384)
+                    .into_iter()
+                    .find(|p| variant_of(s, *p) == v && !chest_positions(s, *p).is_empty())
+                    .map(|p| (s, p))
+            })
+            .expect("no chest-bearing ruins of this shape in the sweep");
+        let last = last_writes(s, p, &tiles);
+        for (cx, cy) in chest_positions(s, p) {
+            assert_eq!(
+                last.get(&(cx, cy)),
+                Some(&brick),
+                "ruins v{v} chest at ({cx}, {cy}) not on sound floor"
+            );
+        }
+    }
+}
+
+#[test]
+fn density_wave_raised_spawn_rates() {
+    // Placements in a 32k x 32k window around the origin. Floors sit ~25% under the
+    // post-wave measurement for this seed; the pre-wave odds (0.45/0.40/0.35/0.50)
+    // would land far below them. The village band is two-sided: they must stay rare.
+    // measured post-wave: Ruins 6546, Cemetery 3338, Stones 1258, Camp 4879
+    let floors: &[(StructureKind, usize)] = &[
+        (StructureKind::Ruins, 5200),
+        (StructureKind::Cemetery, 2700),
+        (StructureKind::StandingStones, 1000),
+        (StructureKind::Camp, 3900),
+    ];
+    for &(kind, floor) in floors {
+        let n = scan_placements(SEED, kind, 16384).len();
+        assert!(n >= floor, "{kind:?}: {n} placements < floor {floor}");
+    }
+    // measured 679 — a set piece, not scenery; catch any accidental village bump
+    let v = scan_placements(SEED, StructureKind::Village, 16384).len();
+    assert!((400..=900).contains(&v), "villages no longer rare: {v}");
 }
 
 #[test]

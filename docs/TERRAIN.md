@@ -828,11 +828,27 @@ a PNG dump — e.g. `just demo-world` generates a fresh world and screenshots ga
 ## World structures (see src/level/structures_gen.rs)
 
 Surface chunks get deterministic structures via the same hash-grid pattern as gates:
-ruins (broken stone rooms, 60% with a loot chest), cemeteries (fenced grave plots that
+ruins (broken stone builds, 60% with a loot chest), cemeteries (grave plots that
 decay over one to two in-game weeks and leak night zombies via the gravestone tile's
-per-tile state), standing stones, and abandoned camps (lean-to, torch, loot chest).
-Placement is pure `f(seed, cell)` per type with biome gating; blueprints emit global
-tile writes clipped per chunk, so structures straddling chunk borders are bit-identical
-from every side. Chest entities spawn only when a chunk generates fresh (never when
-loaded from disk); the owning chunk is marked dirty so it persists and never re-rolls.
-The module doc in `structures_gen.rs` is the authoritative reference.
+per-tile state), standing stones, abandoned camps (torch, loot chest), and rare
+destroyed villages. Placement is pure `f(seed, cell)` per type with biome gating;
+blueprints emit global tile writes clipped per chunk, so structures straddling chunk
+borders are bit-identical from every side.
+
+Each placement also rolls a **layout variant** from its hash (`variant_of`, equally
+weighted, chunk-border safe like the blueprint itself):
+
+| Kind            | Grid | Odds | Variants                                          |
+|-----------------|-----:|-----:|---------------------------------------------------|
+| Ruins           |  224 | 0.70 | square room / L-shaped two-room / round tower     |
+| Cemetery        |  288 | 0.60 | fenced / unfenced overgrown (tufts) / stone-walled|
+| Standing stones |  320 | 0.62 | ring / straight avenue (5-7) / dolmen cluster     |
+| Camp            |  256 | 0.80 | plank lean-to / cold camp (fire ring + bedroll)   |
+| Village         |  512 | 0.40 | round plaza / crossroads (roads meet at the well) |
+
+The odds column reflects the density wave (~+55% structures per unit area vs. the
+original 0.45/0.40/0.35/0.50/0.40, biased toward camps/stones/ruins; villages
+unchanged — they stay set pieces). Chest entities spawn only when a chunk generates
+fresh (never when loaded from disk); the owning chunk is marked dirty so it persists
+and never re-rolls. The module doc in `structures_gen.rs` is the authoritative
+reference.
