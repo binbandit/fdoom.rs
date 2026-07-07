@@ -83,6 +83,12 @@ pub enum ItemKind {
         heal: i32,
         stamina_cost: i32,
     },
+    /// Post-port: first-aid items (Bandage) — restore `heal` health directly (contrast
+    /// `Food`, which restores hunger). No Java origin.
+    Medical {
+        count: i32,
+        heal: i32,
+    },
     Armor {
         count: i32,
         armor: f32,
@@ -160,6 +166,7 @@ impl Item {
             ItemKind::Stackable { count }
             | ItemKind::Unknown { count }
             | ItemKind::Food { count, .. }
+            | ItemKind::Medical { count, .. }
             | ItemKind::Armor { count, .. }
             | ItemKind::Clothing { count, .. }
             | ItemKind::Potion { count, .. }
@@ -175,6 +182,7 @@ impl Item {
             ItemKind::Stackable { count }
             | ItemKind::Unknown { count }
             | ItemKind::Food { count, .. }
+            | ItemKind::Medical { count, .. }
             | ItemKind::Armor { count, .. }
             | ItemKind::Clothing { count, .. }
             | ItemKind::Potion { count, .. }
@@ -275,6 +283,7 @@ impl Item {
         !matches!(
             self.kind,
             ItemKind::Food { .. }
+                | ItemKind::Medical { .. }
                 | ItemKind::Armor { .. }
                 | ItemKind::Clothing { .. }
                 | ItemKind::Potion { .. }
@@ -297,8 +306,8 @@ impl Item {
     pub fn get_display_name(&self, g: &crate::core::game::Game) -> String {
         match &self.kind {
             ItemKind::Tool { ttype, level, .. } => {
-                if *ttype == ToolType::FishingRod {
-                    format!(" {}", g.localization.get_localized("Fishing Rod"))
+                if let Some(flat) = ttype.flat_name() {
+                    format!(" {}", g.localization.get_localized(flat))
                 } else {
                     format!(
                         " {} {}",

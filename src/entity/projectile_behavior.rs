@@ -1,12 +1,28 @@
 //! Behaviors of `fdoom.entity.Arrow` and `fdoom.entity.Spark`.
 
 use crate::core::game::Game;
+use crate::entity::projectile::ProjectileStyle;
 use crate::entity::{Direction, Entity, EntityKind, behavior};
 use crate::gfx::{Rectangle, Screen, color};
 use crate::level;
 use crate::level::tile::dispatch as tiles;
 
-/// Java `Arrow.tick()`.
+/// Post-port: the projectile stops here — drop its payload item (a thrown spear/knife
+/// waiting to be picked back up), if any, then despawn it.
+fn land(g: &mut Game, e: &mut Entity, x: i32, y: i32) {
+    let payload = match &mut e.kind {
+        EntityKind::Arrow(a) => a.payload.take(),
+        _ => None,
+    };
+    if let (Some(data), Some(lvl)) = (payload, e.c.level) {
+        let item = crate::item::registry::get(g, &data);
+        level::drop_item(g, lvl, x, y, item);
+    }
+    behavior::remove_entity(g, e);
+}
+
+/// Java `Arrow.tick()` (also drives the post-port thrown/launched projectiles —
+/// spears, knives, slingshot pellets — which land instead of vanishing).
 pub fn arrow_tick(g: &mut Game, e: &mut Entity) {
     let Some(lvl) = e.c.level else { return };
     let (level_w, level_h) = {
@@ -22,13 +38,24 @@ pub fn arrow_tick(g: &mut Game, e: &mut Entity) {
         return;
     }
 
-    let (dir, damage, owner, speed) = {
-        let EntityKind::Arrow(a) = &e.kind else {
+    let (dir, damage, owner, speed, has_payload) = {
+        let EntityKind::Arrow(a) = &mut e.kind else {
             return;
         };
-        (a.dir, a.damage, a.owner, a.speed)
+        // ranged-limited projectiles (thrown weapons, pellets) fall to the ground once
+        // their flight time runs out
+        if a.range_ticks > 0 {
+            a.range_ticks -= 1;
+            if a.range_ticks == 0 {
+                let (x, y) = (e.c.x, e.c.y);
+                land(g, e, x, y);
+                return;
+            }
+        }
+        (a.dir, a.damage, a.owner, a.speed, a.payload.is_some())
     };
 
+    let (prev_x, prev_y) = (e.c.x, e.c.y);
     e.c.x += dir.x() * speed;
     e.c.y += dir.y() * speed;
 
@@ -54,29 +81,47 @@ pub fn arrow_tick(g: &mut Game, e: &mut Entity) {
             g.with_entity(hit_id, |mob, g| {
                 behavior::mob_hurt_by_eid(g, owner, mob, damage + extradamage, dir);
             });
+            if has_payload {
+                // a thrown weapon sticks in whatever it hits, then drops at their feet
+                let (x, y) = (e.c.x, e.c.y);
+                land(g, e, x, y);
+                return;
+            }
         }
 
         let xt = e.c.x / 16;
         let yt = e.c.y / 16;
         let tile = g.tile_at(lvl, xt, yt);
         if !tiles::may_pass(g, &tile, lvl, xt, yt, e) && !tile.connects_to_water && tile.id != 16 {
-            behavior::remove_entity(g, e);
+            // drop the payload on the near side of the blocking tile, not inside it
+            land(g, e, prev_x, prev_y);
         }
     }
 }
 
-/// Java `Arrow.render(screen)`.
+/// Java `Arrow.render(screen)` (+ post-port styles for the thrown projectiles).
 pub fn arrow_render(_g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     let EntityKind::Arrow(a) = &e.kind else {
         return;
     };
-    let xt = match a.dir {
-        Direction::Left => 14,
-        Direction::Up => 15,
-        Direction::Down => 16,
-        _ => 13,
+    let (xt, yt) = match a.style {
+        // TODO(art): dedicated spear-in-flight cells; placeholder reuses the arrow's
+        // directional cells (13..16,5) with the spear's wood/iron tint (e.c.col).
+        ProjectileStyle::Arrow | ProjectileStyle::Spear => (
+            match a.dir {
+                Direction::Left => 14,
+                Direction::Up => 15,
+                Direction::Down => 16,
+                _ => 13,
+            },
+            5,
+        ),
+        // TODO(art): dedicated knife-in-flight cell; placeholder reuses the shard item
+        // cell (23,4).
+        ProjectileStyle::Knife => (23, 4),
+        // TODO(art): dedicated pellet cell; placeholder reuses the stone item cell (2,4).
+        ProjectileStyle::Pellet => (2, 4),
     };
-    let yt = 5;
     screen.render(e.c.x - 4, e.c.y - 4, xt + yt * 32, e.c.col, 0);
 }
 

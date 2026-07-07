@@ -176,6 +176,22 @@ pub fn item_interact_on_tile(
             stackable_interact_on(g, item, success)
         }
 
+        // Post-port Medical.interactOn: patch up (restores health, not hunger).
+        ItemKind::Medical { count, heal } => {
+            let (count, heal) = (*count, *heal);
+            let mut success = false;
+            // if the player is hurt, and has the stamina to apply it...
+            if count > 0
+                && player.player().mob.health < crate::entity::mob::player::MAX_HEALTH
+                && pay_stamina(player, 5)
+            {
+                crate::entity::behavior::heal(g, player, heal);
+                success = true;
+            }
+
+            stackable_interact_on(g, item, success)
+        }
+
         // ArmorItem.interactOn: put on the armor.
         ItemKind::Armor {
             armor,
