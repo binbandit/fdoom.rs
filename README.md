@@ -55,6 +55,11 @@ unmapped cheat keys (time of day, game speed, give items, ...) listed in
 
 ## Features
 
+- **Infinite worlds** (default): Minecraft-style chunked terrain streamed around the
+  player, with deterministic per-seed generation, paired stairwells between layers,
+  and rare sky-towers / dungeon gates leading to the finite boss levels. Pick
+  "World: Classic" in world-gen for the original finite maps.
+
 - Procedural island/box/mountain/irregular worlds, 128–512 tiles square, seedable
 - 6 vertical levels: sky, surface, three mine levels, dungeon
 - Day/night cycle with mob spawning, beds, farming, 46 tile types, ~150 items
