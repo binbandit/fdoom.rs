@@ -10,10 +10,11 @@ use crate::screen::entry::array_entry::Value;
 
 /// Every setting: (key, display label). Options and defaults live in `options_of` /
 /// `default_of` below — one place to touch when adding a setting.
-pub const KEYS: [(&str, &str); 12] = [
+pub const KEYS: [(&str, &str); 13] = [
     ("fps", "Max FPS"),
     ("diff", "Difficulty"),
     ("mode", "Game Mode"),
+    ("daycycle", "Day Cycle"),
     ("sound", "Sound"),
     ("autosave", "Autosave"),
     ("size", "World Size"),
@@ -55,6 +56,8 @@ impl Settings {
             "diff" => vec![sv("Easy"), sv("Normal"), sv("Hard")],
             // Survival is the only real mode; Creative remains for the --debug cheat toggle
             "mode" => vec![sv("Survival"), sv("Creative")],
+            // in-game day pacing: Classic ~18min, Long ~72min, Realtime = 24 real hours
+            "daycycle" => vec![sv("Classic"), sv("Long"), sv("Realtime")],
             "sound" | "autosave" | "unlockedskin" | "skinon" => {
                 vec![Value::Bool(true), Value::Bool(false)]
             }
@@ -78,6 +81,7 @@ impl Settings {
             "fps" => Value::Int(60),
             "diff" => sv("Normal"),
             "mode" => sv("Survival"),
+            "daycycle" => sv("Classic"),
             "sound" | "autosave" | "unlockedskin" => Value::Bool(true),
             "skinon" => Value::Bool(false),
             "size" => Value::Int(128),

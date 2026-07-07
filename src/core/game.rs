@@ -304,9 +304,18 @@ impl Game {
             self.as_tick = 0;
         }
 
-        // Increment tickCount if the game is not paused
+        // Increment tickCount if the game is not paused. The day-cycle setting slows
+        // the day clock: Classic advances every tick (~18min days), Long every 4th
+        // (~72min), Realtime every 80th (a full 24 real hours per in-game day).
         if !self.paused {
-            self.set_time(self.tick_count + 1);
+            let divisor = match self.settings.get("daycycle").as_str() {
+                "Long" => 4,
+                "Realtime" => 80,
+                _ => 1,
+            };
+            if self.game_time % divisor == 0 {
+                self.set_time(self.tick_count + 1);
+            }
         }
 
         // This is the general action statement thing! Regulates menus, mostly.

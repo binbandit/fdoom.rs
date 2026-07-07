@@ -17,15 +17,16 @@ pub struct OptionsDisplay {
 
 impl OptionsDisplay {
     pub fn new(g: &Game) -> OptionsDisplay {
-        let settings: Vec<SettingEntry> =
-            ["diff", "fps", "sound", "autosave", "skinon", "language"]
-                .iter()
-                .map(|key| settings_widgets::make_entry(g, key))
-                .collect();
+        let settings: Vec<SettingEntry> = [
+            "diff", "daycycle", "fps", "sound", "autosave", "skinon", "language",
+        ]
+        .iter()
+        .map(|key| settings_widgets::make_entry(g, key))
+        .collect();
 
         // the suit toggle is only shown once the suit is unlocked
         if !g.settings.get("unlockedskin").as_bool() {
-            settings[4].1.borrow_mut().set_visible(false);
+            settings[5].1.borrow_mut().set_visible(false);
         }
 
         let entries: Vec<EntryHandle> = vec![
@@ -34,10 +35,11 @@ impl OptionsDisplay {
             settings[2].1.clone(),
             settings[3].1.clone(),
             settings[4].1.clone(),
+            settings[5].1.clone(),
             handle(SelectEntry::new("Change Key Bindings", |g: &mut Game| {
                 g.set_menu(KeyInputDisplay::new(g));
             })),
-            settings[5].1.clone(),
+            settings[6].1.clone(),
         ];
 
         let menu = MenuBuilder::new(false, 6, RelPos::Left, entries)
