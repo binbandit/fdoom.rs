@@ -16,13 +16,14 @@ fn stepped_on_sprite() -> Sprite {
         vec![Px::new(3, 1, 0), Px::new(1, 0, 0)],
         vec![Px::new(1, 0, 0), Px::new(3, 1, 0)],
     ];
+    // cool blue-gray prints so tracks read as compressed snow, not tan smudges
     Sprite::from_pixels(
         pixels,
         color::get4(
-            color::hex("#2c2c2c"),
             color::hex("#ffffff"),
-            color::hex("#d3d3d3"),
-            440,
+            color::hex("#ffffff"),
+            color::hex("#dde6f0"),
+            color::hex("#b9c8d8"),
         ),
     )
 }
