@@ -22,6 +22,7 @@ just run / run-debug / test
 just check          # fmt --check + clippy -D warnings + test (run before pushing)
 just demo-title     # scripted run: screenshot the title screen into target/verify/
 just demo-world     # scripted run: generate a world named PIT, screenshot gameplay
+just worldview seed=123   # world-inspection map window (see below)
 just upscale        # 3x-upscale target/verify PNGs for easier viewing
 just clean-saves    # DELETE all saves + preferences (~/fdoom)
 ```
@@ -77,6 +78,49 @@ world): hold movement keys with `down:`/`up:`.
 
 Note: with an existing save dir, `Play` opens a Load World / New World submenu first —
 add one extra `key:ENTER` (Load World is preselected) or `key:DOWN;key:ENTER`.
+
+## World inspection: `worldview`
+
+`src/bin/worldview.rs` is a standalone map window for eyeballing what a seed generates —
+biome layout, structure spawn rates, flora distribution — without playing. It calls the
+pure generators (`infinite_gen`, `structures_gen`) directly, so the picture is
+byte-for-byte what the game would generate.
+
+```sh
+just worldview seed=123          # or: cargo run --bin worldview -- 123
+cargo run --bin worldview -- 123 --depth -3 --mode tile --zoom 1
+```
+
+No seed = a random one. Two render modes, toggled with Tab:
+
+- **BIOME** — `biome_at` region colors, with trails overlaid as their tiles.
+- **TILE** — actual `generate_chunk` tiles (structures, flora, ores... as stamped).
+
+Both modes overlay structure markers (origin of each placement) and a legend panel:
+orange = ruins, purple = cemetery, cyan = standing stones, yellow = camp, red = village,
+white = dungeon gate (depth -3). Unmapped tile ids render loud magenta.
+
+| Key | Action |
+|---|---|
+| arrows / W-A-D | pan one chunk (64 tiles) |
+| `+` / `-` | zoom 1 / 2 / 4 px per tile (default 2) |
+| Tab | toggle BIOME / TILE mode |
+| `N` | new random seed (prints structure counts to stdout) |
+| `S` | screenshot to `target/verify/worldview_<seed>.png` |
+| Esc | quit |
+
+Seed, depth, mode, zoom, and center coordinates are shown in the window title and the
+legend header. Chunks are generated lazily and cached, so panning is instant.
+
+Headless (CI / agent) hook — render one frame straight to a PNG, no window:
+
+```sh
+cargo run --bin worldview -- --dump 123 target/verify/wv_biome.png
+cargo run --bin worldview -- --dump 123 target/verify/wv_tile.png --mode tile
+cargo run --bin worldview -- --dump 123 out.png --center -2048 -1024   # away from 0,0
+```
+
+The dump also prints per-kind structure counts for the rendered rect to stdout.
 
 ## Headless testing
 

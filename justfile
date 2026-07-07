@@ -23,6 +23,11 @@ check:
     cargo clippy --all-targets -- -D warnings
     cargo test
 
+# World-inspection map window: biome/tile view of a seed without playing. Tab toggles
+# modes, arrows pan, +/- zoom, S screenshots (docs/DEV_GUIDE.md#world-inspection-worldview).
+worldview seed="":
+    cargo run --bin worldview -- {{seed}}
+
 # Scripted run: boot to the title screen and screenshot it (target/verify/title.png).
 demo-title:
     FDOOM_DEMO="wait:220;shot:{{verify_dir}}/title.png;quit" cargo run
