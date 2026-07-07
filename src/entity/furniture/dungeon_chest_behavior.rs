@@ -64,21 +64,13 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
                 if g.level(lvl).chest_count == 0 {
                     // if this was the last chest...
                     // JAVA: level.dropItem(x, y, 5, Items.get("Gold Apple"))
+                    // (Java also spawned the second-form AirWizard boss on the surface
+                    // here; that mob was removed in the roster overhaul.)
                     let gold_apple = registry::get(g, "Gold Apple");
                     for _ in 0..5 {
                         crate::level::drop_item(g, lvl, e.c.x, e.c.y, gold_apple.clone());
                     }
-
-                    // notify the player of the developments
-                    g.notify_all_tick("You hear a noise from the surface!", -100);
-                    // add a level 2 airwizard to the middle surface level.
-                    let surface = crate::level::lvl_idx(0);
-                    let mut wizard = crate::entity::mob::air_wizard::new(g, true);
-                    // JAVA: wizard.x = level.w / 2 (tile dimensions used as pixel coords —
-                    // preserved quirk)
-                    wizard.c.x = g.level(surface).w / 2;
-                    wizard.c.y = g.level(surface).h / 2;
-                    g.level_mut(surface).add(wizard, surface);
+                    g.notify_all_tick("The dungeon lies plundered!", -100);
                 }
             }
 

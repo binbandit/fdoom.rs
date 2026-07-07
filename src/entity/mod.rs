@@ -24,7 +24,7 @@ pub use furniture::FurnitureData;
 pub use item_entity::ItemEntityData;
 pub use mob::MobData;
 pub use particle::{ParticleData, TextParticleData};
-pub use projectile::{ArrowData, SparkData};
+pub use projectile::{ArrowData, ZapData};
 
 /// The fields of the Java `Entity` base class.
 #[derive(Debug, Clone)]
@@ -84,16 +84,16 @@ pub enum EntityKind {
     GlowWorm(mob::glow_worm::GlowWormData),
     // enemy mobs
     Zombie(mob::zombie::ZombieData),
-    Slime(mob::slime::SlimeData),
-    Creeper(mob::creeper::CreeperData),
-    Skeleton(mob::skeleton::SkeletonData),
     Snake(mob::snake::SnakeData),
     Knight(mob::knight::KnightData),
-    AirWizard(mob::air_wizard::AirWizardData),
+    MarshLurker(mob::marsh_lurker::MarshLurkerData),
+    FeralHound(mob::feral_hound::FeralHoundData),
+    StoneGolem(mob::stone_golem::StoneGolemData),
+    NightWisp(mob::night_wisp::NightWispData),
     // free-floating things
     ItemEntity(ItemEntityData),
     Arrow(ArrowData),
-    Spark(SparkData),
+    Zap(ZapData),
     // particles
     Particle(ParticleData),
     TextParticle(TextParticleData),
@@ -173,12 +173,12 @@ impl Entity {
             EntityKind::Sheep(m) => &m.passive.ai.mob,
             EntityKind::GlowWorm(m) => &m.passive.ai.mob,
             EntityKind::Zombie(m) => &m.enemy.ai.mob,
-            EntityKind::Slime(m) => &m.enemy.ai.mob,
-            EntityKind::Creeper(m) => &m.enemy.ai.mob,
-            EntityKind::Skeleton(m) => &m.enemy.ai.mob,
             EntityKind::Snake(m) => &m.enemy.ai.mob,
             EntityKind::Knight(m) => &m.enemy.ai.mob,
-            EntityKind::AirWizard(m) => &m.enemy.ai.mob,
+            EntityKind::MarshLurker(m) => &m.enemy.ai.mob,
+            EntityKind::FeralHound(m) => &m.enemy.ai.mob,
+            EntityKind::StoneGolem(m) => &m.enemy.ai.mob,
+            EntityKind::NightWisp(m) => &m.enemy.ai.mob,
             _ => return None,
         })
     }
@@ -191,12 +191,12 @@ impl Entity {
             EntityKind::Sheep(m) => &mut m.passive.ai.mob,
             EntityKind::GlowWorm(m) => &mut m.passive.ai.mob,
             EntityKind::Zombie(m) => &mut m.enemy.ai.mob,
-            EntityKind::Slime(m) => &mut m.enemy.ai.mob,
-            EntityKind::Creeper(m) => &mut m.enemy.ai.mob,
-            EntityKind::Skeleton(m) => &mut m.enemy.ai.mob,
             EntityKind::Snake(m) => &mut m.enemy.ai.mob,
             EntityKind::Knight(m) => &mut m.enemy.ai.mob,
-            EntityKind::AirWizard(m) => &mut m.enemy.ai.mob,
+            EntityKind::MarshLurker(m) => &mut m.enemy.ai.mob,
+            EntityKind::FeralHound(m) => &mut m.enemy.ai.mob,
+            EntityKind::StoneGolem(m) => &mut m.enemy.ai.mob,
+            EntityKind::NightWisp(m) => &mut m.enemy.ai.mob,
             _ => return None,
         })
     }
@@ -209,12 +209,12 @@ impl Entity {
             EntityKind::Sheep(m) => &m.passive.ai,
             EntityKind::GlowWorm(m) => &m.passive.ai,
             EntityKind::Zombie(m) => &m.enemy.ai,
-            EntityKind::Slime(m) => &m.enemy.ai,
-            EntityKind::Creeper(m) => &m.enemy.ai,
-            EntityKind::Skeleton(m) => &m.enemy.ai,
             EntityKind::Snake(m) => &m.enemy.ai,
             EntityKind::Knight(m) => &m.enemy.ai,
-            EntityKind::AirWizard(m) => &m.enemy.ai,
+            EntityKind::MarshLurker(m) => &m.enemy.ai,
+            EntityKind::FeralHound(m) => &m.enemy.ai,
+            EntityKind::StoneGolem(m) => &m.enemy.ai,
+            EntityKind::NightWisp(m) => &m.enemy.ai,
             _ => return None,
         })
     }
@@ -226,12 +226,12 @@ impl Entity {
             EntityKind::Sheep(m) => &mut m.passive.ai,
             EntityKind::GlowWorm(m) => &mut m.passive.ai,
             EntityKind::Zombie(m) => &mut m.enemy.ai,
-            EntityKind::Slime(m) => &mut m.enemy.ai,
-            EntityKind::Creeper(m) => &mut m.enemy.ai,
-            EntityKind::Skeleton(m) => &mut m.enemy.ai,
             EntityKind::Snake(m) => &mut m.enemy.ai,
             EntityKind::Knight(m) => &mut m.enemy.ai,
-            EntityKind::AirWizard(m) => &mut m.enemy.ai,
+            EntityKind::MarshLurker(m) => &mut m.enemy.ai,
+            EntityKind::FeralHound(m) => &mut m.enemy.ai,
+            EntityKind::StoneGolem(m) => &mut m.enemy.ai,
+            EntityKind::NightWisp(m) => &mut m.enemy.ai,
             _ => return None,
         })
     }
@@ -240,12 +240,12 @@ impl Entity {
     pub fn enemy_mob(&self) -> Option<&mob::EnemyMobData> {
         Some(match &self.kind {
             EntityKind::Zombie(m) => &m.enemy,
-            EntityKind::Slime(m) => &m.enemy,
-            EntityKind::Creeper(m) => &m.enemy,
-            EntityKind::Skeleton(m) => &m.enemy,
             EntityKind::Snake(m) => &m.enemy,
             EntityKind::Knight(m) => &m.enemy,
-            EntityKind::AirWizard(m) => &m.enemy,
+            EntityKind::MarshLurker(m) => &m.enemy,
+            EntityKind::FeralHound(m) => &m.enemy,
+            EntityKind::StoneGolem(m) => &m.enemy,
+            EntityKind::NightWisp(m) => &m.enemy,
             _ => return None,
         })
     }
@@ -253,12 +253,12 @@ impl Entity {
     pub fn enemy_mob_mut(&mut self) -> Option<&mut mob::EnemyMobData> {
         Some(match &mut self.kind {
             EntityKind::Zombie(m) => &mut m.enemy,
-            EntityKind::Slime(m) => &mut m.enemy,
-            EntityKind::Creeper(m) => &mut m.enemy,
-            EntityKind::Skeleton(m) => &mut m.enemy,
             EntityKind::Snake(m) => &mut m.enemy,
             EntityKind::Knight(m) => &mut m.enemy,
-            EntityKind::AirWizard(m) => &mut m.enemy,
+            EntityKind::MarshLurker(m) => &mut m.enemy,
+            EntityKind::FeralHound(m) => &mut m.enemy,
+            EntityKind::StoneGolem(m) => &mut m.enemy,
+            EntityKind::NightWisp(m) => &mut m.enemy,
             _ => return None,
         })
     }

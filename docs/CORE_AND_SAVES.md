@@ -74,7 +74,7 @@ pub struct Game {
     pub player_id: i32,              // eid of the main player (Java Game.player; main() sets 0)
 
     pub bed_state: BedState,         // Java `Bed`'s static sleep-tracking state
-    pub air_wizard_beaten: bool,     // Java `AirWizard.beaten` static
+    pub air_wizard_beaten: bool,     // legacy save slot (Java `AirWizard.beaten`; mob removed)
     pub should_respawn: bool,        // Java `PlayerDeathDisplay.shouldRespawn` static
     pub loading_percentage: f32,     // Java `LoadingDisplay` percentage static
     pub loading_message: String,     // Java `LoadingDisplay` message static ("Level B3" etc.)
@@ -725,8 +725,8 @@ One line per entity: `"{ClassName}[{x}:{y}{extra-fields}]"`. `extra-fields` is a
 
 1. `x`, `y` — always.
 2. `health` — if the entity `is_mob()` (any mob, including Player).
-3. `enemy level` — additionally if `is_enemy_mob()` (Zombie/Slime/Creeper/Skeleton/Snake/
-   Knight/AirWizard).
+3. `enemy level` — additionally if `is_enemy_mob()` (Zombie/Snake/Knight/MarshLurker/
+   FeralHound/StoneGolem/NightWisp).
 4. **Chest contents** — if it's a Chest/DeathChest/DungeonChest: one `:{item_name}` per
    slot, with `;{count}` appended to that same field for stackable items (e.g.
    `:Wood;12`). DeathChest additionally appends `:{time}` (decay countdown); DungeonChest
@@ -736,16 +736,16 @@ One line per entity: `"{ClassName}[{x}:{y}{extra-fields}]"`. `extra-fields` is a
 7. Level-depth index — **always last**: `:{lvl_idx(depth)}`.
 
 `ClassName` comes from `entity_class_name()` — e.g. `Player`, `Cow`, `Pig`, `Sheep`,
-`GlowWorm`, `Zombie`, `Slime`, `Creeper`, `Skeleton`, `Snake`, `Knight`, `AirWizard`,
-`ItemEntity`, `Arrow`, `Spark`, `Particle`, `TextParticle`, `Furniture`, `Chest`,
+`GlowWorm`, `Zombie`, `Snake`, `Knight`, `MarshLurker`, `FeralHound`, `StoneGolem`,
+`NightWisp`, `ItemEntity`, `Arrow`, `Zap`, `Particle`, `TextParticle`, `Furniture`, `Chest`,
 `DeathChest`, `DungeonChest`, `Bed`, `Lantern`, `Spawner`, `Tnt` — **except** any
 `EntityKind::Crafter(c)`, whose written name is `c.crafter_type.name()` (`Workbench`,
 `Anvil`, `Enchanter`, `Loom`, `Furnace`, `Oven`) — never the literal `"Crafter"`.
 
-**Never written for local saves** (returns `""`, dropped): `ItemEntity`, `Arrow`, `Spark`,
-`Particle`, `TextParticle` — dropped items, in-flight projectiles, and all particle/spark
-effects do not persist (see §8; sparks are excluded on purpose per an inline comment: not
-saving them prevents "an unfair cheat to remove the sparks" by reloading).
+**Never written for local saves** (returns `""`, dropped): `ItemEntity`, `Arrow`, `Zap`,
+`Particle`, `TextParticle` — dropped items, in-flight projectiles, and all particle/zap
+effects do not persist (see §8; the Zap inherits the Java Spark's deliberate exclusion:
+not saving them prevents "an unfair cheat" of clearing them by reloading).
 
 Example lines (constructed from the field rules; illustrative, not literal file excerpts):
 ```
@@ -817,10 +817,10 @@ TERRAIN.md §5.1 — this list is everything else):
 
 ### 7.11 What's not saved
 
-- **`ItemEntity`, `Arrow`, `Spark`, `Particle`, `TextParticle`** — never written for local
+- **`ItemEntity`, `Arrow`, `Zap`, `Particle`, `TextParticle`** — never written for local
   saves (§7.9's entity table); ground items, in-flight arrows, and all visual-effect
-  entities vanish on save/reload. Sparks are excluded *deliberately* (comment: reloading
-  should not be a way to cheat sparks away).
+  entities vanish on save/reload. Zaps are excluded *deliberately* (inherited from the
+  Java Spark: reloading should not be a way to cheat them away).
 - **Player transient combat/movement fields**: `move_speed`, `attack_item`, `prev_item`,
   `attack_time`, `attack_dir`, `on_stair_delay`.
 - **Stamina/hunger internals**: `stamina`, `stamina_recharge[_delay]`, `hunger_stam_cnt`,
@@ -836,7 +836,7 @@ TERRAIN.md §5.1 — this list is everything else):
   the level's real dimensions (§7.6); real `w`/`h` is recomputed in-memory.
 - **Untouched (non-dirty) chunks** — never written to disk; they regenerate byte-identical
   from `(seed, depth, x, y)` on demand (TERRAIN.md §2).
-- **Multiplayer-only entity fields** (owner eid for Arrow/Spark, item-entity motion
+- **Multiplayer-only entity fields** (owner eid for Arrow/Zap, item-entity motion
   vectors, TextParticle color) — the code path exists but is gated behind
   `!is_local_save`, unreachable for any on-disk save in this single-player-stubbed build.
 

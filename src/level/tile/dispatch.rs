@@ -192,6 +192,11 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
 
 /// Java `Tile.mayPass` (default: true).
 pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity) -> bool {
+    // The Night Wisp floats over every tile (the removed AirWizard's flight,
+    // generalized from per-tile overrides to one gate here).
+    if matches!(e.kind, crate::entity::EntityKind::NightWisp(_)) {
+        return true;
+    }
     match &def.kind {
         TileKind::DeepWater => depth::deep_water_may_pass(g, e),
         TileKind::DugPit | TileKind::Chasm | TileKind::Ladder => true,
@@ -283,6 +288,10 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
 
 /// Java `Tile.bumpedInto` (default: nothing).
 pub fn bumped_into(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, e: &mut Entity) {
+    // Floating over a cactus shouldn't prick you: the Night Wisp never contacts tiles.
+    if matches!(e.kind, crate::entity::EntityKind::NightWisp(_)) {
+        return;
+    }
     match &def.kind {
         TileKind::Cactus => cactus::bumped_into(g, def, lvl, xt, yt, e),
         TileKind::LavaBrick => lava_brick::bumped_into(g, def, lvl, xt, yt, e),

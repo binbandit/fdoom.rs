@@ -88,10 +88,11 @@ pub fn arrow_get_data(e: &Entity) -> String {
     format!("{}:{}:{}", a.owner, a.dir.ordinal(), a.damage)
 }
 
-/// Java `Spark.tick()`.
-pub fn spark_tick(g: &mut Game, e: &mut Entity) {
+/// Adapted Java `Spark.tick()` — the Night Wisp's zap bolt. Same tile-ignoring
+/// double-precision flight; it fizzles on hitting any mob other than a Night Wisp.
+pub fn zap_tick(g: &mut Game, e: &mut Entity) {
     let owner = {
-        let EntityKind::Spark(s) = &mut e.kind else {
+        let EntityKind::Zap(s) = &mut e.kind else {
             return;
         };
         s.time += 1;
@@ -116,25 +117,32 @@ pub fn spark_tick(g: &mut Game, e: &mut Entity) {
         let hurt_it = g
             .entities
             .get(hit_id)
-            .map(|h| h.is_mob() && !matches!(h.kind, EntityKind::AirWizard(_)))
+            .map(|h| h.is_mob() && !matches!(h.kind, EntityKind::NightWisp(_)))
             .unwrap_or(false);
         if hurt_it {
-            // Java `mob.hurt(owner, 1)` — attack dir from the owner's position
+            // JAVA (Spark): `mob.hurt(owner, 1)` — attack dir from the owner's position
             let owner_pos = g.entities.get(owner).map(|o| (o.c.x, o.c.y));
-            g.with_entity(hit_id, |mob, g| {
-                let attack_dir = match owner_pos {
-                    Some((ox, oy)) => Direction::get_direction(mob.c.x - ox, mob.c.y - oy),
-                    None => Direction::None,
-                };
-                behavior::mob_hurt_by_eid(g, owner, mob, 1, attack_dir);
-            });
+            let hit = g
+                .with_entity(hit_id, |mob, g| {
+                    let attack_dir = match owner_pos {
+                        Some((ox, oy)) => Direction::get_direction(mob.c.x - ox, mob.c.y - oy),
+                        None => Direction::None,
+                    };
+                    behavior::mob_hurt_by_eid(g, owner, mob, 1, attack_dir);
+                })
+                .is_some();
+            // unlike the Spark swarm, a zap is a single bolt: spent on impact
+            if hit {
+                behavior::remove_entity(g, e);
+                return;
+            }
         }
     }
 }
 
-/// Java `Spark.render(screen)`.
-pub fn spark_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
-    let EntityKind::Spark(s) = &e.kind else {
+/// Adapted Java `Spark.render(screen)`.
+pub fn zap_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
+    let EntityKind::Zap(s) = &e.kind else {
         return;
     };
     // blinking effect near end of life
@@ -152,7 +160,7 @@ pub fn spark_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         xt + yt * 32,
         color::WHITE,
         randmirror,
-    ); // the spark
+    ); // the zap bolt
     screen.render(
         e.c.x - 4,
         e.c.y - 4 + 2,
@@ -162,9 +170,9 @@ pub fn spark_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     ); // its shadow
 }
 
-/// Java `Spark.getData()`.
-pub fn spark_get_data(e: &Entity) -> String {
-    let EntityKind::Spark(s) = &e.kind else {
+/// Adapted Java `Spark.getData()`.
+pub fn zap_get_data(e: &Entity) -> String {
+    let EntityKind::Zap(s) = &e.kind else {
         return String::new();
     };
     s.owner.to_string()

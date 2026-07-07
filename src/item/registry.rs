@@ -200,19 +200,7 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
             rnd,
         )));
         items.push(new_furniture_item(furniture::spawner::new(
-            mob::slime::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
             mob::zombie::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::creeper::new(g, 1),
-            rnd,
-        )));
-        items.push(new_furniture_item(furniture::spawner::new(
-            mob::skeleton::new(g, 1),
             rnd,
         )));
         items.push(new_furniture_item(furniture::spawner::new(
@@ -224,7 +212,19 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
             rnd,
         )));
         items.push(new_furniture_item(furniture::spawner::new(
-            mob::air_wizard::new(g, false),
+            mob::marsh_lurker::new(g, 1),
+            rnd,
+        )));
+        items.push(new_furniture_item(furniture::spawner::new(
+            mob::feral_hound::new(g, 1),
+            rnd,
+        )));
+        items.push(new_furniture_item(furniture::spawner::new(
+            mob::stone_golem::new(g, 1),
+            rnd,
+        )));
+        items.push(new_furniture_item(furniture::spawner::new(
+            mob::night_wisp::new(g, 1),
             rnd,
         )));
         items.push(new_furniture_item(furniture::spawner::new(

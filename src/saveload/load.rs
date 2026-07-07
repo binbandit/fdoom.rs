@@ -892,26 +892,28 @@ pub fn load_entity(
         }
         // JAVA: constructs a RemotePlayer from username/ip/port — multiplayer stub.
         return None;
-    } else if entity_name == "Spark" && !is_local_save {
-        let aw_id: i32 = info[2].parse().unwrap();
-        let spark_owner = g
+    } else if entity_name == "Zap" && !is_local_save {
+        // adapted from the Java Spark path (multiplayer-only, like the rest of the
+        // !is_local_save branches)
+        let wisp_id: i32 = info[2].parse().unwrap();
+        let zap_owner = g
             .entities
-            .get(aw_id)
-            .filter(|e| matches!(e.kind, EntityKind::AirWizard(_)))
+            .get(wisp_id)
+            .filter(|e| matches!(e.kind, EntityKind::NightWisp(_)))
             .map(|e| (e.c.x, e.c.y));
-        match spark_owner {
+        match zap_owner {
             Some((ox, oy)) => {
                 // JAVA: new Spark((AirWizard)sparkOwner, x, y) — x and y land in the
                 // (double xa, double ya) constructor parameters; preserved quirk.
                 let mut rnd = g.random.clone();
-                let e = crate::entity::projectile::new_spark(
-                    aw_id, ox, oy, x as f64, y as f64, &mut rnd,
+                let e = crate::entity::projectile::new_zap(
+                    wisp_id, ox, oy, x as f64, y as f64, &mut rnd,
                 );
                 g.random = rnd;
                 Some(e)
             }
             None => {
-                eprintln!("failed to load spark; owner id doesn't point to a correct entity");
+                eprintln!("failed to load zap; owner id doesn't point to a correct entity");
                 return None;
             }
         }
@@ -924,7 +926,13 @@ pub fn load_entity(
             .any(|t| t.name() == entity_name);
         let is_enemy_mob_class = matches!(
             entity_name,
-            "Zombie" | "Slime" | "Creeper" | "Skeleton" | "Knight" | "Snake" | "AirWizard"
+            "Zombie"
+                | "Knight"
+                | "Snake"
+                | "MarshLurker"
+                | "FeralHound"
+                | "StoneGolem"
+                | "NightWisp"
         );
         if !is_crafter_name && is_enemy_mob_class {
             mob_lvl = info[info.len() - 2].parse().unwrap();
@@ -1087,13 +1095,13 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
         "Sheep" => Some(mob::sheep::new(g)),
         "Pig" => Some(mob::pig::new(g)),
         "Zombie" => Some(mob::zombie::new(g, moblvl)),
-        "Slime" => Some(mob::slime::new(g, moblvl)),
         "GlowWorm" => Some(mob::glow_worm::new(g)),
-        "Creeper" => Some(mob::creeper::new(g, moblvl)),
-        "Skeleton" => Some(mob::skeleton::new(g, moblvl)),
         "Knight" => Some(mob::knight::new(g, moblvl)),
         "Snake" => Some(mob::snake::new(g, moblvl)),
-        "AirWizard" => Some(mob::air_wizard::new(g, moblvl > 1)),
+        "MarshLurker" => Some(mob::marsh_lurker::new(g, moblvl)),
+        "FeralHound" => Some(mob::feral_hound::new(g, moblvl)),
+        "StoneGolem" => Some(mob::stone_golem::new(g, moblvl)),
+        "NightWisp" => Some(mob::night_wisp::new(g, moblvl)),
         "Spawner" => {
             let zombie = mob::zombie::new(g, 1);
             let mut rnd = g.random.clone();
@@ -1154,8 +1162,11 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
             g.random = rnd;
             Some(e)
         }
+        // Removed kinds (Creeper/Slime/Skeleton/AirWizard/Spark, or anything else
+        // unknown) land here: log and skip the entity rather than panicking, so old
+        // saves still load minus the missing mobs.
         _ => {
-            eprintln!("LOAD ERROR: unknown or outdated entity requested: {string}");
+            eprintln!("LOAD WARNING: unknown or outdated entity skipped: {string}");
             None
         }
     }

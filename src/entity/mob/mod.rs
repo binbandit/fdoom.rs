@@ -2,18 +2,18 @@
 //! functions (`mob_tick` etc.) live here too once ported; leaf behaviors live in the
 //! per-mob files.
 
-pub mod air_wizard;
 pub mod cow;
-pub mod creeper;
+pub mod feral_hound;
 pub mod glow_worm;
 pub mod knight;
+pub mod marsh_lurker;
+pub mod night_wisp;
 pub mod pig;
 pub mod player;
 pub mod player_behavior;
 pub mod sheep;
-pub mod skeleton;
-pub mod slime;
 pub mod snake;
+pub mod stone_golem;
 pub mod zombie;
 
 use crate::entity::Direction;

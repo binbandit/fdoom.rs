@@ -16,7 +16,8 @@ pub enum Sound {
     PlayerHurt,
     PlayerDeath,
     MonsterHurt,
-    BossDeath,
+    // JAVA: BossDeath existed for the AirWizard; removed with that mob
+    // (assets/bossdeath.wav deleted too).
     Fuse,
     Explode,
     Pickup,
@@ -27,11 +28,10 @@ pub enum Sound {
 }
 
 impl Sound {
-    const ALL: [Sound; 11] = [
+    const ALL: [Sound; 10] = [
         Sound::PlayerHurt,
         Sound::PlayerDeath,
         Sound::MonsterHurt,
-        Sound::BossDeath,
         Sound::Fuse,
         Sound::Explode,
         Sound::Pickup,
@@ -46,7 +46,6 @@ impl Sound {
             Sound::PlayerHurt => assets::SOUND_PLAYER_HURT,
             Sound::PlayerDeath => assets::SOUND_PLAYER_DEATH,
             Sound::MonsterHurt => assets::SOUND_MONSTER_HURT,
-            Sound::BossDeath => assets::SOUND_BOSS_DEATH,
             Sound::Fuse => assets::SOUND_FUSE,
             Sound::Explode => assets::SOUND_EXPLODE,
             Sound::Pickup => assets::SOUND_PICKUP,

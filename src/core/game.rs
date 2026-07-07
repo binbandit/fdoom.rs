@@ -62,6 +62,10 @@ pub struct Game {
     pub note_tick: i32,
     pub as_tick: i32,
     pub saving: bool,
+    /// Deferred in-game save request (the save hotkey). Set inside the player's own
+    /// tick — where the player entity is taken out of the arena, so saving there
+    /// panics in `write_player` — and serviced at the top of `Game::tick`.
+    pub pending_save: bool,
     pub save_cooldown: i32,
     /// Java `Tile.tickCount` (a static on Tile, but game state).
     pub tile_tick_count: i32,
@@ -152,6 +156,7 @@ impl Game {
             note_tick: 0,
             as_tick: 0,
             saving: false,
+            pending_save: false,
             save_cooldown: 0,
             tile_tick_count: 0,
             levels: (0..crate::level::IDX_TO_DEPTH.len())
@@ -288,6 +293,16 @@ impl Game {
                 self.gamespeed = 1.0;
                 crate::entity::furniture::bed_behavior::restore_players(self);
             }
+        }
+
+        // deferred save-hotkey request (see `pending_save`) — runs here, outside any
+        // entity take-out, so the player entity is back in the arena
+        if self.pending_save {
+            self.pending_save = false;
+            crate::saveload::save::save_world_named(
+                self,
+                &crate::screen::world_select::get_world_name(self),
+            );
         }
 
         // auto-save tick; marks when to do autosave

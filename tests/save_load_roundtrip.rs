@@ -87,7 +87,7 @@ fn world_roundtrip() {
     g1.set_tile(3, 5, 7, &rock, 13);
 
     g1.settings.set_idx("mode", 0); // survival
-    g1.air_wizard_beaten = true; // also keeps checkAirWizard from spawning one on load
+    g1.air_wizard_beaten = true; // legacy save slot — still round-tripped
     g1.set_time(3600);
     g1.game_time = 70000;
 
@@ -114,9 +114,9 @@ fn world_roundtrip() {
     );
     g1.level_mut(2).add_at(lantern, 40, 40, false, 2);
 
-    let skeleton = fdoom::entity::mob::skeleton::new(&g1, 2);
+    let golem = fdoom::entity::mob::stone_golem::new(&g1, 2);
     let mut rnd = g1.random.clone();
-    let spawner = fdoom::entity::furniture::spawner::new(skeleton, &mut rnd);
+    let spawner = fdoom::entity::furniture::spawner::new(golem, &mut rnd);
     g1.random = rnd;
     g1.level_mut(1).add_at(spawner, 64, 64, false, 1);
 
@@ -285,7 +285,7 @@ fn world_roundtrip() {
         .expect("spawner not loaded");
     match &spawner.kind {
         EntityKind::Spawner(sp) => {
-            assert!(matches!(sp.mob.kind, EntityKind::Skeleton(_)));
+            assert!(matches!(sp.mob.kind, EntityKind::StoneGolem(_)));
             assert_eq!(sp.mob.enemy_mob().unwrap().lvl, 2);
         }
         _ => unreachable!(),

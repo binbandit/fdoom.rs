@@ -33,8 +33,8 @@ EntityCommon (x, y, xr, yr, level, eid, removed, col)
         │                                                           MobAiData { mob: MobData, xa/ya, ... }
         │                                                             MobData { health, dir, sprites, ... }
         │
-        ├── kind: EntityKind::{Zombie,Slime,Creeper,Skeleton,    *Data { enemy: EnemyMobData, <leaf fields> }
-        │         Snake,Knight,AirWizard}                          EnemyMobData { ai: MobAiData, lvl, lvlcols, detect_dist }
+        ├── kind: EntityKind::{Zombie,Snake,Knight,MarshLurker,  *Data { enemy: EnemyMobData, <leaf fields> }
+        │         FeralHound,StoneGolem,NightWisp}                 EnemyMobData { ai: MobAiData, lvl, lvlcols, detect_dist }
         │                                                            MobAiData { mob: MobData, ... }
         │                                                              MobData { health, dir, sprites, ... }
         │
@@ -44,7 +44,7 @@ EntityCommon (x, y, xr, yr, level, eid, removed, col)
         │          DungeonChest both nest `chest: ChestData`)
         │
         ├── kind: EntityKind::ItemEntity(ItemEntityData)         flat — a dropped-item's own physics state
-        ├── kind: EntityKind::{Arrow,Spark}                      flat — projectile state (owner eid, dir/velocity)
+        ├── kind: EntityKind::{Arrow,Zap}                        flat — projectile state (owner eid, dir/velocity)
         └── kind: EntityKind::{Particle,TextParticle}            flat — purely visual, no gameplay
 ```
 
@@ -52,8 +52,8 @@ This mirrors ARCHITECTURE.md's `ZombieData { enemy: EnemyMobData { ai: MobAiData
 MobData } } }` example exactly; §3 below walks that chain field-by-field for Zombie, then
 more briefly for the `PassiveMob` (Cow) and `Furniture` (generic) branches. Every concrete
 mob/furniture type is a small leaf struct wrapping the shared layer plus whatever fields
-that one Java subclass added (e.g. `CreeperData` adds `fuse_time`/`fuse_lit` on top of
-`EnemyMobData`).
+that concrete type added (e.g. `MarshLurkerData` adds `ambush_armed`/`ambush_recharge` on
+top of `EnemyMobData`).
 
 All live entities — player, mobs, furniture, item entities, projectiles, particles — sit in
 one arena, `g.entities: EntityArena` (§2). "Which level" is just a field
@@ -167,12 +167,14 @@ pub enum EntityKind {
     Cow(mob::cow::CowData), Pig(mob::pig::PigData), Sheep(mob::sheep::SheepData),
     GlowWorm(mob::glow_worm::GlowWormData),
     // enemy mobs
-    Zombie(mob::zombie::ZombieData), Slime(mob::slime::SlimeData),
-    Creeper(mob::creeper::CreeperData), Skeleton(mob::skeleton::SkeletonData),
-    Snake(mob::snake::SnakeData), Knight(mob::knight::KnightData),
-    AirWizard(mob::air_wizard::AirWizardData),
+    Zombie(mob::zombie::ZombieData), Snake(mob::snake::SnakeData),
+    Knight(mob::knight::KnightData),
+    MarshLurker(mob::marsh_lurker::MarshLurkerData),
+    FeralHound(mob::feral_hound::FeralHoundData),
+    StoneGolem(mob::stone_golem::StoneGolemData),
+    NightWisp(mob::night_wisp::NightWispData),
     // free-floating things
-    ItemEntity(ItemEntityData), Arrow(ArrowData), Spark(SparkData),
+    ItemEntity(ItemEntityData), Arrow(ArrowData), Zap(ZapData),
     // particles
     Particle(ParticleData), TextParticle(TextParticleData),
     // furniture
@@ -218,7 +220,7 @@ max_health = (lvl == 0 ? 1 : lvl * lvl) * health * 2^diff_idx
 — i.e. mob level squares the base health, and difficulty doubles it per step
 (`diff_idx` 0/1/2 for Easy/Normal/Hard). `col` (`EntityCommon.col`) is set from
 `lvlcols[lvl - 1]` at construction; `enemy_mob_render` re-applies this every frame from the
-*current* `lvl`/`lvlcols` (relevant for Creeper's fuse-flash override, §8).
+*current* `lvl`/`lvlcols`.
 
 ### 3.4 The PassiveMob chain (Cow, more briefly)
 
@@ -340,21 +342,22 @@ fanning out to a per-kind module function:
 Representative arms (not exhaustive — see the source for the full match):
 
 - `entity_tick`: `Player` → `player_behavior::tick`; `Cow`/`Pig`/`Sheep` → their own leaf
-  `tick`, which is a one-line call to `mobai_tick_base`; `Zombie`/`Snake`/`Knight` similarly
-  one-line-call `enemy_mob_tick_base`; `Creeper`/`Slime`/`AirWizard`/`Skeleton` have real leaf
-  bodies (fuse/jump/boss-phase/arrow logic — §8); furniture kinds mostly share
+  `tick`, which is a one-line call to `mobai_tick_base`; `Zombie`/`Snake`/`Knight`/
+  `FeralHound` similarly one-line-call `enemy_mob_tick_base`; `MarshLurker`/`StoneGolem`/
+  `NightWisp` have real leaf bodies (water-speed + ambush re-arm / heavy-tread stall /
+  dawn-despawn + zap cooldown — §8); furniture kinds mostly share
   `furniture::behavior::tick`, except `DeathChest`, `Spawner`, and `Tnt`, which have their
   own `tick` (expiry countdown, spawn-interval countdown, fuse/explosion respectively).
-- `entity_render`: passive mobs share `passive_mob_render`; `Zombie`/`Skeleton`/`Snake`/
-  `Knight` share `enemy_mob_render`; `Creeper`/`Slime`/`AirWizard`/`GlowWorm` each have a
-  bespoke `render` (fuse-flash color swap, jump-raise, split-color boss sprite + health%
-  text, single static sprite, respectively).
-- `touched_by`: `ItemEntity` → pickup logic; `Zombie`/`Slime`/`Skeleton`/`Snake`/`Knight`/
-  `AirWizard` all currently route to the shared `enemy_touched_by` (standard
-  `lvl * (hard?2:1)` damage) — **see §13 for why this is actually wrong for two of those
-  kinds**; `Creeper` has its own `touched_by` (lights the fuse); any furniture falls to
-  "player pushes it" unless it's a `DeathChest`/`DungeonChest`, which override for
-  retrieve-on-touch / locked-can't-be-pushed respectively.
+- `entity_render`: passive mobs share `passive_mob_render`; `Zombie`/`Snake`/`Knight`/
+  `MarshLurker`/`FeralHound`/`StoneGolem` share `enemy_mob_render`; `GlowWorm` (single
+  static sprite) and `NightWisp` (tick-timed two-frame pulse) have bespoke `render`s.
+- `touched_by`: `ItemEntity` → pickup logic; `Zombie`/`Knight`/`FeralHound`/`NightWisp`
+  route to the shared `enemy_touched_by` (standard `lvl * (hard?2:1)` damage);
+  `Snake` (`lvl + diff_idx` — its once-dead custom override is now wired),
+  `MarshLurker` (standard formula +2 on an armed ambush strike), and `StoneGolem`
+  (`2*lvl + diff_idx`) have their own arms; any furniture falls to "player pushes it"
+  unless it's a `DeathChest`/`DungeonChest`, which override for retrieve-on-touch /
+  locked-can't-be-pushed respectively.
 - `die`: every mob has a real per-kind `die` (drop tables, score); `Chest`/`DeathChest`/
   `DungeonChest` all share `chest_behavior::die` (spill inventory then remove); everything
   else defaults to plain `remove_entity`.
@@ -443,7 +446,7 @@ anything (`return true` — "pretend it kept moving").
 6. For every entity newly entered that `blocks(other, mover)` (both solid, or `other` is
    furniture): abort the move (`return false`) — this is the "collides with another entity"
    case, checked *after* touch callbacks have already fired (so e.g. Furniture's `try_push`
-   or a Creeper's fuse-light happens even on a blocked bump).
+   or a Marsh Lurker's ambush strike happens even on a blocked bump).
 7. If nothing aborted: actually apply `e.c.x/y += xa/ya`, return `true`.
 
 `may_pass` interplay with tiles: `tiles::may_pass(g, tile, lvl, x, y, e)` is the tile
@@ -452,7 +455,7 @@ dispatch hub in `src/level/tile/dispatch.rs` — most tiles fall through to "sol
 `deep_water_may_pass` (only a `Player` carrying a "Raft" item, or in creative mode, or an
 `ItemEntity` — see TERRAIN.md §4). `is_solid(e)` (in `behavior.rs`) is the entity-side half
 of "does this entity block others at all" — everything is solid except `ItemEntity`,
-`Arrow`, `Spark`, `Particle`, `TextParticle`; `blocks(this, other)` special-cases furniture
+`Arrow`, `Zap`, `Particle`, `TextParticle`; `blocks(this, other)` special-cases furniture
 to always block regardless of `is_solid` (furniture blocks everything, matching Java's
 `Furniture.blocks()` override).
 
@@ -521,13 +524,14 @@ things" share the same attack call.
   (`tiles::hurt_by`). Tool durability is paid only if the sweep actually hit something.
 
 **7.2.1 Damage formula** (`get_attack_damage_bonus`, only reached for `Tool` items, target
-is always a mob):
+is always a mob; tiers run Crude=0 .. Gem=5 — the post-port Crude tier shifted the Java
+Wood..Gem levels up by one):
 
-| Tool type | Damage bonus formula | Wood tier (level 0) | Gem tier (level 3) |
+| Tool type | Damage bonus formula | Crude tier (level 0) | Gem tier (level 5) |
 |---|---|---|---|
-| Axe | `(level+1)*2 + rand(0..4)` | 2–5 | 8–11 (+ base 1–3 ⇒ effectively higher) |
-| Sword | `(level+1)*3 + rand(0..2+level²)` | 3–4 | 12–29 |
-| Claymore | `(level+1)*3 + rand(0..4+3*level²)` | 3–6 | 12–63 |
+| Axe | `(level+1)*2 + rand(0..4)` | 2–5 | 12–15 |
+| Sword | `(level+1)*3 + rand(0..2+level²)` | 3–4 | 18–44 |
+| Claymore | `(level+1)*3 + rand(0..4+3*level²)` | 3–6 | 18–96 |
 | anything else | `1` | — | — |
 
 (Ranges above are the bonus only, per the source's own doc-comments; add the base
@@ -543,8 +547,7 @@ paid through `dug_pit_interact` (TERRAIN.md §4), a completely separate code pat
   for shovel/pickaxe digging (TERRAIN.md §4); drowning (swimming without the Swim potion,
   every 60 ticks) costs 1 stamina or, once at 0, 1 health instead; eating food costs
   `stamina_cost` (a per-`Food`-item field, §7.4); TNT/explosion damage costs `dmg * 2`
-  stamina (`hurt_by_tnt`, and the Creeper blast handler calls the same `pay_stamina` on any
-  player it hits).
+  stamina (`hurt_by_tnt`).
 - **Regen**: `stamina_recharge` accumulates 1 per tick (while `stamina_recharge_delay == 0`
   and not swimming without the Swim potion); every `MAX_STAMINA_RECHARGE = 10`
   accumulated, +1 stamina (capped at `MAX_STAMINA = 10`). Hitting 0 stamina imposes a
@@ -606,50 +609,39 @@ trigger it.
 
 ## 8. Mobs roster as it exists today (`src/entity/mob/`)
 
-> **Forward-looking note (not yet implemented):** there is a planned roster overhaul in
-> which **Creeper, Slime, and Skeleton are scheduled for removal** from the game; **Snake is
-> confirmed to stay**. As of this writing none of that removal has happened — all three
-> mobs are fully live, spawnable via `Spawner` furniture, and covered below with their
-> actual current behavior. Consistent with the plan, however, natural world spawning
-> (`level::try_spawn`, §11) **already** only rolls Zombie or Snake — Creeper/Slime/Skeleton/
-> Knight/AirWizard cannot appear from ordinary level spawning today; they only exist via a
-> placed/loaded `Spawner`, a hand-placed save, or (AirWizard only) the dungeon-chest boss
-> trigger. Don't over-invest in polishing Creeper/Slime/Skeleton pending the roster change,
-> but keep their behavior correct — it is still exercised by `Spawner`, by saves, and by
-> `tests/save_load_roundtrip.rs`.
+> **Roster overhaul (done):** the Minecraft-derived mobs — **Creeper, Slime, Skeleton** —
+> and the dormant **AirWizard** boss (with its `Spark` projectile) have been removed.
+> Four original mobs replaced them: **Marsh Lurker, Feral Hound, Stone Golem, Night
+> Wisp**. The `Zap` projectile is the old Spark code adapted as the Night Wisp's ranged
+> attack. Old saves containing removed mobs load fine — unknown entity names are skipped
+> with a `LOAD WARNING` log (§12.1); a Spawner whose template mob is gone falls back to
+> its default Zombie template.
 
 | Mob | Data layer | Notable behavior |
 |---|---|---|
 | Cow | `PassiveMobData` | Wanders; drops leather + raw beef on death (amount scales inversely with difficulty). |
 | Pig | `PassiveMobData` | Wanders; drops raw pork on death. |
 | Sheep | `PassiveMobData` | Wanders; drops wool on death — **no shearing mechanic** (explicit `// JAVA:` note that this fork never added wool-cutting). |
-| GlowWorm | `PassiveMobData` | Single static 1×1 sprite; ambient ­light source (radius 2); self-removes outside night/evening; always spawns as a side-effect of any surface passive-mob roll, at its raw default `(0,0)` position (preserved Java quirk — added via `Level::add`, not `add_at`). |
-| Zombie | `EnemyMobData`, 4 mob levels | Chases and touches for damage; no leaf-level tick/render override (pure `enemy_mob_tick_base`); drops cloth (scales with difficulty), rare iron (1/60), rare colored-clothes (1/40). |
-| Slime | `EnemyMobData`, 4 mob levels | Custom jump physics (`jump_time`); direction forced Down always; drops "slime" item on death. |
-| Creeper | `EnemyMobData`, 4 mob levels | Lights a fuse on touching the player, explodes after `MAX_FUSE_TIME=60` ticks dealing radius-falloff damage (including self-damage) and carving a "hole" crater (skipping tiles under a Spawner); drops gunpowder. Direction forced Down; `canWool()` explicitly false. |
-| Skeleton | `EnemyMobData`, 4 mob levels | Fires `Arrow` projectiles at a player within 100 tiles on a level-dependent cooldown (`500/(lvl+5)` ticks); drops bone+arrow, a rare 10-arrow easy-mode jackpot, or a book+arrow. |
-| Snake | `EnemyMobData`, **5 mob levels** | Confirmed to stay (see note above). Custom touch-damage formula `lvl + diff_idx` defined in `snake::touched_by` — **currently unreachable**, see §13; drops scale, rare key drop. |
-| Knight | `EnemyMobData`, 5 mob levels | Hostile (despite the name) — deals standard `lvl*(hard?2:1)` touch damage via the shared `enemy_touched_by` path (no leaf `touched_by` override exists for Knight, unlike Snake/AirWizard); drops shard, rare key drop. |
-| AirWizard | `EnemyMobData`, 2 "levels" used as form 1/2 rather than difficulty tiers | Boss. Two forms (`secondform: bool`, 2000/5000 max health); multi-phase ranged attack (`attack_delay`/`attack_time`/`attack_type` escalating at <50%/<10% health) firing `Spark` projectiles instead of Arrows; keeps distance from the player when close, teleport-drags itself back when far; custom fixed 1/2 touch damage defined in `air_wizard::touched_by` — **currently unreachable**, see §13; on death, awards a huge score, unlocks the Dungeon (first kill) or a costume (second-form kill). Spawned naturally only by `dungeon_chest_behavior` when the last dungeon chest is opened. |
+| GlowWorm | `PassiveMobData` | Single static 1×1 sprite; ambient light source (radius 2); self-removes outside night/evening; spawns as a side-effect of any surface passive-mob roll, placed beside the mob it escorts (the Java raw-`(0,0)` quirk was fixed post-port — §11). |
+| Zombie | `EnemyMobData`, 4 mob levels | Chases and touches for damage; no leaf-level tick/render override (pure `enemy_mob_tick_base`); drops cloth (scales with difficulty), rare iron (1/60), rare colored-clothes (1/40). Cemetery staple. |
+| Snake | `EnemyMobData`, **5 mob levels** | Custom touch-damage formula `lvl + diff_idx` in `snake::touched_by` — now properly wired into the `touched_by` dispatch (the dead-code bug is fixed); drops scale, rare key drop. |
+| Knight | `EnemyMobData`, 5 mob levels | Hostile dungeon keeper — standard `lvl*(hard?2:1)` touch damage via the shared `enemy_touched_by` path; drops shard, rare key drop; spawns naturally in the dungeon (§11). |
+| Marsh Lurker | `MarshLurkerData { enemy, ambush_armed, ambush_recharge }` | **Original mob.** Lurks in marsh water: `can_swim` = true, leaf `tick` sets `speed = 2` while swimming / `1` on land (net: full walk speed in water, half on land). Ambush: an *armed* first touch deals the standard formula **+2**, then disarms; re-arms only after 300 ticks spent back in water. Short `detect_dist` 80, base health 6. Drops raw fish 0–2, rare Slime item (1/12). |
+| Feral Hound | `FeralHoundData { enemy }` | **Original mob.** Plains/savanna pack hunter: spawns in packs of 2–3 (§11), `walk_time = 1` (full player speed — twice a normal mob), long `detect_dist` 120, fragile (base health 3). Standard touch damage. Drops leather 0–1, rare raw beef (1/20). |
+| Stone Golem | `StoneGolemData { enemy }` | **Original mob.** Mines only: very slow (leaf `tick` stalls the chase acceleration outside a 1-in-4 tick window, on top of the shared `walk_time = 2` gate ⇒ half a normal mob's pace), very tanky (base health 12), heavy melee `2*lvl + diff_idx` via its own `touched_by`. Short `detect_dist` 60 — a lair guard. Drops stone 1–3 + coal 0–2, rare iron (1/8), rare gold (1/20). |
+| Night Wisp | `NightWispData { enemy, zap_cooldown }` | **Original mob.** Night-time floating light: light radius 4, palette shades 0–1 transparent (glowing sprite), tick-timed two-frame pulse render. Floats over **all** terrain (`tiles::may_pass`/`bumped_into` early-return for it — the removed AirWizard's flight, generalized), immune to lava-underfoot and never "swims". Despawns at dawn on the surface like the GlowWorm. Ranged attack: fires a `Zap` (flat 1 damage, ~2–3 s lifetime, spent on impact) at a player within 8 tiles on a 90+rand(60)-tick cooldown. Base health 2. Rare gem drop (1/25). |
 
 ### 8.1 Detail notes not already covered above
 
-- **Zombie/Slime/Creeper/Skeleton mob-level clamping**: all four constructors clamp the
-  incoming `lvl` to `1..=lvlcols.len()` with an explicit `// FIX:` comment — Java indexed
-  `lvlcols[lvl-1]` unchecked and could panic (array-out-of-bounds) on a hand-edited save or
-  an out-of-range `Spawner`/`Load` level argument; this is a deliberate post-port bug fix,
-  not a straight port.
-- **Creeper** inlines the entire `MobAi`/`EnemyMob` tick body into its own `tick` function
-  (rather than calling `mobai_tick_base`/`enemy_mob_tick_base`) because Java's `Creeper`
-  overrides `move()` (forcing direction Down, resetting `walkDist` when stationary) — a
-  virtual call the shared Rust functions can't intercept, so the whole body is duplicated
-  with the override inlined. **Slime does the same** for its own `move()` override (forced
-  Down after every move) and its `randomizeWalkDir()` override (no-op mid-jump). This is
-  the accepted cost of the "shared function instead of virtual dispatch" port strategy —
-  see §12 for what a new mob needs if it requires this pattern.
-- **Creeper explosion** also kills any non-Spawner-protected mob standing on a tile that
-  becomes impassable as a result of the crater (checked via `may_pass` after the tile
-  change), and re-lights any other Creeper caught in the blast radius.
+- **Enemy-mob level clamping**: every enemy constructor clamps the incoming `lvl` to
+  `1..=lvlcols.len()` with an explicit `// FIX:` comment — Java indexed `lvlcols[lvl-1]`
+  unchecked and could panic on a hand-edited save or an out-of-range `Spawner`/`Load`
+  level argument; this is a deliberate post-port bug fix, not a straight port.
+- **No mob currently needs the inline-the-base-tick pattern** the removed Creeper/Slime
+  used for their Java `move()`/`randomizeWalkDir()` overrides. All four new mobs layer
+  their leaf behavior *after* `enemy_mob_tick_base` returns (speed tweaks, acceleration
+  stalls, cooldowns), which composes with the shared functions. If a future mob needs a
+  true mid-tick override, the whole base body must be inlined (see §12.1 step 4).
 
 ## 9. Furniture (`src/entity/furniture/`)
 
@@ -672,8 +664,8 @@ end-to-end for adding a new placeable furniture type).
 |---|---|---|
 | Chest | `inventory: Inventory` | Generic, player-craftable/placeable container; `use` opens `ContainerDisplay`; `die` (destroyed) spills its inventory as dropped items. |
 | DeathChest | `chest: ChestData`, `time`, `redtick`, `reverse` | Auto-spawned on player death (§7.6) holding the dropped inventory + active item + armor. `use` is overridden to `false` — **cannot be opened as a menu**, only retrieved by walking into it (`touched_by` adds its contents straight to the toucher's inventory and removes it). Decays: `time` counts down from a difficulty-dependent start (Easy 300s, Normal 120s, Hard 30s at `NORM_SPEED`); once under 30s it oscillates a red tint (`redtick`); at 0 it spills its contents like any other destroyed chest. |
-| DungeonChest | `chest: ChestData`, `is_locked: bool` | Pre-populated with a random dungeon loot table at construction (`populate_inv` — weighted `try_add`/`try_add_num` rolls across food, materials, armor, potions, and weapons, with a guaranteed fallback if nothing hit); starts locked (requires a "Key" item, consumed from active item or inventory, to open); unlocking the *last* remaining dungeon chest on a level (`g.level(lvl).chest_count` hits 0) drops 5 Gold Apples and spawns the second-form **AirWizard boss** on the surface level — the entity-side trigger for the whole boss fight. |
-| Spawner | `mob: Box<Entity>` (template), `health`, `lvl`, `max_mob_level`, `spawn_tick` | An independent, level-agnostic mob source — **not** routed through `level::try_spawn`; it runs its own `spawn_tick` countdown (`200..500` ticks), then, gated by a quadratic chance based on the *level's* current `mob_count`/`max_mob_count` (same shape as `try_spawn`'s own throttle, but a separately-rolled instance), attempts to spawn a fresh instance of its template mob within `ACTIVE_RADIUS = 128` px of the closest player, at a valid nearby tile. Damageable by tools (Pickaxe deals extra); destroying it (`health <= 0`) awards 500 score. In creative mode, `use` cycles the template's mob level (wrapping at `max_mob_level`, itself derived per-kind — Knight/AirWizard hardcode 5/2, others use `lvlcols.len()`). |
+| DungeonChest | `chest: ChestData`, `is_locked: bool` | Pre-populated with a random dungeon loot table at construction (`populate_inv` — weighted `try_add`/`try_add_num` rolls across food, materials, armor, potions, and weapons, with a guaranteed fallback if nothing hit); starts locked (requires a "Key" item, consumed from active item or inventory, to open); unlocking the *last* remaining dungeon chest on a level (`g.level(lvl).chest_count` hits 0) drops 5 Gold Apples and a "dungeon plundered" notification. (Java spawned the second-form AirWizard boss on the surface here; that mob was removed in the roster overhaul, and `g.air_wizard_beaten` survives only as a legacy save-format slot.) |
+| Spawner | `mob: Box<Entity>` (template), `health`, `lvl`, `max_mob_level`, `spawn_tick` | An independent, level-agnostic mob source — **not** routed through `level::try_spawn`; it runs its own `spawn_tick` countdown (`200..500` ticks), then, gated by a quadratic chance based on the *level's* current `mob_count`/`max_mob_count` (same shape as `try_spawn`'s own throttle, but a separately-rolled instance), attempts to spawn a fresh instance of its template mob within `ACTIVE_RADIUS = 128` px of the closest player, at a valid nearby tile. Damageable by tools (Pickaxe deals extra); destroying it (`health <= 0`) awards 500 score. In creative mode, `use` cycles the template's mob level (wrapping at `max_mob_level`, itself derived per-kind — Knight hardcodes 5, the other enemy kinds use `lvlcols.len()`). |
 | Bed | *(none — just `FurnitureData`)* | `use` puts the player to sleep if `check_can_sleep` (late enough in the day, or it's night and past day 1): saves the player's spawn point, records them in `g.bed_state.sleeping_players` (a session-only map, **not** persisted — §13), and removes the player entity from the arena/level entirely until they wake. Sleep-tracking (`players_awake`, `sleeping_players`) is genuinely global game state (`Game.bed_state: BedState`), not per-bed. |
 | Tnt | `ftik`, `fuse_lit`, `explode_ticks_left: Option<i32>` | `interact` (attack key) lights the fuse; after `FUSE_TIME=90` ticks it detonates — damages every entity within `BLAST_RADIUS=32` (falloff formula, players also lose `2×damage` stamina), carves a "hole" tile at ground zero, and lights any other TNT it catches in the blast. Unlike Java (which removed the entity immediately and restored tiles via an out-of-band 300ms Swing timer), the port keeps the (already-exploded, invisible-on-render) entity alive for an `explode_ticks_left` countdown to restore the tile before finally removing itself — a deliberate `// JAVA:` documented restructuring, not a straight port. |
 | Crafter | `crafter_type: CrafterType` (`Workbench`, `Oven`, `Furnace`, `Anvil`, `Enchanter`, `Loom`) | The generic "crafting station" entity — `use` opens `CraftingDisplay` with the recipe list for its `crafter_type` (`g.recipes.workbench`/`.oven`/`.furnace`/`.anvil`/`.enchant`/`.loom` — see [ADDING_CONTENT.md](ADDING_CONTENT.md)/`src/item/recipe.rs` for the recipe side, which this document doesn't duplicate). Saved/loaded by the crafter's *type name* directly as the entity name (`"Workbench"`, `"Anvil"`, ... rather than `"Crafter"` — see §12). |
@@ -704,7 +696,7 @@ regardless of Raft/creative — dropped items drift over deep water like everyth
 Two kinds share this file, both free-floating (no `Mob` layer at all):
 
 - **Arrow** (`ArrowData { dir, damage, owner: i32, speed }`) — fired by the player's Bow
-  attack (§7.2) and by `Skeleton::tick` (§8). Speed is damage-dependent (8/7/6 for
+  attack (§7.2). Speed is damage-dependent (8/7/6 for
   damage >3 / >=0 / negative). Moves in a straight line at `speed` px/tick along `dir`;
   each tick, checks for mob overlap at its new position (extra +3 damage against
   non-player targets, +1 more unless a ~82%-chance "critical hit" roll succeeds) via
@@ -713,10 +705,11 @@ Two kinds share this file, both free-floating (no `Mob` layer at all):
   impassable, non-water-connecting tile that isn't id 16 (the boat/pier-adjacent id kept as
   a literal — the source doesn't name it further). Finite (non-infinite) levels also bound
   it by `w`/`h` (an off-by-one Java quirk — `>` not `>=` — preserved verbatim).
-- **Spark** (`SparkData { life_time, xa/ya/xx/yy, time, owner }`) — fired only by
-  `AirWizard`'s ranged attack phases (§8). Free-floating double-precision movement (no
-  tile collision at all, unlike Arrow — sparks pass through walls); hits any mob **except
-  another AirWizard** for a flat 1 damage; lifetime `600 + rand(0..30)` ticks with the same
+- **Zap** (`ZapData { life_time, xa/ya/xx/yy, time, owner }`) — the old AirWizard
+  `Spark`, adapted as the Night Wisp's ranged bolt (§8). Free-floating double-precision
+  movement (no tile collision at all, unlike Arrow — zaps pass through walls); hits any
+  mob **except another NightWisp** for a flat 1 damage and is spent on impact (unlike
+  the Spark swarm, which persisted); lifetime `120 + rand(0..60)` ticks with the same
   end-of-life blink as item entities and arrows share stylistically.
 
 ### 10.3 Particles (`src/entity/particle.rs` + `particle_behavior.rs`)
@@ -771,21 +764,30 @@ attempts (stopping at the first successful spawn):
   px square centered on the *player's* current tile (so spawns only ever happen in the
   currently-loaded chunk ring, never in unloaded-and-therefore-nonexistent territory); on
   finite levels, uniformly random over the whole level.
-- **Enemy spawn**: gated by `enemy_check_start_pos` (distance-from-player ≥ 60px plus a
-  density-scaled "no other mob nearby" radius via `mobai_check_start_pos`, plus a tile-type
-  check: must be `OBSIDIAN` in the dungeon, or *not* a door/farmland tile and *not* lit
-  elsewhere) and by a time-of-day gate (night-and-past-day-1, unless not on the surface —
-  mines/dungeon spawn enemies any time). **Only Zombie (`rnd <= 40`) or Snake
-  (`40 < rnd <= 75`) spawn naturally** — `rnd > 75` still marks the attempt "spawned" (i.e.
-  consumes one of the 30 tries) but places nothing; this is the current-source evidence for
-  the roster-overhaul note in §8 (Creeper/Slime/Skeleton/Knight/AirWizard are already absent
-  from natural spawning, independent of whether the planned removal has happened yet).
+- **Enemy spawn — the natural-spawn table** (all rolls share one `rnd = 0..99` draw per
+  attempt; a roll that lands outside every listed range still marks the attempt "spawned"
+  and places nothing, which is what keeps overall spawn *rates* close to the old
+  Zombie-40/Snake-35 split):
+
+  | Where | Mob | Roll / gate |
+  |---|---|---|
+  | Surface, any hour | **Marsh Lurker** | `rnd <= 25` **and** `lurker_check_start_pos` (clearance + tile is `WATER`/`MUD` + unlit) — in practice marsh pools/pond rims |
+  | Surface, day or night | **Feral Hound** (pack of `2 + rand(0..2)`, spread over adjacent passable tiles) | `hound_biome` (infinite: `biome_at` ∈ Plains/Savanna; finite: `GRASS` tile) **and** (`rnd <= 12` by day, `41..=60` by night) + `enemy_check_start_pos` |
+  | Surface, night (past day 1) | **Zombie** | `rnd <= 40` + `enemy_check_start_pos` |
+  | Surface, night (past day 1) | **Night Wisp** | `rnd ∈ 61..=75` + `wisp_check_start_pos` (clearance + unlit; no `may_spawn` tile gate — it floats) |
+  | Mines (depth < 0, not −4), any hour | **Zombie / Snake / Stone Golem** | `rnd <= 40` / `41..=70` / `71..=85` + `enemy_check_start_pos` |
+  | Dungeon (depth −4), any hour | **Zombie / Snake / Knight** | `rnd <= 40` / `41..=55` / `56..=75` + `enemy_check_start_pos` (which requires `OBSIDIAN` there) |
+
+  `enemy_check_start_pos` is unchanged (distance-from-player ≥ 60px, density-scaled
+  "no other mob nearby" radius via `mobai_check_start_pos`, tile-type + unlit checks).
+  `lurker_check_start_pos`/`wisp_check_start_pos` reuse its clearance half
+  (`check_start_pos_clearance` in `behavior.rs`) with their own tile gates.
 - **Passive spawn**: surface only (`depth == 0`), gated by `passive_check_start_pos`
   (similar distance/density check, plus must land on `GRASS`/`FLOWER`). Picks Cow
   (`rnd <= 22` at night, `<= 33` by day), Pig (`rnd >= 68`), or Sheep (everything else), and
-  — regardless of which — **always additionally spawns a GlowWorm** at its raw default
-  position via `Level::add` rather than `add_at` (§8's noted quirk: this is why GlowWorms
-  cluster near world origin rather than near the spawned passive mob).
+  — regardless of which — **always additionally spawns a GlowWorm** beside the spawned
+  mob (`add_at` at the same coordinates; the Java quirk of adding it at its raw default
+  `(0, 0)` via `Level::add` was fixed post-port).
 
 ### 11.1 Spawn-position validation (`mobai_check_start_pos`, shared by both branches)
 
@@ -812,25 +814,31 @@ attempts (stopping at the first successful spawn):
 3. Wire every dispatch hub in `src/entity/behavior.rs` you need: `entity_tick`,
    `entity_render`, `die` always; `touched_by` if it should damage the player or react to
    being walked into (don't just add it to the shared `enemy_touched_by` arm unless the
-   default `lvl*(hard?2:1)` formula is actually correct for it — see §13's Snake/AirWizard
-   cautionary tale); `entity_interact` only if it needs a custom attack-key reaction beyond
-   "forward to the held item."
+   default `lvl*(hard?2:1)` formula is actually correct for it — Snake, MarshLurker, and
+   StoneGolem each have their own arm for exactly this reason); `entity_interact` only if
+   it needs a custom attack-key reaction beyond "forward to the held item."
 4. If it needs a `super.tick()`-style call, use the matching base function
-   (`mobai_tick_base` for a passive wanderer, `enemy_mob_tick_base` for a chaser) **unless**
-   it needs to override `move()`/`randomizeWalkDir()` the way Creeper/Slime do — in that
-   case you must inline the whole base-tick body yourself (see §8.1) since there is no
+   (`mobai_tick_base` for a passive wanderer, `enemy_mob_tick_base` for a chaser). Leaf
+   behavior that runs *after* the base tick (speed tweaks, cooldowns, stalling the chase
+   acceleration — see the four new mobs) composes fine; a true mid-tick
+   `move()`/`randomizeWalkDir()` override the way the removed Creeper/Slime worked
+   requires inlining the whole base-tick body yourself (see §8.1) since there is no
    virtual dispatch to hook into; there is no shortcut for this today.
 5. Register a sprite via `compile_mob_sprite_animations`/`compile_sprite_list`
    (`src/gfx/sprite.rs`) at whatever sheet coordinates are free.
 6. If it should spawn naturally, add a roll to `level::try_spawn` (`src/level/mod.rs`) —
-   note this is currently a hardcoded if/else-if chain (Zombie/Snake for enemies,
-   Cow/Pig/Sheep for passives), not a data table; also decide its `max_mob_level` in
-   `furniture::spawner::max_mob_level` if it should be placeable via `Spawner`.
+   note this is currently a hardcoded if/else-if chain (see the §11 spawn table), not a
+   data table; also decide its `max_mob_level` in `furniture::spawner::max_mob_level`,
+   add it to `spawner_behavior::new_mob_instance` + `spawner::mob_class_name`, and (for a
+   creative-inventory spawner item) to `registry::build_registry`'s spawner-item list.
 7. **Save/load naming**: add it to `entity_class_name` (`src/saveload/save.rs`) and to
    `get_entity`'s string match (`src/saveload/load.rs`) using the exact same name string —
    these two must agree verbatim or round-tripping breaks. If it's an `EnemyMob`-shaped kind
    (has a `lvl`), also add its name to the `is_enemy_mob_class` match in `load_entity` so the
-   trailing `:lvl` field in the save string gets parsed.
+   trailing `:lvl` field in the save string gets parsed. Unknown names (e.g. mobs removed
+   from the roster) are tolerated on load: `get_entity` logs a `LOAD WARNING` and
+   `load_entity` skips the entity instead of panicking; a `Spawner` whose saved template
+   name is unknown falls back to its default Zombie template.
 
 ### 12.2 Add a new furniture
 
@@ -880,22 +888,12 @@ attempts (stopping at the first successful spawn):
   everywhere (`EntityCommon.eid`, `g.player_id`, every function signature that takes an
   entity id). `0` is reserved for the main player by convention (enforced in
   `generate_unique_entity_id`, which never hands out `0`), not by the type system.
-- **Snake's and AirWizard's custom `touched_by` overrides are dead code today.**
-  `src/entity/mob/snake.rs` and `src/entity/mob/air_wizard.rs` both define a `touched_by`
-  function with an explicit `// NOTE:` comment saying `behavior::touched_by`'s dispatch
-  needs a matching arm — but the dispatch match in `src/entity/behavior.rs` still routes
-  both kinds through the generic `enemy_touched_by` arm alongside Zombie/Slime/Skeleton/
-  Knight. Concretely: Snake should deal `lvl + diff_idx` damage on touch but currently deals
-  the standard `lvl * (hard ? 2 : 1)`; AirWizard should deal a flat 1 (or 2, second form)
-  but currently deals the same standard formula scaled by its (largely meaningless, 1-or-2)
-  `lvl`. This is a real functional gap, not just a documentation lag — confirmed by grepping
-  for any other call site of either function (there are none) and by the absence of a
-  dedicated `AirWizard`/`Snake` arm in the `touched_by` match. Fix by adding those two arms
-  before relying on either mob's touch damage matching its `die`/drop-table "personality."
-- **AirWizard's `do_hurt` override, by contrast, *is* correctly wired** — despite
-  `air_wizard.rs` carrying a similarly-worded stale `// NOTE:` comment claiming otherwise,
-  `behavior::do_hurt` does special-case `EntityKind::AirWizard(_)` before falling through to
-  the generic `mobai_do_hurt`. Trust the dispatch match over that particular comment.
+- **Snake's custom `touched_by` is now wired** (the historical dead-code bug — the
+  dispatch routed Snake through the generic `enemy_touched_by` — is fixed): Snake deals
+  its intended `lvl + diff_idx` touch damage. The AirWizard, whose override had the same
+  bug, was removed outright in the roster overhaul. When adding a mob with a custom
+  touch formula, remember the dispatch arm (§12.1 step 3) — the leaf function alone does
+  nothing.
 - **The take-out pattern means "the arena is complete" is never a safe assumption inside a
   tick** — see §4. Any code that walks `g.entities` (or looks up a specific eid) while
   inside `entity_tick`/`touched_by`/etc. must treat a missing entity as normal, not
@@ -907,20 +905,21 @@ attempts (stopping at the first successful spawn):
   only changes `c.x`/`c.y` without also going through `Level::add`/`add_at` (or the
   `entities_to_remove` + re-`add` dance `tick_level` does for ordinary removal) will leave
   the entity attached to the wrong level's iteration/save output.
-- **Bed occupancy state (`g.bed_state`) is never persisted.** `sleeping_players` and
-  `players_awake` have no representation in `src/saveload/save.rs`/`load.rs` at all — only
-  the player entity itself (via a dedicated `write_player` call, independent of the generic
-  arena-entity dump) and the `Bed` furniture entity (a plain, dataless `FurnitureData`) get
-  written. A save taken while a player is asleep will reload with the player simply
-  standing wherever they were when they clicked "sleep" (not tucked into the bed, not
-  marked asleep) and `players_awake` reset to its `Default` (`1`) — this is a narrow but
-  real gap if bed save/load ever needs to be exact.
-- **`GlowWorm`'s always-spawn-with-passive-mobs quirk lands it at the raw default `(0, 0)`
-  position**, not near the mob it "escorts" — `try_spawn`'s passive branch calls
-  `Level::add` (uses the entity's already-set `x`/`y`, i.e. whatever `EntityCommon::new`
-  left them at) instead of `add_at` with the chosen spawn coordinates. This is a preserved
-  Java quirk, not a Rust-introduced bug — don't "fix" it without checking the Java source's
-  intent first (PORTING.md's "preserve quirks" rule).
+- **Bed occupancy state (`g.bed_state`) is never persisted — an accepted gap.**
+  `sleeping_players` and `players_awake` have no representation in
+  `src/saveload/save.rs`/`load.rs` at all — only the player entity itself (via a dedicated
+  `write_player` call, independent of the generic arena-entity dump) and the `Bed`
+  furniture entity (a plain, dataless `FurnitureData`) get written. A save taken while a
+  player is asleep reloads with the player simply standing wherever they were when they
+  clicked "sleep" and `players_awake` reset to its `Default` (`1`). This was reviewed
+  during the roster overhaul and deliberately left as-is: persisting it would need a new
+  save-format field plus re-attachment of a level-less sleeping player on load, for a
+  state that lasts seconds and self-corrects on wake. Revisit only if exact
+  save-during-sleep fidelity ever matters.
+- **`GlowWorm` now spawns beside the passive mob it escorts** — `try_spawn`'s passive
+  branch calls `add_at` with the chosen spawn coordinates. (The Java original used
+  `Level::add`, which left the worm at its raw default `(0, 0)`; fixed post-port under
+  the post-`v0.1.0` "fix inherited bugs" rule.)
 - **Furniture entities are never written with extra chest-shaped fields unless they
   actually are chest-shaped** — `write_entity`'s `if let Some(chest) = e.chest()` block is
   the only place inventory contents get serialized; a new furniture kind that carries its
@@ -943,7 +942,7 @@ narrowly-scoped display tests. No `#[cfg(test)]` modules exist inside `src/entit
 | `tests/gameplay_soak.rs` (`soak_random_play_two_seeds`) | ~5000 ticks of pseudo-random movement/attack input across two seeds, with periodic day/night flips (so night-only enemy spawning and GlowWorm despawning both get exercised) — asserts the player entity never vanishes for good and the arena doesn't grow unbounded (`MAX_ENTITIES = 5000`), i.e. no entity-removal leak and no runaway spawn loop. |
 | `tests/gameplay_soak.rs` (`soak_walk_all_levels`) | Walks all five level slots via five `-1` level changes (wrapping back to start), 200 ticks each — exercises `World::change_level`'s player re-attachment (`c.level` bookkeeping, §13) and per-level spawning across every depth without panicking. |
 | `tests/gameplay_soak.rs` (`soak_tnt_explosion_near_player`) | Places a pre-fused `Tnt` entity next to the player and ticks through fuse + blast + the post-explosion tile-restore countdown; asserts the player survives the world-sanity check and the `Tnt` entity is fully gone (`EntityKind::Tnt` count == 0) once resolved — locks in the whole `tnt_behavior::tick` state machine end-to-end. |
-| `tests/save_load_roundtrip.rs` (`world_roundtrip`) | Builds a world containing a leveled `Zombie` (with a modified `health`), a `Chest`, an `Iron`-type `Lantern`, a `Skeleton`-templated `Spawner`, and a `DungeonChest`, saves, reloads, and checks the entities come back — the closest thing to an entity save-format regression test today; exercises `entity_class_name`/`get_entity` naming agreement (§12) and the chest/spawner/lantern extra-data round trip. |
+| `tests/save_load_roundtrip.rs` (`world_roundtrip`) | Builds a world containing a leveled `Zombie` (with a modified `health`), a `Chest`, an `Iron`-type `Lantern`, a `StoneGolem`-templated `Spawner`, and a `DungeonChest`, saves, reloads, and checks the entities come back — the closest thing to an entity save-format regression test today; exercises `entity_class_name`/`get_entity` naming agreement (§12) and the chest/spawner/lantern extra-data round trip. |
 | `tests/crafting_chain.rs` (`early_loop_crafts_a_crude_axe`, `crude_axe_outchops_fists_and_grass_yields_fibers`) | Drives a real player entity (`with_entity(0, ...)`) through crafting and tool use — indirectly exercises `PlayerData.inventory`/`active_item` plumbing and tool-attack damage, though it is a crafting-focused test, not an entity-focused one. |
 | `tests/display_flow.rs` (`inventory_esc_closes`) | Takes the player out of the arena, builds `PlayerInvDisplay` from it, puts it back — exercises the take-out pattern from a UI-construction angle (a display needs a `&Entity` while the entity is deliberately out of the arena for the duration of the borrow). |
 
@@ -953,6 +952,6 @@ test <keyword>` filter the way TERRAIN.md's `cargo test level` does, since "enti
 any of these file names). `cargo test` alone also runs them, plus everything else in the
 suite. There is currently no test that isolates a single mob's tick/die/touched_by logic in
 the way `tests/multi_level_terrain.rs` isolates the dig state machine — the roster is only
-validated in aggregate, through soak/save-load coverage. Given the touched_by bug noted in
-§13, a targeted `touched_by`-per-kind test would be valuable to add before or alongside a
-fix.
+validated in aggregate, through soak/save-load coverage. A targeted `touched_by`-per-kind
+test would still be valuable (the now-fixed Snake dispatch bug is exactly the class of
+regression it would catch).

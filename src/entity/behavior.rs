@@ -106,12 +106,12 @@ pub fn die(g: &mut Game, e: &mut Entity) {
         EntityKind::Sheep(_) => super::mob::sheep::die(g, e),
         EntityKind::GlowWorm(_) => super::mob::glow_worm::die(g, e),
         EntityKind::Zombie(_) => super::mob::zombie::die(g, e),
-        EntityKind::Slime(_) => super::mob::slime::die(g, e),
-        EntityKind::Creeper(_) => super::mob::creeper::die(g, e),
-        EntityKind::Skeleton(_) => super::mob::skeleton::die(g, e),
         EntityKind::Snake(_) => super::mob::snake::die(g, e),
         EntityKind::Knight(_) => super::mob::knight::die(g, e),
-        EntityKind::AirWizard(_) => super::mob::air_wizard::die(g, e),
+        EntityKind::MarshLurker(_) => super::mob::marsh_lurker::die(g, e),
+        EntityKind::FeralHound(_) => super::mob::feral_hound::die(g, e),
+        EntityKind::StoneGolem(_) => super::mob::stone_golem::die(g, e),
+        EntityKind::NightWisp(_) => super::mob::night_wisp::die(g, e),
         // JAVA: Chest.die spills the inventory
         EntityKind::Chest(_) | EntityKind::DeathChest(_) | EntityKind::DungeonChest(_) => {
             super::furniture::chest_behavior::die(g, e)
@@ -126,7 +126,7 @@ pub fn is_solid(e: &Entity) -> bool {
         e.kind,
         EntityKind::ItemEntity(_)
             | EntityKind::Arrow(_)
-            | EntityKind::Spark(_)
+            | EntityKind::Zap(_)
             | EntityKind::Particle(_)
             | EntityKind::TextParticle(_)
     )
@@ -144,7 +144,7 @@ pub fn blocks(this: &Entity, e: &Entity) -> bool {
 pub fn can_swim(e: &Entity) -> bool {
     match &e.kind {
         EntityKind::Player(_) => true,
-        EntityKind::AirWizard(a) => a.secondform,
+        EntityKind::MarshLurker(_) => true, // its home terrain
         _ => false,
     }
 }
@@ -153,8 +153,7 @@ pub fn can_swim(e: &Entity) -> bool {
 pub fn can_wool(e: &Entity) -> bool {
     match &e.kind {
         EntityKind::Player(_) => true,
-        EntityKind::AirWizard(_) => false, // overrides MobAi's true
-        EntityKind::Creeper(_) => false,   // JAVA: Creeper.canWool() returns false
+        EntityKind::NightWisp(_) => false, // floats over wool like everything else
         _ => e.is_mob_ai() || e.is_furniture(),
     }
 }
@@ -165,6 +164,7 @@ pub fn get_light_radius(e: &Entity) -> i32 {
         EntityKind::Player(_) => super::mob::player_behavior::get_light_radius(e),
         EntityKind::Lantern(l) => l.lantern_type.light(),
         EntityKind::GlowWorm(_) => 2, // JAVA: GlowWorm.getLightRadius()
+        EntityKind::NightWisp(_) => 4, // a drifting lantern of the night
         _ => 0,
     }
 }
@@ -311,16 +311,18 @@ pub fn touched_by(g: &mut Game, this_e: &mut Entity, by: &mut Entity) {
         }
         EntityKind::ItemEntity(_) => super::item_entity_behavior::touched_by(g, this_e, by),
         EntityKind::Zombie(_)
-        | EntityKind::Slime(_)
-        | EntityKind::Skeleton(_)
-        | EntityKind::Snake(_)
         | EntityKind::Knight(_)
-        | EntityKind::AirWizard(_) =>
+        | EntityKind::FeralHound(_)
+        | EntityKind::NightWisp(_) =>
         // EnemyMob.touchedBy: hurt the player, damage based on lvl
         {
             enemy_touched_by(g, this_e, by)
         }
-        EntityKind::Creeper(_) => super::mob::creeper::touched_by(g, this_e, by),
+        // FIX: Snake's custom `lvl + diff_idx` touch damage was dead code — the dispatch
+        // used to route Snake through the shared EnemyMob arm above.
+        EntityKind::Snake(_) => super::mob::snake::touched_by(g, this_e, by),
+        EntityKind::MarshLurker(_) => super::mob::marsh_lurker::touched_by(g, this_e, by),
+        EntityKind::StoneGolem(_) => super::mob::stone_golem::touched_by(g, this_e, by),
         _ => {}
     }
 }
@@ -389,15 +391,15 @@ pub fn entity_tick(g: &mut Game, e: &mut Entity) {
         EntityKind::Sheep(_) => super::mob::sheep::tick(g, e),
         EntityKind::GlowWorm(_) => super::mob::glow_worm::tick(g, e),
         EntityKind::Zombie(_) => super::mob::zombie::tick(g, e),
-        EntityKind::Slime(_) => super::mob::slime::tick(g, e),
-        EntityKind::Creeper(_) => super::mob::creeper::tick(g, e),
-        EntityKind::Skeleton(_) => super::mob::skeleton::tick(g, e),
         EntityKind::Snake(_) => super::mob::snake::tick(g, e),
         EntityKind::Knight(_) => super::mob::knight::tick(g, e),
-        EntityKind::AirWizard(_) => super::mob::air_wizard::tick(g, e),
+        EntityKind::MarshLurker(_) => super::mob::marsh_lurker::tick(g, e),
+        EntityKind::FeralHound(_) => super::mob::feral_hound::tick(g, e),
+        EntityKind::StoneGolem(_) => super::mob::stone_golem::tick(g, e),
+        EntityKind::NightWisp(_) => super::mob::night_wisp::tick(g, e),
         EntityKind::ItemEntity(_) => super::item_entity_behavior::tick(g, e),
         EntityKind::Arrow(_) => super::projectile_behavior::arrow_tick(g, e),
-        EntityKind::Spark(_) => super::projectile_behavior::spark_tick(g, e),
+        EntityKind::Zap(_) => super::projectile_behavior::zap_tick(g, e),
         EntityKind::Particle(_) => super::particle_behavior::tick(g, e),
         EntityKind::TextParticle(_) => super::particle_behavior::text_tick(g, e),
         EntityKind::Furniture(_)
@@ -421,15 +423,15 @@ pub fn entity_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         }
         EntityKind::GlowWorm(_) => super::mob::glow_worm::render(g, screen, e),
         EntityKind::Zombie(_)
-        | EntityKind::Skeleton(_)
         | EntityKind::Snake(_)
-        | EntityKind::Knight(_) => enemy_mob_render(g, screen, e),
-        EntityKind::Slime(_) => super::mob::slime::render(g, screen, e),
-        EntityKind::Creeper(_) => super::mob::creeper::render(g, screen, e),
-        EntityKind::AirWizard(_) => super::mob::air_wizard::render(g, screen, e),
+        | EntityKind::Knight(_)
+        | EntityKind::MarshLurker(_)
+        | EntityKind::FeralHound(_)
+        | EntityKind::StoneGolem(_) => enemy_mob_render(g, screen, e),
+        EntityKind::NightWisp(_) => super::mob::night_wisp::render(g, screen, e),
         EntityKind::ItemEntity(_) => super::item_entity_behavior::render(g, screen, e),
         EntityKind::Arrow(_) => super::projectile_behavior::arrow_render(g, screen, e),
-        EntityKind::Spark(_) => super::projectile_behavior::spark_render(g, screen, e),
+        EntityKind::Zap(_) => super::projectile_behavior::zap_render(g, screen, e),
         EntityKind::Particle(_) => super::particle_behavior::render(g, screen, e),
         EntityKind::TextParticle(_) => super::particle_behavior::text_render(g, screen, e),
         EntityKind::DeathChest(_) => super::furniture::death_chest_behavior::render(g, screen, e),
@@ -454,7 +456,8 @@ pub fn mob_tick_base(g: &mut Game, e: &mut Entity) -> bool {
         return false;
     }
 
-    if let Some(lvl) = e.c.level {
+    // the Night Wisp floats above tiles, so lava under it never touches it
+    if let (Some(lvl), false) = (e.c.level, matches!(e.kind, EntityKind::NightWisp(_))) {
         let standing = g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4);
         if standing.name == "LAVA" {
             // hurt ourselves, sourced from the lava tile
@@ -564,6 +567,9 @@ pub fn mob_is_light(g: &Game, e: &Entity) -> bool {
 
 /// Java `Mob.isSwimming()`.
 pub fn is_swimming(g: &Game, e: &Entity) -> bool {
+    if matches!(e.kind, EntityKind::NightWisp(_)) {
+        return false; // floats over water/lava, never wades in it
+    }
     let Some(lvl) = e.c.level else { return false };
     let tile = g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4);
     tile.name == "WATER" || tile.name == "LAVA"
@@ -638,10 +644,6 @@ pub fn mob_hurt_by_eid(
 pub fn do_hurt(g: &mut Game, e: &mut Entity, damage: i32, attack_dir: Direction) {
     if e.is_player() {
         super::mob::player_behavior::do_hurt(g, e, damage, attack_dir);
-        return;
-    }
-    if matches!(e.kind, EntityKind::AirWizard(_)) {
-        super::mob::air_wizard::do_hurt(g, e, damage, attack_dir);
         return;
     }
     if e.is_mob_ai() {
@@ -875,6 +877,24 @@ pub fn mobai_check_start_pos(
     player_dist: i32,
     solo_radius: i32,
 ) -> bool {
+    if !check_start_pos_clearance(g, lvl, x, y, player_dist, solo_radius) {
+        return false;
+    }
+    let tile = g.tile_at(lvl, x >> 4, y >> 4);
+    tiles::may_spawn(&tile)
+}
+
+/// The distance/density half of `mobai_check_start_pos`, without the tile's `may_spawn`
+/// gate — for mobs whose home tiles (water, anything the Night Wisp floats over) aren't
+/// ordinary spawnable ground.
+fn check_start_pos_clearance(
+    g: &Game,
+    lvl: usize,
+    x: i32,
+    y: i32,
+    player_dist: i32,
+    solo_radius: i32,
+) -> bool {
     if let Some(pid) = level::get_closest_player(g, lvl, x, y) {
         if let Some(player) = g.entities.get(pid) {
             let xd = player.c.x - x;
@@ -886,18 +906,30 @@ pub fn mobai_check_start_pos(
     }
 
     let r = g.level(lvl).monster_density * solo_radius; // get no-mob radius
-    if !level::get_entities_in_rect(
+    level::get_entities_in_rect(
         g,
         lvl,
         &Rectangle::new(x, y, r * 2, r * 2, Rectangle::CENTER_DIMS),
     )
     .is_empty()
-    {
+}
+
+/// Marsh Lurker spawn gate: standard enemy clearance, but the tile must be its lurking
+/// water (or the muddy rim) rather than ordinarily spawnable ground, and unlit.
+pub fn lurker_check_start_pos(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    if !check_start_pos_clearance(g, lvl, x, y, 60, 13) {
         return false;
     }
+    let xt = x >> 4;
+    let yt = y >> 4;
+    let t = g.tile_at(lvl, xt, yt);
+    (t.name == "WATER" || t.name == "MUD") && !level::is_light(g, lvl, xt, yt)
+}
 
-    let tile = g.tile_at(lvl, x >> 4, y >> 4);
-    tiles::may_spawn(&tile)
+/// Night Wisp spawn gate: it floats, so any unlit spot with the standard clearance
+/// works — no `may_spawn` tile check.
+pub fn wisp_check_start_pos(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    check_start_pos_clearance(g, lvl, x, y, 60, 13) && !level::is_light(g, lvl, x >> 4, y >> 4)
 }
 
 /// Java `MobAi.die(points, multAdd)`.

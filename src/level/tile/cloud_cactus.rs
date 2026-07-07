@@ -4,7 +4,7 @@ use super::{TileDef, TileKind};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
-use crate::entity::{Entity, EntityKind};
+use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
 use crate::item::{Item, ItemKind, ToolType};
 
@@ -16,8 +16,10 @@ pub fn make(name: &str) -> TileDef {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn may_pass(_g: &Game, _def: &TileDef, _lvl: usize, _x: i32, _y: i32, e: &Entity) -> bool {
-    matches!(e.kind, EntityKind::AirWizard(_))
+pub fn may_pass(_g: &Game, _def: &TileDef, _lvl: usize, _x: i32, _y: i32, _e: &Entity) -> bool {
+    // JAVA: only the (removed) AirWizard could pass; flying kinds are now handled
+    // globally in `dispatch::may_pass`.
+    false
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -88,9 +90,6 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
 
 pub fn bumped_into(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, e: &mut Entity) {
     let _ = lvl;
-    if matches!(e.kind, EntityKind::AirWizard(_)) {
-        return;
-    }
     // JAVA: ((Mob)entity).hurt(this, x, y, 1 + Settings.getIdx("diff")) — the non-Mob
     // check is inside mob_hurt_tile.
     let dmg = 1 + g.settings.get_idx("diff");

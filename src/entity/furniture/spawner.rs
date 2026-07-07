@@ -31,12 +31,12 @@ fn mob_class_name(mob: &Entity) -> &'static str {
         EntityKind::Sheep(_) => "Sheep",
         EntityKind::GlowWorm(_) => "GlowWorm",
         EntityKind::Zombie(_) => "Zombie",
-        EntityKind::Slime(_) => "Slime",
-        EntityKind::Creeper(_) => "Creeper",
-        EntityKind::Skeleton(_) => "Skeleton",
         EntityKind::Snake(_) => "Snake",
         EntityKind::Knight(_) => "Knight",
-        EntityKind::AirWizard(_) => "AirWizard",
+        EntityKind::MarshLurker(_) => "MarshLurker",
+        EntityKind::FeralHound(_) => "FeralHound",
+        EntityKind::StoneGolem(_) => "StoneGolem",
+        EntityKind::NightWisp(_) => "NightWisp",
         _ => "Mob",
     }
 }
@@ -45,13 +45,13 @@ fn mob_class_name(mob: &Entity) -> &'static str {
 pub fn max_mob_level(mob: &Entity) -> i32 {
     match &mob.kind {
         EntityKind::Zombie(m) => m.enemy.lvlcols.len() as i32,
-        EntityKind::Slime(m) => m.enemy.lvlcols.len() as i32,
-        EntityKind::Creeper(m) => m.enemy.lvlcols.len() as i32,
-        EntityKind::Skeleton(m) => m.enemy.lvlcols.len() as i32,
         EntityKind::Snake(m) => m.enemy.lvlcols.len() as i32,
         EntityKind::Knight(_) => 5, // JAVA: Knight overrides getMaxLevel() to 5
-        EntityKind::AirWizard(_) => 2, // JAVA: AirWizard overrides getMaxLevel() to 2
-        _ => 1,                     // passive mobs
+        EntityKind::MarshLurker(m) => m.enemy.lvlcols.len() as i32,
+        EntityKind::FeralHound(m) => m.enemy.lvlcols.len() as i32,
+        EntityKind::StoneGolem(m) => m.enemy.lvlcols.len() as i32,
+        EntityKind::NightWisp(m) => m.enemy.lvlcols.len() as i32,
+        _ => 1, // passive mobs
     }
 }
 

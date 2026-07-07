@@ -360,15 +360,15 @@ fn entity_class_name(e: &Entity) -> &'static str {
         EntityKind::Sheep(_) => "Sheep",
         EntityKind::GlowWorm(_) => "GlowWorm",
         EntityKind::Zombie(_) => "Zombie",
-        EntityKind::Slime(_) => "Slime",
-        EntityKind::Creeper(_) => "Creeper",
-        EntityKind::Skeleton(_) => "Skeleton",
         EntityKind::Snake(_) => "Snake",
         EntityKind::Knight(_) => "Knight",
-        EntityKind::AirWizard(_) => "AirWizard",
+        EntityKind::MarshLurker(_) => "MarshLurker",
+        EntityKind::FeralHound(_) => "FeralHound",
+        EntityKind::StoneGolem(_) => "StoneGolem",
+        EntityKind::NightWisp(_) => "NightWisp",
         EntityKind::ItemEntity(_) => "ItemEntity",
         EntityKind::Arrow(_) => "Arrow",
-        EntityKind::Spark(_) => "Spark",
+        EntityKind::Zap(_) => "Zap",
         // JAVA: FireParticle/SmashParticle are separate classes; both map to the merged
         // Particle kind here. Particles are never written to local saves.
         EntityKind::Particle(_) => "Particle",
@@ -390,15 +390,15 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
     let mut name = entity_class_name(e).to_string();
     let mut extradata = String::new();
 
-    // don't even write ItemEntities or particle effects; Spark... will probably is saved,
-    // eventually; it presents an unfair cheat to remove the sparks by reloading the Game.
+    // don't even write ItemEntities or particle effects (JAVA: same skip list, with the
+    // wisp's Zap standing in for the old AirWizard Spark)
 
     if is_local_save
         && matches!(
             e.kind,
             EntityKind::ItemEntity(_)
                 | EntityKind::Arrow(_)
-                | EntityKind::Spark(_)
+                | EntityKind::Zap(_)
                 | EntityKind::Particle(_)
                 | EntityKind::TextParticle(_)
         )
@@ -471,9 +471,9 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
             // Java Arrow.getData(): owner.eid + ":" + dir.ordinal() + ":" + damage.
             extradata.push_str(&format!(":{}:{}:{}", a.owner, a.dir.ordinal(), a.damage));
         }
-        if let EntityKind::Spark(s) = &e.kind {
-            // Java Spark.getData(): owner.eid.
-            extradata.push_str(&format!(":{}", s.owner));
+        if let EntityKind::Zap(z) = &e.kind {
+            // adapted Java Spark.getData(): owner.eid.
+            extradata.push_str(&format!(":{}", z.owner));
         }
         if let EntityKind::TextParticle(tp) = &e.kind {
             // JAVA: TextParticle.getData() is msg + ":" + style.getColor(); FontStyle does

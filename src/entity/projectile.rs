@@ -39,22 +39,25 @@ pub fn new_arrow(owner_eid: i32, x: i32, y: i32, dir: Direction, dmg: i32) -> En
     )
 }
 
+/// The Night Wisp's zap bolt — adapted from the removed AirWizard's `Spark`
+/// (Java `fdoom.entity.Spark`): the same free-floating double-precision motion that
+/// ignores tiles entirely, re-owned and shortened to a ranged-attack bolt.
 #[derive(Debug, Clone)]
-pub struct SparkData {
+pub struct ZapData {
     pub life_time: i32,
-    // x and y acceleration
+    // x and y velocity (Java Spark called these accelerations)
     pub xa: f64,
     pub ya: f64,
     // x and y positions
     pub xx: f64,
     pub yy: f64,
     pub time: i32,
-    /// eid of the AirWizard that created this spark.
+    /// eid of the Night Wisp that fired this zap.
     pub owner: i32,
 }
 
-/// Java `new Spark(owner, xa, ya)`.
-pub fn new_spark(
+/// Adapted Java `new Spark(owner, xa, ya)` — shorter-lived (a bolt, not a swarm).
+pub fn new_zap(
     owner_eid: i32,
     owner_x: i32,
     owner_y: i32,
@@ -65,9 +68,9 @@ pub fn new_spark(
     let mut c = EntityCommon::new(0, 0);
     c.x = owner_x;
     c.y = owner_y;
-    let data = SparkData {
-        // JAVA: max time = 629 ticks, min time = 600 ticks
-        life_time: 60 * 10 + random.next_int_bound(30),
+    let data = ZapData {
+        // ~2.5-3s at 1.5 px/tick = a few tiles of range (Spark lived a full 600+)
+        life_time: 60 * 2 + random.next_int_bound(60),
         xa,
         ya,
         xx: owner_x as f64,
@@ -75,5 +78,5 @@ pub fn new_spark(
         time: 0,
         owner: owner_eid,
     };
-    Entity::new(c, EntityKind::Spark(data))
+    Entity::new(c, EntityKind::Zap(data))
 }

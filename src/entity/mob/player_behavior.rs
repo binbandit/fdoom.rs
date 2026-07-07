@@ -400,10 +400,13 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
 
         // JAVA: `!(this instanceof RemotePlayer) && !Game.isValidClient()` — both always true.
         if g.input.get_key("save").clicked && !g.saving {
+            // FIX: saving right here panicked — this code runs inside the player's own
+            // take-out tick, and `write_player` needs the player present in the arena
+            // (`g.player()`). Defer the save to `Game::tick` (same deferred shape the
+            // pause-menu Save Game action gets for free by running from the display).
             g.saving = true;
             g.loading_percentage = 0.0;
-            let name = crate::screen::world_select::get_world_name(g);
-            crate::saveload::save::save_world_named(g, &name);
+            g.pending_save = true;
         }
 
         if g.input.get_key("night").clicked {
@@ -832,12 +835,14 @@ fn get_attack_damage_bonus(g: &mut Game, item: &mut Item, creative: bool) -> i32
     let ItemKind::Tool { ttype, level, .. } = item.kind else {
         return 0;
     };
+    // Tiers run Crude(0)..Gem(5) since the post-port Crude tier shifted the Java
+    // Wood..Gem levels up by one; bonus ranges below are for those endpoints.
     match ttype {
-        // wood axe damage: 2-5; gem axe damage: 10-13.
+        // crude axe bonus: 2-5; gem axe bonus: 12-15.
         ToolType::Axe => (level + 1) * 2 + g.random.next_int_bound(4),
-        // wood: 3-5 damage; gem: 15-32 damage.
+        // crude: 3-4 bonus; gem: 18-44 bonus.
         ToolType::Sword => (level + 1) * 3 + g.random.next_int_bound(2 + level * level),
-        // wood: 3-6 damage; gem: 15-66 damage.
+        // crude: 3-6 bonus; gem: 18-96 bonus.
         ToolType::Claymore => (level + 1) * 3 + g.random.next_int_bound(4 + level * level * 3),
         // all other tools do very little damage to mobs.
         _ => 1,
