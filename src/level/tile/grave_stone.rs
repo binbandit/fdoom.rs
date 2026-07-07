@@ -101,17 +101,29 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
                 g.level_mut(lvl).set_data(xt, yt, 0);
             }
         }
-        Time::Night if flag == 0 => {
-            // One crumble roll per grave per night. JAVA: a 50% coin flip; lowered to
-            // ~17% so a cemetery decays (and leaks zombies) over one or two in-game
-            // weeks instead of collapsing almost entirely on the first couple of nights.
-            if g.random.next_int_bound(6) == 0 {
-                let broken = g.tiles.get_id(44);
-                // set_tile_default resets the data byte, so the fresh broken grave
-                // starts with its "spawned zombie" flag clear.
-                g.set_tile_default(lvl, xt, yt, &broken);
-            } else {
-                g.level_mut(lvl).set_data(xt, yt, FLAG_SET);
+        Time::Night => {
+            if crate::core::events::hollow_night_active(g) {
+                // HOLLOW NIGHT (core::events): the once-per-night flag is ignored, so
+                // every random tile tick re-rolls at 1-in-3 — the whole cemetery caves
+                // in before dawn instead of decaying over weeks.
+                if g.random.next_int_bound(3) == 0 {
+                    let broken = g.tiles.get_id(44);
+                    g.set_tile_default(lvl, xt, yt, &broken);
+                }
+            } else if flag == 0 && !crate::core::events::grave_decay_suppressed(g) {
+                // Quiet week after a Hollow Night: no crumble roll at all (the guard
+                // above). Otherwise one crumble roll per grave per night. JAVA: a 50%
+                // coin flip; lowered to ~17% so a cemetery decays (and leaks zombies)
+                // over one or two in-game weeks instead of collapsing almost entirely
+                // on the first couple of nights.
+                if g.random.next_int_bound(6) == 0 {
+                    let broken = g.tiles.get_id(44);
+                    // set_tile_default resets the data byte, so the fresh broken grave
+                    // starts with its "spawned zombie" flag clear.
+                    g.set_tile_default(lvl, xt, yt, &broken);
+                } else {
+                    g.level_mut(lvl).set_data(xt, yt, FLAG_SET);
+                }
             }
         }
         _ => {}

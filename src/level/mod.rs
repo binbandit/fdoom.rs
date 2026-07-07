@@ -14,7 +14,7 @@ pub mod tile;
 use std::rc::Rc;
 
 use crate::core::game::Game;
-use crate::entity::{Entity, EntityKind};
+use crate::entity::Entity;
 use crate::gfx::{Point, Rectangle};
 use crate::rng::Rng;
 
@@ -462,11 +462,11 @@ pub fn clear_entities(g: &mut Game, lvl: usize) {
 
 /// Java `level.removeAllEnemies()`.
 pub fn remove_all_enemies(g: &mut Game, lvl: usize) {
-    let creative = g.is_mode("creative");
+    // JAVA: spared the AirWizard boss outside creative mode; that mob is removed.
     let ids: Vec<i32> = g
         .entities
         .entities_on_level(lvl)
-        .filter(|e| e.is_enemy_mob() && (!matches!(e.kind, EntityKind::AirWizard(_)) || creative))
+        .filter(|e| e.is_enemy_mob())
         .map(|e| e.c.eid)
         .collect();
     for eid in ids {
@@ -666,8 +666,25 @@ pub fn tick_level(g: &mut Game, lvl: usize, full_tick: bool) {
     }
 }
 
+/// Feral Hound country: open plains/savanna on infinite worlds (by `biome_at`), any
+/// open grass on classic finite worlds (which have no biome field).
+fn hound_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    if g.level(lvl).is_infinite() {
+        matches!(
+            infinite_gen::biome_at(g.world_seed, x >> 4, y >> 4),
+            infinite_gen::Biome::Plains | infinite_gen::Biome::Savanna
+        )
+    } else {
+        g.tile_at(lvl, x >> 4, y >> 4).name == "GRASS"
+    }
+}
+
 /// Java `Level.trySpawn()`.
 pub fn try_spawn(g: &mut Game, lvl: usize) {
+    // AURORA (core::events): the lights calm the world — no spawns for the night.
+    if crate::core::events::aurora_active(g) {
+        return;
+    }
     let (mob_count, max_mob_count, depth, w, h) = {
         let level = g.level(lvl);
         (
@@ -724,19 +741,85 @@ pub fn try_spawn(g: &mut Game, lvl: usize) {
             (mlvl, rnd, nx, ny)
         };
 
-        // enemy mobs; first condition prevents enemy spawn on surface on day 1
-        if (g.get_time() == crate::core::updater::Time::Night && g.past_day1 || depth != 0)
-            && crate::entity::behavior::enemy_check_start_pos(g, lvl, nx, ny)
-        {
-            // JAVA (this fork): only Zombies and Snakes spawn naturally
-            if rnd <= 40 {
-                let e = crate::entity::mob::zombie::new(g, mlvl);
-                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
-            } else if rnd <= 75 {
-                let e = crate::entity::mob::snake::new(g, mlvl);
-                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+        let night = g.get_time() == crate::core::updater::Time::Night && g.past_day1;
+
+        if depth != 0 {
+            // below the surface enemies spawn at any hour
+            if crate::entity::behavior::enemy_check_start_pos(g, lvl, nx, ny) {
+                if depth == -4 {
+                    // the dungeon: zombies, snakes, and its keepers, the knights
+                    if rnd <= 40 {
+                        let e = crate::entity::mob::zombie::new(g, mlvl);
+                        g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                    } else if rnd <= 55 {
+                        let e = crate::entity::mob::snake::new(g, mlvl);
+                        g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                    } else if rnd <= 75 {
+                        let e = crate::entity::mob::knight::new(g, mlvl);
+                        g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                    }
+                } else {
+                    // the mines: zombies, snakes, and stone golems
+                    if rnd <= 40 {
+                        let e = crate::entity::mob::zombie::new(g, mlvl);
+                        g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                    } else if rnd <= 70 {
+                        let e = crate::entity::mob::snake::new(g, mlvl);
+                        g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                    } else if rnd <= 85 {
+                        let e = crate::entity::mob::stone_golem::new(g, mlvl);
+                        g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                    }
+                }
+                spawned = true;
             }
-            spawned = true;
+        } else {
+            // surface enemies — none before day 2 (matching the old rule that day 1 is
+            // completely safe). Marsh Lurkers wait in water/mud pools at any hour (their
+            // own tile gate stands in for the may_spawn check the others use).
+            if !g.past_day1 {
+                // nothing hostile on the surface on day 1
+            } else if rnd <= 25 && crate::entity::behavior::lurker_check_start_pos(g, lvl, nx, ny) {
+                let e = crate::entity::mob::marsh_lurker::new(g, mlvl);
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                spawned = true;
+            } else if hound_biome(g, lvl, nx, ny)
+                && (if night {
+                    (41..=60).contains(&rnd)
+                } else {
+                    rnd <= 12
+                })
+                && crate::entity::behavior::enemy_check_start_pos(g, lvl, nx, ny)
+            {
+                // Feral Hounds hunt the open plains/savanna day and night, in packs
+                let pack = 2 + g.random.next_int_bound(2);
+                for i in 0..pack {
+                    let e = crate::entity::mob::feral_hound::new(g, mlvl);
+                    // spread the pack over neighboring tiles when they're passable
+                    let (hx, hy) = (nx + (i % 2) * 16, ny + (i / 2) * 16);
+                    let t = g.tile_at(lvl, hx >> 4, hy >> 4);
+                    let (hx, hy) = if tile::dispatch::may_pass(g, &t, lvl, hx >> 4, hy >> 4, &e) {
+                        (hx, hy)
+                    } else {
+                        (nx, ny)
+                    };
+                    g.level_mut(lvl).add_at(e, hx, hy, false, lvl);
+                }
+                spawned = true;
+            } else if night && crate::entity::behavior::enemy_check_start_pos(g, lvl, nx, ny) {
+                if rnd <= 40 {
+                    let e = crate::entity::mob::zombie::new(g, mlvl);
+                    g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                    spawned = true;
+                }
+            } else if night
+                && (61..=75).contains(&rnd)
+                && crate::entity::behavior::wisp_check_start_pos(g, lvl, nx, ny)
+            {
+                let e = crate::entity::mob::night_wisp::new(g, mlvl);
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+                spawned = true;
+            }
         }
 
         if depth == 0 && crate::entity::behavior::passive_check_start_pos(g, lvl, nx, ny) {
@@ -753,9 +836,10 @@ pub fn try_spawn(g: &mut Game, lvl: usize) {
                 g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
             }
 
-            // JAVA: also always adds a GlowWorm (at its default position)
+            // JAVA: also always adds a GlowWorm — at its raw default (0,0) position.
+            // FIX: place it beside the mob it escorts instead of at the world origin.
             let e = crate::entity::mob::glow_worm::new(g);
-            g.level_mut(lvl).add(e, lvl);
+            g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
 
             spawned = true;
         }

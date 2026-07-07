@@ -99,7 +99,9 @@ pub struct Game {
 
     /// Java `Bed`'s static sleep-tracking state.
     pub bed_state: BedState,
-    /// Java `AirWizard.beaten` static.
+    /// Java `AirWizard.beaten` static. The AirWizard mob was removed in the roster
+    /// overhaul; the flag remains as a legacy save-format slot (written/read
+    /// positionally by save/load) and is never set in-game anymore.
     pub air_wizard_beaten: bool,
     /// Java `PlayerDeathDisplay.shouldRespawn` static.
     pub should_respawn: bool,
@@ -113,6 +115,8 @@ pub struct Game {
     pub loaded_world: bool,
     /// Java `WorldGenDisplay.getSeed()` — the seed for the next world generation.
     pub world_seed: i64,
+    /// Rare-world-event scheduler state (post-port content, see `core::events`).
+    pub events: crate::core::events::EventState,
 }
 
 impl Game {
@@ -176,6 +180,7 @@ impl Game {
             world_name: String::new(),
             loaded_world: false,
             world_seed: 0,
+            events: crate::core::events::EventState::default(),
         };
         // The item registry reads settings (difficulty) during construction, mirroring
         // Java's static-init ordering.
@@ -317,6 +322,9 @@ impl Game {
                 self.set_time(self.tick_count + 1);
             }
         }
+
+        // rare-world-events scheduler: day counting + dusk/dawn cues (core::events)
+        crate::core::events::tick(self);
 
         // This is the general action statement thing! Regulates menus, mostly.
         if !self.has_focus && self.has_gui {
