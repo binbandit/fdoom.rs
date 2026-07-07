@@ -31,7 +31,32 @@ pub fn make(name: &str) -> TileDef {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let col = color::get4(111, 444, 555, dirt::d_col(g.level(lvl).depth));
+    // Edge shade blends into the surrounding ground instead of always dirt-brown
+    // (a lone rock in a meadow used to get a brown halo). Sample the four neighbors
+    // and match the dominant ground family.
+    let mut grass_n = 0;
+    let mut sand_n = 0;
+    let mut snow_n = 0;
+    for (nx, ny) in [(x, y - 1), (x, y + 1), (x - 1, y), (x + 1, y)] {
+        let t = g.tile_at(lvl, nx, ny);
+        if matches!(t.kind, TileKind::Snow) {
+            snow_n += 1;
+        } else if t.connects_to_sand {
+            sand_n += 1;
+        } else if t.connects_to_grass {
+            grass_n += 1;
+        }
+    }
+    let bg = if snow_n >= grass_n.max(sand_n) && snow_n > 0 {
+        color::hex("#e8eef4")
+    } else if sand_n > grass_n {
+        550
+    } else if grass_n > 0 {
+        141
+    } else {
+        dirt::d_col(g.level(lvl).depth)
+    };
+    let col = color::get4(111, 444, 555, bg);
     let full = def.csprite.as_ref().map(|cs| cs.full.color).unwrap_or(0);
     dispatch::csprite_render(g, screen, def, lvl, x, y, Some((col, col, full)));
 }

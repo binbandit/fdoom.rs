@@ -1,5 +1,6 @@
 //! Deterministic surface structures for infinite worlds: ruins, cemeteries, standing
-//! stones, and abandoned camps.
+//! stones, abandoned camps, destroyed villages — plus the connective tissue between
+//! them: worn trails, and boulder scatter in the open biomes.
 //!
 //! Placement follows the same hash-grid pattern as `infinite_gen::gate_in_cell`: each
 //! structure type gets its own coarse cell grid, and each cell holds at most one
@@ -7,6 +8,21 @@
 //! `(world seed, structure kind, cell)`. Chunks stamp every structure whose footprint
 //! could overlap them (rect query padded by [`MAX_RADIUS`]), so a structure straddling a
 //! chunk border comes out identical from both sides.
+//!
+//! Three stamping passes run per chunk, all pure, in a fixed order so overlaps resolve
+//! identically everywhere:
+//!
+//! 1. **Boulders** ([`boulder_at`]): sparse per-tile hash scatter of 1x1/2x2 rock
+//!    outcrops in Plains/Savanna/Tundra. Breakable like any rock tile.
+//! 2. **Trails** ([`trails_in_rect`], [`trail_writes`]): each trail-worthy structure
+//!    (ruins/cemetery/camp) links to its nearest neighbor within [`TRAIL_RANGE`] tiles
+//!    with a winding worn-dirt path — hash-jittered waypoint chains with occasional
+//!    worn-away gaps and a torch stump where the trail meets the site. Trails only
+//!    replace soft ground (grass/sand/snow/trees/...), never water or rock, so they
+//!    fade out at fords and outcrops like real old routes.
+//! 3. **Structures** ([`structure_writes`]): the blueprints proper, stamped last so
+//!    their footprints always win. Villages come last in [`ALL_KINDS`] so a rare
+//!    single-structure overlap resolves in the village's favor.
 //!
 //! Tiles are stamped during `infinite_gen::generate_chunk` (before the gate set-pieces,
 //! so a rare overlap always leaves the gate intact). Loot chests are entities and can't
@@ -20,8 +36,8 @@ use super::tile::Tiles;
 use crate::core::game::Game;
 use crate::rng::Rng;
 
-/// Largest half-extent of any structure footprint (13x13 max).
-pub const MAX_RADIUS: i32 = 6;
+/// Largest half-extent of any structure footprint (a village spans up to 49x49).
+pub const MAX_RADIUS: i32 = 24;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StructureKind {
@@ -29,15 +45,27 @@ pub enum StructureKind {
     Cemetery,
     StandingStones,
     Camp,
+    Village,
 }
 
 /// Fixed iteration order — stamping order must be identical from every chunk.
-pub const ALL_KINDS: [StructureKind; 4] = [
+/// Villages stamp last so they win the (rare) overlap with a single structure.
+pub const ALL_KINDS: [StructureKind; 5] = [
     StructureKind::Ruins,
     StructureKind::Cemetery,
     StructureKind::StandingStones,
     StructureKind::Camp,
+    StructureKind::Village,
 ];
+
+/// Half-extent of one kind's footprint: how far its tile writes can reach from the
+/// placement origin.
+pub fn kind_radius(kind: StructureKind) -> i32 {
+    match kind {
+        StructureKind::Village => 24,
+        _ => 6,
+    }
+}
 
 /// A placed structure: kind + origin (footprint center), in global tile coords.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +82,7 @@ fn spec(kind: StructureKind) -> (i32, u64, f64) {
         StructureKind::Cemetery => (288, 0x4752_4156_4553_0002, 0.40),
         StructureKind::StandingStones => (320, 0x53_544F_4E45_0003, 0.35),
         StructureKind::Camp => (256, 0x43_414D_5046_0004, 0.50),
+        StructureKind::Village => (512, 0x56_494C_4C41_0005, 0.40),
     }
 }
 
@@ -64,6 +93,7 @@ fn biome_ok(kind: StructureKind, b: Biome) -> bool {
         StructureKind::Cemetery => matches!(b, Biome::Plains | Biome::Forest | Biome::Marsh),
         StructureKind::StandingStones => matches!(b, Biome::Plains | Biome::Savanna),
         StructureKind::Camp => matches!(b, Biome::Forest | Biome::Tundra | Biome::Desert),
+        StructureKind::Village => matches!(b, Biome::Plains | Biome::Forest | Biome::Savanna),
     }
 }
 
@@ -80,7 +110,7 @@ pub fn placement_in_cell(
         return None;
     }
     // jitter inside the cell, keeping a full footprint of margin from the cell edge
-    let margin = MAX_RADIUS + 1;
+    let margin = kind_radius(kind) + 1;
     let jx = margin + ((h >> 8) as i32).rem_euclid(grid - 2 * margin);
     let jy = margin + ((h >> 24) as i32).rem_euclid(grid - 2 * margin);
     let (x, y) = (cell_x * grid + jx, cell_y * grid + jy);
@@ -115,8 +145,14 @@ pub fn placements_in_rect(seed: i64, x0: i32, y0: i32, x1: i32, y1: i32) -> Vec<
 struct StructIds {
     grass: u8,
     dirt: u8,
+    sand: u8,
+    snow: u8,
+    mud: u8,
+    tree: u8,
+    water: u8,
     rock: u8,
     flower: u8,
+    tall_grass: [u8; 3],
     stone_wall: u8,
     stone_floor: u8,
     grave: u8,
@@ -130,8 +166,18 @@ impl StructIds {
         StructIds {
             grass: tiles.get("grass").id,
             dirt: tiles.get("dirt").id,
+            sand: tiles.get("sand").id,
+            snow: tiles.get("snow").id,
+            mud: tiles.get("Mud").id,
+            tree: tiles.get("tree").id,
+            water: tiles.get("water").id,
             rock: tiles.get("rock").id,
             flower: tiles.get("flower").id,
+            tall_grass: [
+                tiles.get("small grass").id,
+                tiles.get("medium grass").id,
+                tiles.get("tall grass").id,
+            ],
             stone_wall: tiles.get("Stone Wall").id,
             stone_floor: tiles.get("Stone Bricks").id,
             grave: tiles.get("Grave stone").id,
@@ -140,6 +186,84 @@ impl StructIds {
             torch_dirt: tiles.get("torch dirt").id,
         }
     }
+
+    /// Soft ground the trail pass may wear a path into. Deliberately excludes water,
+    /// rock, and every structure tile, so trails ford ponds as gaps and never chew
+    /// into a stamped boulder or building.
+    fn trail_ground(&self, t: u8) -> bool {
+        t == self.grass
+            || t == self.dirt
+            || t == self.sand
+            || t == self.snow
+            || t == self.mud
+            || t == self.tree
+            || t == self.flower
+            || self.tall_grass.contains(&t)
+    }
+}
+
+/// Integer Bresenham line, inclusive of both endpoints, appended to `out`
+/// (skipping a duplicated joint when chaining segments).
+fn raster_line(x0: i32, y0: i32, x1: i32, y1: i32, out: &mut Vec<(i32, i32)>) {
+    let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    let (mut x, mut y) = (x0, y0);
+    loop {
+        if out.last() != Some(&(x, y)) {
+            out.push((x, y));
+        }
+        if x == x1 && y == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
+/// Eight compass directions scaled by 4, so building offsets stay pure integer math
+/// (float trig could differ across platforms and break cross-machine determinism).
+const VILLAGE_DIRS: [(i32, i32); 8] = [
+    (4, 0),
+    (3, 3),
+    (0, 4),
+    (-3, 3),
+    (-4, 0),
+    (-3, -3),
+    (0, -4),
+    (3, -3),
+];
+
+/// The 3-5 buildings of a village as `(center x, center y, half width, half height)`,
+/// spread around the plaza on hashed compass slots. Pure; shared by the blueprint and
+/// by [`chest_positions`] so chests always land on a building's floor.
+fn village_buildings(seed: i64, ox: i32, oy: i32) -> Vec<(i32, i32, i32, i32)> {
+    let h = hash(seed, 0x56C4_0001, ox, oy);
+    let n = 3 + (h % 3) as i32; // 3..=5 buildings
+    let rot = ((h >> 8) % 8) as i32;
+    let mut out = Vec::new();
+    for k in 0..n {
+        let bh = hash(seed, 0x56C4_0002_u64.wrapping_add(k as u64), ox, oy);
+        let slot = (rot + k * 8 / n).rem_euclid(8) as usize;
+        let (dx4, dy4) = VILLAGE_DIRS[slot];
+        let dist = 12 + (bh % 4) as i32; // 12..=15 tiles from the plaza center
+        let jx = ((bh >> 16) % 3) as i32 - 1;
+        let jy = ((bh >> 24) % 3) as i32 - 1;
+        let bx = ox + dx4 * dist / 4 + jx;
+        let by = oy + dy4 * dist / 4 + jy;
+        let hw = 2 + ((bh >> 32) % 2) as i32; // half-extents 2..=3 (5x5 .. 7x7)
+        let hh = 2 + ((bh >> 40) % 2) as i32;
+        out.push((bx, by, hw, hh));
+    }
+    out
 }
 
 /// The full tile footprint of one structure as `(global x, global y, tile id)` writes,
@@ -244,20 +368,303 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
             }
             w.push((ox, oy, ids.torch_dirt));
         }
+        StructureKind::Village => {
+            // a razed hamlet: broken buildings ringing an open plaza with a rubble
+            // well; worn paths link the plaza to every doorway
+            for dy in -5..=5i32 {
+                for dx in -5..=5i32 {
+                    if dx * dx + dy * dy > 26 {
+                        continue;
+                    }
+                    let (x, y) = (ox + dx, oy + dy);
+                    let t = if detail(0x56C4_0006, x, y) < 0.15 {
+                        ids.stone_floor // surviving paving stones
+                    } else {
+                        ids.dirt
+                    };
+                    w.push((x, y, t));
+                }
+            }
+            let buildings = village_buildings(seed, ox, oy);
+            // paths before buildings, so the shells stamp cleanly over the path ends
+            for &(bx, by, _, _) in &buildings {
+                let mut line = Vec::new();
+                raster_line(ox, oy, bx, by, &mut line);
+                for (x, y) in line {
+                    if detail(0x56C4_0009, x, y) < 0.15 {
+                        continue; // worn away
+                    }
+                    w.push((x, y, ids.dirt));
+                }
+            }
+            for &(bx, by, hw, hh) in &buildings {
+                // doorway on the wall facing the plaza
+                let (tx, ty) = (ox - bx, oy - by);
+                let door = if tx.abs() >= ty.abs() {
+                    (if tx > 0 { hw } else { -hw }, 0)
+                } else {
+                    (0, if ty > 0 { hh } else { -hh })
+                };
+                for dy in -hh..=hh {
+                    for dx in -hw..=hw {
+                        let (x, y) = (bx + dx, by + dy);
+                        let perimeter = dx.abs() == hw || dy.abs() == hh;
+                        let doorway = (dx, dy) == door;
+                        let standing = detail(0x56C4_0003, x, y) >= 0.35;
+                        let t = if perimeter && !doorway && standing {
+                            ids.stone_wall
+                        } else if dx == 0 && dy == 0 {
+                            ids.planks // keep the center clear: loot chests sit here
+                        } else if detail(0x56C4_0004, x, y) < 0.05 {
+                            ids.rock // rubble
+                        } else if detail(0x56C4_0005, x, y) < 0.18 {
+                            ids.dirt // floor worn through to earth
+                        } else {
+                            ids.planks
+                        };
+                        w.push((x, y, t));
+                    }
+                }
+            }
+            // the rubble well, last so it always crowns the plaza center
+            for dy in -1..=1i32 {
+                for dx in -1..=1i32 {
+                    let (x, y) = (ox + dx, oy + dy);
+                    let t = if dx == 0 && dy == 0 {
+                        ids.water
+                    } else if detail(0x56C4_0007, x, y) < 0.40 {
+                        ids.rock // collapsed ring
+                    } else {
+                        ids.stone_wall
+                    };
+                    w.push((x, y, t));
+                }
+            }
+        }
     }
     w
 }
 
+/* -------------------------------------- trails --------------------------------------- */
+
+/// Two structures link up with a trail when one is the other's nearest trail-worthy
+/// neighbor within this many tiles.
+pub const TRAIL_RANGE: i32 = 200;
+
+/// Maximum lateral wander of a trail from the straight line between its endpoints
+/// (jitter amplitude caps at `TRAIL_RANGE * 0.22` but never above this, +rounding).
+pub const TRAIL_JITTER: i32 = 16;
+
+/// Structure kinds that anchor trails (villages keep their paths internal).
+fn trail_endpoint(kind: StructureKind) -> bool {
+    matches!(
+        kind,
+        StructureKind::Ruins | StructureKind::Cemetery | StructureKind::Camp
+    )
+}
+
+/// Every trail whose geometry could touch `[x0, x1] x [y0, y1]`, as canonically ordered
+/// endpoint pairs (sorted, deduped). Pure: each trail-worthy structure connects to its
+/// nearest trail-worthy neighbor within [`TRAIL_RANGE`]; the candidate search is padded
+/// far enough that every chunk derives the identical pair set for the trails crossing
+/// it, even when both endpoints lie in other chunks.
+pub fn trails_in_rect(
+    seed: i64,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+) -> Vec<(Placement, Placement)> {
+    // an edge stays within TRAIL_RANGE + TRAIL_JITTER of either endpoint, so only
+    // endpoints inside `pad_p` matter — and their partners within another TRAIL_RANGE
+    let pad_p = TRAIL_RANGE + TRAIL_JITTER;
+    let pad_q = pad_p + TRAIL_RANGE;
+    let candidates: Vec<Placement> =
+        placements_in_rect(seed, x0 - pad_q, y0 - pad_q, x1 + pad_q, y1 + pad_q)
+            .into_iter()
+            .filter(|p| trail_endpoint(p.kind))
+            .collect();
+    let range2 = (TRAIL_RANGE as i64) * (TRAIL_RANGE as i64);
+    let mut pairs = Vec::new();
+    for p in &candidates {
+        if p.x < x0 - pad_p || p.x > x1 + pad_p || p.y < y0 - pad_p || p.y > y1 + pad_p {
+            continue;
+        }
+        let nearest = candidates
+            .iter()
+            .filter(|q| (q.x, q.y, q.kind) != (p.x, p.y, p.kind))
+            .map(|q| {
+                let (dx, dy) = ((p.x - q.x) as i64, (p.y - q.y) as i64);
+                (dx * dx + dy * dy, q)
+            })
+            .filter(|&(d2, _)| d2 <= range2)
+            .min_by_key(|&(d2, q)| (d2, q.x, q.y));
+        if let Some((_, q)) = nearest {
+            let (a, b) = if (q.x, q.y) < (p.x, p.y) {
+                (*q, *p)
+            } else {
+                (*p, *q)
+            };
+            pairs.push((a, b));
+        }
+    }
+    pairs.sort_by_key(|&(a, b)| (a.x, a.y, b.x, b.y));
+    pairs.dedup();
+    pairs
+}
+
+/// The tile writes of one trail: mostly worn dirt 1-2 wide, occasional worn-away gaps,
+/// and a chance of a torch stump where the trail meets each site. Pure function of
+/// `(seed, endpoints)` — every chunk computes the identical polyline and clips it.
+/// The curve avoids transcendental functions (only +,*,/,sqrt — IEEE-exact) so the
+/// geometry is bit-identical on every platform.
+pub fn trail_writes(seed: i64, a: Placement, b: Placement, tiles: &Tiles) -> Vec<(i32, i32, u8)> {
+    let ids = StructIds::get(tiles);
+    let (ax, ay) = (a.x as f64, a.y as f64);
+    let (dx, dy) = (b.x as f64 - ax, b.y as f64 - ay);
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 2.0 {
+        return Vec::new();
+    }
+    // per-pair key drives the wander so parallel trails don't correlate
+    let k = hash(seed, 0x7261_494C_0001, a.x, a.y) ^ hash(seed, 0x7261_494C_0002, b.x, b.y);
+    let amp = (len * 0.22).clamp(2.0, (TRAIL_JITTER - 3) as f64);
+    // smooth 1-D jitter: hashed control values every ~24 tiles, smoothstep-blended,
+    // scaled by a 4t(1-t) envelope so both ends stay anchored on their structures
+    let n_ctrl = ((len / 24.0).ceil() as i32).max(1);
+    let ctrl = |j: i32| unit(hash(seed, k ^ 0x0FF5_E750, j, 0)) - 0.5;
+    let offset = |t: f64| {
+        let s = t * n_ctrl as f64;
+        let j = s.floor();
+        let f = s - j;
+        let sm = f * f * (3.0 - 2.0 * f);
+        let v = ctrl(j as i32) * (1.0 - sm) + ctrl(j as i32 + 1) * sm;
+        4.0 * t * (1.0 - t) * amp * 2.0 * v
+    };
+    // waypoints every ~5 tiles along the straight line, displaced perpendicular
+    let steps = ((len / 5.0).ceil() as i32).max(2);
+    let (px, py) = (-dy / len, dx / len);
+    let mut path: Vec<(i32, i32)> = Vec::new();
+    let mut prev: Option<(i32, i32)> = None;
+    for i in 0..=steps {
+        let t = f64::from(i) / f64::from(steps);
+        let off = offset(t);
+        let wx = (ax + dx * t + px * off).round() as i32;
+        let wy = (ay + dy * t + py * off).round() as i32;
+        if let Some((lx, ly)) = prev {
+            raster_line(lx, ly, wx, wy, &mut path);
+        }
+        prev = Some((wx, wy));
+    }
+    let widen_vertical = dx.abs() >= dy.abs();
+    let mut w = Vec::new();
+    for &(x, y) in &path {
+        // occasional gaps: whole worn-away stretches (coarse) plus lone missing tiles
+        if unit(hash(
+            seed,
+            0x7261_494C_0003,
+            x.div_euclid(5),
+            y.div_euclid(5),
+        )) < 0.07
+        {
+            continue;
+        }
+        if unit(hash(seed, 0x7261_494C_0004, x, y)) < 0.06 {
+            continue;
+        }
+        w.push((x, y, ids.dirt));
+        // widen to 2 tiles in stretches
+        if unit(hash(seed, 0x7261_494C_0005, x, y)) < 0.40 {
+            let (wx, wy) = if widen_vertical {
+                (x, y + 1)
+            } else {
+                (x + 1, y)
+            };
+            w.push((wx, wy, ids.dirt));
+        }
+    }
+    // a torch stump where the trail meets each site (its junction with the route)
+    if path.len() >= 20 {
+        for &i in &[6, path.len() - 7] {
+            let (x, y) = path[i];
+            if unit(hash(seed, 0x7261_494C_0006, x, y)) < 0.5 {
+                w.push((x, y, ids.torch_dirt));
+            }
+        }
+    }
+    w
+}
+
+/* ------------------------------------- boulders -------------------------------------- */
+
+/// Boulder anchored at `(x, y)`: `Some(true)` for a 2x2 (covering `x..=x+1, y..=y+1`),
+/// `Some(false)` for a single rock tile. Sparse hash scatter, only in open biomes
+/// (Plains/Savanna/Tundra); stamped as plain `rock`, so breakable like any outcrop.
+pub fn boulder_at(seed: i64, x: i32, y: i32) -> Option<bool> {
+    let h = hash(seed, 0xB07D_E520_0009, x, y);
+    if unit(h) > 0.0008 {
+        return None;
+    }
+    if !matches!(
+        biome_at(seed, x, y),
+        Biome::Plains | Biome::Savanna | Biome::Tundra
+    ) {
+        return None;
+    }
+    Some(h & (1 << 40) != 0)
+}
+
 /* ----------------------------------- chunk stamping ---------------------------------- */
 
-/// Stamp every structure overlapping the chunk. Called from
+/// Stamp everything overlapping the chunk, in fixed pass order (boulders, then
+/// trails, then structures — see the module docs). Called from
 /// `infinite_gen::generate_chunk`; pure, surface only.
 pub fn stamp_chunk(seed: i64, depth: i32, cx: i32, cy: i32, chunk: &mut Chunk, tiles: &Tiles) {
     if depth != 0 {
         return;
     }
+    let ids = StructIds::get(tiles);
     let base_x = cx * CHUNK_SIZE;
     let base_y = cy * CHUNK_SIZE;
+
+    // pass 1: boulders — pad by 1 so a 2x2 anchored just outside still stamps its share
+    for y in (base_y - 1)..(base_y + CHUNK_SIZE) {
+        for x in (base_x - 1)..(base_x + CHUNK_SIZE) {
+            let Some(big) = boulder_at(seed, x, y) else {
+                continue;
+            };
+            let ext = if big { 1 } else { 0 };
+            for dy in 0..=ext {
+                for dx in 0..=ext {
+                    let (lx, ly) = (x + dx - base_x, y + dy - base_y);
+                    if (0..CHUNK_SIZE).contains(&lx) && (0..CHUNK_SIZE).contains(&ly) {
+                        chunk.tiles[(lx + ly * CHUNK_SIZE) as usize] = ids.rock;
+                    }
+                }
+            }
+        }
+    }
+
+    // pass 2: trails — only wear paths into soft ground (never water/rock/boulders)
+    for (a, b) in trails_in_rect(
+        seed,
+        base_x,
+        base_y,
+        base_x + CHUNK_SIZE - 1,
+        base_y + CHUNK_SIZE - 1,
+    ) {
+        for (x, y, t) in trail_writes(seed, a, b, tiles) {
+            let (lx, ly) = (x - base_x, y - base_y);
+            if (0..CHUNK_SIZE).contains(&lx) && (0..CHUNK_SIZE).contains(&ly) {
+                let i = (lx + ly * CHUNK_SIZE) as usize;
+                if ids.trail_ground(chunk.tiles[i]) {
+                    chunk.tiles[i] = t;
+                }
+            }
+        }
+    }
+
+    // pass 3: structures — stamped last so their footprints always win
     let placements = placements_in_rect(
         seed,
         base_x - MAX_RADIUS,
@@ -277,17 +684,30 @@ pub fn stamp_chunk(seed: i64, depth: i32, cx: i32, cy: i32, chunk: &mut Chunk, t
 
 /* ------------------------------------ loot chests ------------------------------------ */
 
-/// The global tile the structure's loot chest sits on, if the structure has one.
-/// Pure, so exactly one chunk (the one containing this tile) owns the spawn.
-pub fn chest_pos(seed: i64, p: Placement) -> Option<(i32, i32)> {
+/// The global tiles the structure's loot chests sit on (empty for chestless kinds).
+/// Pure, so exactly one chunk (the one containing each tile) owns each spawn.
+pub fn chest_positions(seed: i64, p: Placement) -> Vec<(i32, i32)> {
     match p.kind {
         // ~60% of ruins hide a chest at the center
         StructureKind::Ruins => {
-            (unit(hash(seed, 0xB1DE_0005, p.x, p.y)) < 0.60).then_some((p.x, p.y))
+            if unit(hash(seed, 0xB1DE_0005, p.x, p.y)) < 0.60 {
+                vec![(p.x, p.y)]
+            } else {
+                Vec::new()
+            }
         }
         // every camp has one, beside the lean-to
-        StructureKind::Camp => Some((p.x + 2, p.y)),
-        _ => None,
+        StructureKind::Camp => vec![(p.x + 2, p.y)],
+        // villages hold 1-2, centered in the first buildings (always plank floor)
+        StructureKind::Village => {
+            let b = village_buildings(seed, p.x, p.y);
+            let mut out = vec![(b[0].0, b[0].1)];
+            if unit(hash(seed, 0x56C4_0008, p.x, p.y)) < 0.5 {
+                out.push((b[1].0, b[1].1));
+            }
+            out
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -309,18 +729,17 @@ pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
         base_y + CHUNK_SIZE - 1 + MAX_RADIUS,
     );
     for p in placements {
-        let Some((tx, ty)) = chest_pos(seed, p) else {
-            continue;
-        };
-        if chunk_coord(tx) != cx || chunk_coord(ty) != cy {
-            continue; // another chunk owns this chest
+        for (tx, ty) in chest_positions(seed, p) {
+            if chunk_coord(tx) != cx || chunk_coord(ty) != cy {
+                continue; // another chunk owns this chest
+            }
+            let mut chest = crate::entity::furniture::chest::new();
+            fill_structure_chest(g, &mut chest, p.kind, hash(seed, 0x100D_0006, tx, ty));
+            g.level_mut(lvl).add_at(chest, tx, ty, true, lvl);
+            // touch the tile's data byte (same value) purely to set the chunk's dirty flag
+            let data = g.level(lvl).get_data(tx, ty);
+            g.level_mut(lvl).set_data(tx, ty, data);
         }
-        let mut chest = crate::entity::furniture::chest::new();
-        fill_structure_chest(g, &mut chest, p.kind, hash(seed, 0x100D_0006, tx, ty));
-        g.level_mut(lvl).add_at(chest, tx, ty, true, lvl);
-        // touch the tile's data byte (same value) purely to set the chunk's dirty flag
-        let data = g.level(lvl).get_data(tx, ty);
-        g.level_mut(lvl).set_data(tx, ty, data);
     }
 }
 
@@ -336,6 +755,18 @@ fn fill_structure_chest(
 
     // (1-in-chance, item, count) — same convention as the spawner-dungeon chests
     let loot: &[(i32, &str, i32)] = match kind {
+        // a sacked village is the richest find of the four
+        StructureKind::Village => &[
+            (2, "Torch", 3),
+            (2, "Stone", 6),
+            (2, "Bread", 2),
+            (3, "Wood", 6),
+            (3, "Cord", 2),
+            (4, "Apple", 2),
+            (5, "Coal", 4),
+            (8, "Iron", 2),
+            (12, "Gold", 1),
+        ],
         StructureKind::Ruins => &[
             (2, "Torch", 3),
             (2, "Stone", 6),
