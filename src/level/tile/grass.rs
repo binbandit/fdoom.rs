@@ -16,8 +16,8 @@ pub fn make(name: &str) -> TileDef {
     // JAVA: the constructor sets `csprite.sides = csprite.sparse`, which the two-sprite
     // ConnectorSprite constructor already did.
     def.csprite = Some(ConnectorSprite::simple(
-        Sprite::new(11, 0, 3, 3, color::get4(141, 141, 252, 321), 3),
-        Sprite::dots(color::get4(141, 141, 252, 321)),
+        Sprite::new(11, 0, 3, 3, color::get4(141, 141, 252, 240), 3),
+        Sprite::dots(color::get4(141, 141, 252, 240)),
     ));
     def.connects_to_grass = true;
     def.may_spawn = true;
