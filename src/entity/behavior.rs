@@ -572,7 +572,14 @@ pub fn is_swimming(g: &Game, e: &Entity) -> bool {
     }
     let Some(lvl) = e.c.level else { return false };
     let tile = g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4);
-    tile.name == "WATER" || tile.name == "LAVA"
+    // reef tiles are water-family: entering them means you're in the drink too
+    matches!(
+        tile.kind,
+        crate::level::tile::TileKind::Water
+            | crate::level::tile::TileKind::Lava
+            | crate::level::tile::TileKind::Seaweed
+            | crate::level::tile::TileKind::Coral
+    )
 }
 
 /// Java `Mob.hurt(Tile tile, x, y, damage)`.

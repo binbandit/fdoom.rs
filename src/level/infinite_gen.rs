@@ -197,13 +197,23 @@ pub fn biome_at(seed: i64, x: i32, y: i32) -> Biome {
         Biome::Desert
     } else if moisture > 0.74 {
         Biome::Marsh
-    } else if moisture > 0.52 {
+    } else if moisture > 0.48 {
         Biome::Forest
     } else if moisture < 0.34 {
         Biome::Savanna
     } else {
         Biome::Plains
     }
+}
+
+/// Biome lookup with per-tile domain warp: near boundaries the sample point jitters a
+/// few tiles, so biomes interleave patchily instead of switching on a hard line —
+/// patchy snow on tundra outskirts, sand freckles easing into deserts (user request).
+pub fn biome_at_blended(seed: i64, x: i32, y: i32) -> Biome {
+    let h = hash(seed, 0xB1E4D, x, y);
+    let jx = ((h >> 4) % 9) as i32 - 4;
+    let jy = ((h >> 12) % 9) as i32 - 4;
+    biome_at(seed, x + jx, y + jy)
 }
 
 /// The surface tile at a global position (before stairs/gates are stamped).
@@ -214,7 +224,7 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
         ids.tall_grass[which]
     };
 
-    match biome_at(seed, x, y) {
+    match biome_at_blended(seed, x, y) {
         Biome::Ocean => {
             // shallow-water life clings to the near-beach shelf: recompute the same
             // continental fields biome_at used (salts 1/5 — the same logical fields,
@@ -308,7 +318,7 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             // dense canopy with clearings; the cold fringe toward tundra turns to
             // pines (same temperature field as biome_at, salt 6)
             let clearing = fractal(seed, 8, x, y, 24, 2);
-            let trees = if clearing > 0.62 { 0.03 } else { 0.16 };
+            let trees = if clearing > 0.65 { 0.04 } else { 0.30 };
             if detail < trees {
                 let temperature = fractal(seed, 6, x, y, 512, 2);
                 if temperature < 0.42 {

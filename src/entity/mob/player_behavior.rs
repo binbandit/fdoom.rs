@@ -18,13 +18,31 @@ use crate::entity::mob::player::{
     MAX_STAMINA_RECHARGE, MIN_STARVE_HEALTH, PLAYER_HURT_TIME, SPRITES, SUIT_SPRITES,
 };
 use crate::entity::particle::new_text_particle;
-use crate::entity::projectile::new_arrow;
+use crate::entity::projectile::{ProjectileStyle, new_arrow, new_thrown};
 use crate::entity::{Direction, Entity, EntityKind};
 use crate::gfx::{MobAnims, Point, Rectangle, Screen, color};
 use crate::item::{Item, ItemKind, PotionType, ToolType, interact as item_interact, registry};
 use crate::level;
 use crate::level::tile::dispatch as tiles;
 use crate::rng::Rng;
+
+// ---- Post-port ranged/thrown weapon tuning (see docs/ITEMS_AND_CRAFTING.md) ----
+/// Crossbow bolt damage — vs the Bow, whose bolt damage is its 0..=5 tool tier.
+const CROSSBOW_DAMAGE: i32 = 7;
+/// `attack_time` set on a crossbow shot; it doubles as the re-cock delay (a click while
+/// `attack_time > 0` is a dry trigger pull).
+const CROSSBOW_COOLDOWN: i32 = 30;
+/// Slingshot pellets ride on the arrow-vs-mob +3/+1 bonus alone — the weak opener.
+const SLINGSHOT_DAMAGE: i32 = 0;
+const PELLET_RANGE_TICKS: i32 = 12;
+const KNIFE_DAMAGE: i32 = 2;
+const KNIFE_RANGE_TICKS: i32 = 15;
+/// Thrown spear damage = base + 2 per tool tier.
+const SPEAR_THROW_BASE: i32 = 2;
+const SPEAR_RANGE_TICKS: i32 = 16;
+/// Extra melee reach (px past `ATTACK_DIST`) for a held spear.
+const SPEAR_REACH_BONUS: i32 = 8;
+const THROWING_KNIFE: &str = "Throwing Knife";
 
 /// Java `Player.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
@@ -326,7 +344,22 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         // this only allows attacks or pickups when such action is possible.
         // JAVA: `(activeItem == null || !activeItem.used_pending)` — used_pending is a
         // network-sync flag, always false offline.
-        let attack_clicked = g.input.get_key("attack").clicked;
+        let mut attack_clicked = g.input.get_key("attack").clicked;
+        // Post-port: SHIFT-attack throws a held spear. The plain "attack" binding never
+        // fires while SHIFT is held (modifier matching zeroes it), so check the shifted
+        // chords explicitly — but only route them to attack() while a spear is in hand,
+        // leaving every other SHIFT combo's behavior untouched.
+        if !attack_clicked
+            && matches!(
+                e.player().active_item.as_ref().map(|i| &i.kind),
+                Some(ItemKind::Tool {
+                    ttype: ToolType::Spear,
+                    ..
+                })
+            )
+        {
+            attack_clicked = g.input.get_key("shift-space|shift-c").clicked;
+        }
         let pickup_clicked = g.input.get_key("pickup").clicked;
         if (attack_clicked || pickup_clicked) && e.player().stamina != 0 {
             if !e.player().potioneffects.contains_key(&PotionType::Energy) {
@@ -531,26 +564,123 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
     if let Some((ttype, tool_level, dur)) = tool {
         // JAVA: `stamina - 1 >= 0` — preserved verbatim.
         #[allow(clippy::int_plus_one)]
-        if e.player().stamina - 1 >= 0 && ttype == ToolType::Bow && dur > 0 {
-            let arrow = registry::arrow_item(g);
-            if e.player().inventory.count(&arrow) > 0 {
-                // if the player is holding a bow, and has arrows...
-                if !creative {
-                    e.player_mut().inventory.remove_item(&arrow);
-                }
-                let arrow_entity = new_arrow(e.c.eid, e.c.x, e.c.y, attack_dir, tool_level);
-                g.level_mut(lvl).add(arrow_entity, lvl);
-                e.player_mut().attack_time = 10;
-                if !creative {
-                    if let Some(item) = e.player_mut().active_item.as_mut() {
-                        if let ItemKind::Tool { dur, .. } = &mut item.kind {
-                            *dur -= 1;
+        if e.player().stamina - 1 >= 0 && dur > 0 {
+            match ttype {
+                ToolType::Bow => {
+                    let arrow = registry::arrow_item(g);
+                    if e.player().inventory.count(&arrow) > 0 {
+                        // if the player is holding a bow, and has arrows...
+                        if !creative {
+                            e.player_mut().inventory.remove_item(&arrow);
                         }
+                        let arrow_entity = new_arrow(e.c.eid, e.c.x, e.c.y, attack_dir, tool_level);
+                        g.level_mut(lvl).add(arrow_entity, lvl);
+                        e.player_mut().attack_time = 10;
+                        pay_ranged_durability(e, creative);
+                        return; // we have attacked!
                     }
                 }
-                return; // we have attacked!
+                ToolType::Crossbow => {
+                    // still re-cocking: the click is a dry trigger pull.
+                    if e.player().attack_time > 0 {
+                        return;
+                    }
+                    let arrow = registry::arrow_item(g);
+                    if e.player().inventory.count(&arrow) > 0 {
+                        if !creative {
+                            e.player_mut().inventory.remove_item(&arrow);
+                        }
+                        let bolt = new_arrow(e.c.eid, e.c.x, e.c.y, attack_dir, CROSSBOW_DAMAGE);
+                        g.level_mut(lvl).add(bolt, lvl);
+                        e.player_mut().attack_time = CROSSBOW_COOLDOWN;
+                        pay_ranged_durability(e, creative);
+                        return;
+                    }
+                }
+                ToolType::Slingshot => {
+                    let stone = registry::get(g, "Stone");
+                    if e.player().inventory.count(&stone) > 0 {
+                        if !creative {
+                            e.player_mut().inventory.remove_items(&stone, 1);
+                        }
+                        let pellet = new_thrown(
+                            e.c.eid,
+                            e.c.x,
+                            e.c.y,
+                            attack_dir,
+                            SLINGSHOT_DAMAGE,
+                            ProjectileStyle::Pellet,
+                            PELLET_RANGE_TICKS,
+                            None,
+                        );
+                        g.level_mut(lvl).add(pellet, lvl);
+                        e.player_mut().attack_time = 10;
+                        pay_ranged_durability(e, creative);
+                        return;
+                    }
+                }
+                ToolType::Spear if g.input.get_key("shift").down => {
+                    // SHIFT-attack: throw the spear itself; it lands as a pickup
+                    // (durability preserved through the payload data string).
+                    if let Some(item) = e.player_mut().active_item.take() {
+                        let spear = new_thrown(
+                            e.c.eid,
+                            e.c.x,
+                            e.c.y,
+                            attack_dir,
+                            SPEAR_THROW_BASE + tool_level * 2,
+                            ProjectileStyle::Spear,
+                            SPEAR_RANGE_TICKS,
+                            Some(item.get_data()),
+                        );
+                        g.level_mut(lvl).add(spear, lvl);
+                        e.player_mut().attack_time = 15;
+                    }
+                    return;
+                }
+                _ => {}
             }
         }
+    }
+
+    // Post-port: a held Throwing Knife is thrown by the attack key — it lands where it
+    // stops (or in whatever it hits) as a pickup, so knives are recoverable.
+    let holding_knife = e.player().active_item.as_ref().is_some_and(|i| {
+        matches!(i.kind, ItemKind::Stackable { .. })
+            && i.get_name().eq_ignore_ascii_case(THROWING_KNIFE)
+    });
+    #[allow(clippy::int_plus_one)]
+    if holding_knife && e.player().stamina - 1 >= 0 {
+        if !creative {
+            if let Some(count) = e
+                .player_mut()
+                .active_item
+                .as_mut()
+                .and_then(|i| i.count_mut())
+            {
+                *count -= 1;
+            }
+            if e.player()
+                .active_item
+                .as_ref()
+                .is_some_and(|i| i.is_depleted())
+            {
+                e.player_mut().active_item = None;
+            }
+        }
+        let knife = new_thrown(
+            e.c.eid,
+            e.c.x,
+            e.c.y,
+            attack_dir,
+            KNIFE_DAMAGE,
+            ProjectileStyle::Knife,
+            KNIFE_RANGE_TICKS,
+            Some(format!("{THROWING_KNIFE}_1")),
+        );
+        g.level_mut(lvl).add(knife, lvl);
+        e.player_mut().attack_time = 10;
+        return;
     }
 
     let mut done = false; // we're not done yet (we just started!)
@@ -567,11 +697,13 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
 
         // otherwise, attempt to interact with the tile.
         let t = get_interaction_tile(e);
-        let (w, h) = {
+        // Finite levels bound-check the target; infinite layers have no edges (this
+        // guard silently ate every attack at negative coordinates — half the world).
+        let in_bounds = g.level(lvl).is_infinite() || {
             let l = g.level(lvl);
-            (l.w, l.h)
+            t.x >= 0 && t.y >= 0 && t.x < l.w && t.y < l.h
         };
-        if t.x >= 0 && t.y >= 0 && t.x < w && t.y < h {
+        if in_bounds {
             // if the target coordinates are a valid tile...
             // JAVA: getEntitiesInTiles(t.x, t.y, t.x, t.y, false, ItemEntity.class) — all
             // entities on the target tile EXCEPT item entities.
@@ -634,17 +766,29 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
     {
         // if there is no active item, OR if the item can be used to attack...
         e.player_mut().attack_time = 5;
-        // attacks the enemy in the appropriate direction.
-        let area = get_interaction_box(e, ATTACK_DIST);
+        // attacks the enemy in the appropriate direction. (post-port: a spear reaches
+        // further than any other melee swing)
+        let attack_dist = if matches!(
+            e.player().active_item.as_ref().map(|i| &i.kind),
+            Some(ItemKind::Tool {
+                ttype: ToolType::Spear,
+                ..
+            })
+        ) {
+            ATTACK_DIST + SPEAR_REACH_BONUS
+        } else {
+            ATTACK_DIST
+        };
+        let area = get_interaction_box(e, attack_dist);
         let mut used = hurt_area(g, e, &area, attack_dir);
 
         // attempts to hurt the tile in the appropriate direction.
         let t = get_interaction_tile(e);
-        let (w, h) = {
+        let in_bounds = g.level(lvl).is_infinite() || {
             let l = g.level(lvl);
-            (l.w, l.h)
+            t.x >= 0 && t.y >= 0 && t.x < l.w && t.y < l.h
         };
-        if t.x >= 0 && t.y >= 0 && t.x < w && t.y < h {
+        if in_bounds {
             let tile = g.tile_at(lvl, t.x, t.y);
             let dmg = g.random.next_int_bound(3) + 1;
             used = tiles::hurt_by(g, &tile, lvl, t.x, t.y, e, dmg, attack_dir) || used;
@@ -659,6 +803,18 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
             // ((ToolItem)activeItem).payDurability()
             if let Some(item) = e.player_mut().active_item.as_mut() {
                 item.pay_durability(creative);
+            }
+        }
+    }
+}
+
+/// One durability point for firing a ranged tool (bow/crossbow/slingshot) — the shape
+/// the Java bow branch used inline.
+fn pay_ranged_durability(e: &mut Entity, creative: bool) {
+    if !creative {
+        if let Some(item) = e.player_mut().active_item.as_mut() {
+            if let ItemKind::Tool { dur, .. } = &mut item.kind {
+                *dur -= 1;
             }
         }
     }
@@ -844,6 +1000,8 @@ fn get_attack_damage_bonus(g: &mut Game, item: &mut Item, creative: bool) -> i32
         ToolType::Sword => (level + 1) * 3 + g.random.next_int_bound(2 + level * level),
         // crude: 3-6 bonus; gem: 18-96 bonus.
         ToolType::Claymore => (level + 1) * 3 + g.random.next_int_bound(4 + level * level * 3),
+        // post-port spear bonus: crude 2-3; gem 12-18 — reach over raw power.
+        ToolType::Spear => (level + 1) * 2 + g.random.next_int_bound(2 + level),
         // all other tools do very little damage to mobs.
         _ => 1,
     }
