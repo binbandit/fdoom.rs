@@ -60,6 +60,13 @@
 //! - creeper cell (9,19) doubles as the spawner fire particle (flame palette): its
 //!   layered blob reads as a foot in green and as a flame in orange.
 //!
+//! Item icons are auto-centered in their 8x8 cell (`item_icon`/`center8`) so they all
+//! share the same bounding-box alignment in inventory lists and the HUD.
+//!
+//! Cells (8..11,5) are RESERVED for the upcoming crafting overhaul (fiber, stick,
+//! cord, sharp stone — grayscale item icons, not referenced by game code yet); see
+//! `items_row5`.
+//!
 //! The full referenced-cell inventory lives in `tests/artgen_sheet.rs`.
 
 use std::fs::File;
@@ -747,40 +754,62 @@ fn floor_cells(s: &mut Sheet) {
 /// Tree cells (true color; transparent shows the grass/snow drawn underneath):
 /// (9,0) top-left, (10,0) top-right, (9,1) bottom-left, (10,3) bottom-right of a
 /// free-standing tree; (10,1) full-canopy fill, (10,2) canopy fill with a bark gap.
+///
+/// Forests spawn trees adjacent, and `TreeTile::render` only swaps in the canopy-fill
+/// cells on fully surrounded corners — every other tree in a cluster is drawn with
+/// these standalone quarters. So the canopy is a full-tile dome whose left/right/top
+/// edges reach the tile border: adjacent trees visually merge into one forest roof,
+/// and only the rounded corners let grass scallop the cluster edge. The interior
+/// texture uses the same speck seeds as the (10,1) fill cell so they blend seamlessly.
 fn tree_cells(s: &mut Sheet) {
-    let map: &[(char, Ink)] = &[
-        ('o', OUT),
-        ('d', LEAF_DK),
-        ('m', LEAF_MD),
-        ('l', LEAF_LT),
-        ('h', LEAF_HI),
-        ('b', BARK),
-        ('k', BARK_DK),
-    ];
     // free-standing tree, 16x16; the four 8x8 quarters land on their cells below
-    let tree: [&str; 16] = [
-        ".....ooooo......",
-        "...oomlllmoo....",
-        "..omlhhhlllmo...",
-        ".omlhlllllllmo..",
-        ".omllllllmmlmo..",
-        "omllllmmmmmllmo.",
-        "omlllmmmmmmdlmo.",
-        "omdmmmmmddddmmo.",
-        ".omdmmdddddmmo..",
-        "..oomdddddmoo...",
-        "....oodbkoo.....",
-        "......bbk.......",
-        "......bbk.......",
-        "......bbk.......",
-        ".....obbko......",
-        "................",
-    ];
+    let mut px = [[TR; 16]; 16];
+    for y in 0..13i32 {
+        for x in 0..16i32 {
+            if !rounded_inside(x, y, 16, 13, 0, 5) {
+                continue;
+            }
+            let mut ink = LEAF_MD;
+            if !rounded_inside(x, y, 16, 13, 1, 5) {
+                ink = LEAF_DK; // dark rim
+            } else {
+                if speck(x, y, 61, 4) {
+                    ink = LEAF_DK;
+                }
+                if speck(x, y, 62, 9) {
+                    ink = LEAF_LT;
+                }
+                if y >= 10 {
+                    // under-canopy shadow above the trunk
+                    if (x + y) & 1 == 0 {
+                        ink = LEAF_DK;
+                    }
+                } else if x + y <= 9 && !rounded_inside(x, y, 16, 13, 3, 5) {
+                    // sun-lit top-left sweep
+                    ink = if x + y <= 6 { LEAF_HI } else { LEAF_LT };
+                }
+            }
+            px[y as usize][x as usize] = ink;
+        }
+    }
+    // trunk peeking out under the canopy
+    for row in px.iter_mut().take(15).skip(13) {
+        row[6] = OUT;
+        row[7] = BARK;
+        row[8] = BARK_DK;
+        row[9] = OUT;
+    }
     let quarters = [(9, 0, 0, 0), (10, 0, 8, 0), (9, 1, 0, 8), (10, 3, 8, 8)];
-    for (cx, cy, px, py) in quarters {
+    for (cx, cy, ox, oy) in quarters {
         let mut c = cell(s, cx, cy);
-        let rows: Vec<&str> = tree[py..py + 8].iter().map(|r| &r[px..px + 8]).collect();
-        c.pat(0, 0, &rows, map);
+        for y in 0..8i32 {
+            for x in 0..8i32 {
+                let ink = px[(oy + y) as usize][(ox + x) as usize];
+                if ink[3] != 0 {
+                    c.set(x, y, ink);
+                }
+            }
+        }
     }
     // (10,1): solid canopy fill for forest interiors
     let mut c = cell(s, 10, 1);
@@ -795,24 +824,26 @@ fn tree_cells(s: &mut Sheet) {
             }
         }
     }
-    // (10,2): canopy fill with a bark gap (trunks peeking through the forest roof)
+    // (10,2): canopy fill with a small bark knot (trunks peeking through the roof)
     let mut c = cell(s, 10, 2);
     c.rect(0, 0, 8, 8, LEAF_MD);
     for y in 0..8 {
         for x in 0..8 {
-            if speck(x, y, 63, 4) {
+            if speck(x, y, 61, 4) {
                 c.set(x, y, LEAF_DK);
+            }
+            if speck(x, y, 62, 9) {
+                c.set(x, y, LEAF_LT);
             }
         }
     }
     c.pat(
         2,
-        2,
+        3,
         &[
-            "dddd", //
+            ".dd.", //
             "dbkd", //
-            "dbkd", //
-            "dddd", //
+            ".dd.", //
         ],
         &[('d', LEAF_DK), ('b', BARK), ('k', BARK_DK)],
     );
@@ -834,12 +865,62 @@ fn icon8(s: &mut Sheet, cx: i32, cy: i32, rows: &[&str]) {
     c.pat(0, 0, rows, PMAP);
 }
 
+/// Recenter the non-shade0 content of an 8x8 palette cell (floor-of-half margins on
+/// both axes), so every item icon shares the same bounding-box alignment in the UI.
+fn center8(s: &mut Sheet, cx: i32, cy: i32) {
+    let (ox, oy) = (cx * 8, cy * 8);
+    let (mut x0, mut y0, mut x1, mut y1) = (8i32, 8i32, -1i32, -1i32);
+    for y in 0..8 {
+        for x in 0..8 {
+            if s.get(ox + x, oy + y) != G0 {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    if x1 < 0 {
+        return; // empty cell
+    }
+    let dx = (8 - (x1 - x0 + 1)) / 2 - x0;
+    let dy = (8 - (y1 - y0 + 1)) / 2 - y0;
+    if dx == 0 && dy == 0 {
+        return;
+    }
+    let mut buf = [[G0; 8]; 8];
+    for (y, row) in buf.iter_mut().enumerate() {
+        for (x, p) in row.iter_mut().enumerate() {
+            *p = s.get(ox + x as i32, oy + y as i32);
+        }
+    }
+    for y in 0..8i32 {
+        for x in 0..8i32 {
+            let (sx, sy) = (x - dx, y - dy);
+            let ink = if (0..8).contains(&sx) && (0..8).contains(&sy) {
+                buf[sy as usize][sx as usize]
+            } else {
+                G0
+            };
+            s.set(ox + x, oy + y, ink);
+        }
+    }
+}
+
+/// An 8x8 *item* icon: `icon8` plus auto-centering. Use this for anything that shows
+/// up in inventory/crafting lists or the HUD status rows; keep raw `icon8` for
+/// position-sensitive cells (frame pieces, slashes, particles).
+fn item_icon(s: &mut Sheet, cx: i32, cy: i32, rows: &[&str]) {
+    icon8(s, cx, cy, rows);
+    center8(s, cx, cy);
+}
+
 /// Row 4: the stackable/food/tile item icons. shade0 = transparent background,
 /// 1 = dark/outline, 2 = mid, 3 = light (see header for per-item palette roles).
 #[rustfmt::skip]
 fn items_row4(s: &mut Sheet) {
     // (0,4) flower/rose: stem 1, petals 2, heart 3
-    icon8(s, 0, 4, &[
+    item_icon(s, 0, 4, &[
         "........",
         "..2.2...",
         ".23332..",
@@ -850,7 +931,7 @@ fn items_row4(s: &mut Sheet) {
         "...1....",
     ]);
     // (1,4) plank / brick / cloth: a rounded slab with grain
-    icon8(s, 1, 4, &[
+    item_icon(s, 1, 4, &[
         "........",
         ".111111.",
         "12223221",
@@ -861,7 +942,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (2,4) generic lump (dirt/sand/wool/stone/gunpowder/cloud/wool colors)
-    icon8(s, 2, 4, &[
+    item_icon(s, 2, 4, &[
         "........",
         "..1111..",
         ".132221.",
@@ -872,7 +953,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (3,4) acorn: cap 3, body 2
-    icon8(s, 3, 4, &[
+    item_icon(s, 3, 4, &[
         "...11...",
         "..1331..",
         ".133331.",
@@ -883,7 +964,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (4,4) cactus (item): body 2, rib 1, bloom 3
-    icon8(s, 4, 4, &[
+    item_icon(s, 4, 4, &[
         "...32...",
         "...32...",
         "2..32..2",
@@ -894,7 +975,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (5,4) seeds: a scattered handful
-    icon8(s, 5, 4, &[
+    item_icon(s, 5, 4, &[
         "........",
         "..2..3..",
         ".....2..",
@@ -906,7 +987,7 @@ fn items_row4(s: &mut Sheet) {
     ]);
     // (6,4) wheat sheaf (NOTE: the fence tile reuses this cell with an inverted
     // palette; keep the art in shades 1-3 so the fence stays mostly readable)
-    icon8(s, 6, 4, &[
+    item_icon(s, 6, 4, &[
         "....3...",
         "...32.3.",
         "..32232.",
@@ -917,7 +998,7 @@ fn items_row4(s: &mut Sheet) {
         ".1.1....",
     ]);
     // (7,4) power glove
-    icon8(s, 7, 4, &[
+    item_icon(s, 7, 4, &[
         "........",
         "..1111..",
         ".122221.",
@@ -928,7 +1009,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (8,4) bread loaf with score marks
-    icon8(s, 8, 4, &[
+    item_icon(s, 8, 4, &[
         "........",
         "..1111..",
         ".123221.",
@@ -939,7 +1020,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (9,4) apple: body 3, shaded side 2, stem 1
-    icon8(s, 9, 4, &[
+    item_icon(s, 9, 4, &[
         "...1....",
         "..31....",
         ".33332..",
@@ -950,7 +1031,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (10,4) ore chunk (coal/iron/lapis/gold/slime ball)
-    icon8(s, 10, 4, &[
+    item_icon(s, 10, 4, &[
         "........",
         "..111...",
         ".13231..",
@@ -961,7 +1042,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (11,4) ingot bar
-    icon8(s, 11, 4, &[
+    item_icon(s, 11, 4, &[
         "........",
         "........",
         ".111111.",
@@ -972,7 +1053,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (12,4) glass pane with a diagonal shine
-    icon8(s, 12, 4, &[
+    item_icon(s, 12, 4, &[
         ".111111.",
         "12222321",
         "12223221",
@@ -983,7 +1064,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (13,4) gem: cut diamond
-    icon8(s, 13, 4, &[
+    item_icon(s, 13, 4, &[
         "........",
         "..111...",
         ".13231..",
@@ -994,7 +1075,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (14,4) book: cover 2, page edge 3
-    icon8(s, 14, 4, &[
+    item_icon(s, 14, 4, &[
         "........",
         ".11111..",
         "1222231.",
@@ -1005,7 +1086,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (15,4) bone
-    icon8(s, 15, 4, &[
+    item_icon(s, 15, 4, &[
         "........",
         ".23...3.",
         "33323333",
@@ -1016,7 +1097,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (16,4) wall (item): bricks 2/3, mortar 1
-    icon8(s, 16, 4, &[
+    item_icon(s, 16, 4, &[
         "........",
         "11111111",
         "12231221",
@@ -1027,7 +1108,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (17,4) door (item): face 2, knob 3
-    icon8(s, 17, 4, &[
+    item_icon(s, 17, 4, &[
         ".11111..",
         ".12221..",
         ".12221..",
@@ -1038,7 +1119,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (18,4) torch item: INVERTED palette roles — flame 1(red)/2(orange), stick 3
-    icon8(s, 18, 4, &[
+    item_icon(s, 18, 4, &[
         "...1....",
         "..121...",
         "..122...",
@@ -1049,7 +1130,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (19,4) leather hide
-    icon8(s, 19, 4, &[
+    item_icon(s, 19, 4, &[
         "........",
         ".2...2..",
         ".22222..",
@@ -1060,7 +1141,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (20,4) meat chop: meat 2, bone stub 3
-    icon8(s, 20, 4, &[
+    item_icon(s, 20, 4, &[
         "........",
         "..1111..",
         ".122221.",
@@ -1071,7 +1152,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (21,4) bucket: body 1, contents 2 (fill color!), rim 3
-    icon8(s, 21, 4, &[
+    item_icon(s, 21, 4, &[
         "........",
         ".333333.",
         ".122221.",
@@ -1082,7 +1163,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (22,4) scale: fan shell
-    icon8(s, 22, 4, &[
+    item_icon(s, 22, 4, &[
         "........",
         "...11...",
         "..1221..",
@@ -1093,7 +1174,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (23,4) shard: angular fragment
-    icon8(s, 23, 4, &[
+    item_icon(s, 23, 4, &[
         "....1...",
         "...12...",
         "..1232..",
@@ -1104,7 +1185,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (24,4) fish: body 2, eye/belly 3
-    icon8(s, 24, 4, &[
+    item_icon(s, 24, 4, &[
         "........",
         "..2222.2",
         ".2322222",
@@ -1115,7 +1196,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (25,4) string: a loose coil
-    icon8(s, 25, 4, &[
+    item_icon(s, 25, 4, &[
         "........",
         "..2222..",
         ".23..32.",
@@ -1126,7 +1207,7 @@ fn items_row4(s: &mut Sheet) {
         ".....2..",
     ]);
     // (26,4) key: shades 0 AND 1 are transparent for keys — art in 2-3 only
-    icon8(s, 26, 4, &[
+    item_icon(s, 26, 4, &[
         "........",
         ".333....",
         ".3.3....",
@@ -1137,7 +1218,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (27,4) potion: glass 1, cork 2, liquid 3
-    icon8(s, 27, 4, &[
+    item_icon(s, 27, 4, &[
         "...22...",
         "...11...",
         "..1331..",
@@ -1148,7 +1229,7 @@ fn items_row4(s: &mut Sheet) {
         "........",
     ]);
     // (28,4) wood log with end rings
-    icon8(s, 28, 4, &[
+    item_icon(s, 28, 4, &[
         "........",
         ".111111.",
         "12222321",
@@ -1161,7 +1242,13 @@ fn items_row4(s: &mut Sheet) {
 }
 
 /// Row 5: tools (1 = outline, 2 = wooden handle, 3 = head/tier color), the four flight
-/// arrows and a couple of stackables.
+/// arrows, a couple of stackables, and four cells RESERVED for the upcoming crafting
+/// overhaul (grayscale item icons, shade0 bg, not referenced by game code yet):
+///
+/// - (8,5)  FIBER — grass-blade bundle tied at the middle
+/// - (9,5)  STICK — diagonal branch with a twig stub
+/// - (10,5) CORD — coiled rope with a loose end
+/// - (11,5) SHARP STONE — knapped flake
 #[rustfmt::skip]
 fn items_row5(s: &mut Sheet) {
     // (0,5) shovel
@@ -1297,7 +1384,7 @@ fn items_row5(s: &mut Sheet) {
         "........",
     ]);
     // (20,5) stick
-    icon8(s, 20, 5, &[
+    item_icon(s, 20, 5, &[
         "......3.",
         ".....32.",
         "....32..",
@@ -1308,7 +1395,7 @@ fn items_row5(s: &mut Sheet) {
         "........",
     ]);
     // (21,5) grass fibers
-    icon8(s, 21, 5, &[
+    item_icon(s, 21, 5, &[
         "........",
         "3..3..3.",
         ".2.2.2..",
@@ -1318,56 +1405,110 @@ fn items_row5(s: &mut Sheet) {
         "..2.....",
         "........",
     ]);
+
+    // ---- RESERVED crafting-overhaul icons (see fn doc) ----
+    // (8,5) FIBER: blade bundle 2, seed tips 3, tie band 1
+    item_icon(s, 8, 5, &[
+        ".3.3.3..",
+        ".2.2.2..",
+        ".2.2.2..",
+        ".11111..",
+        ".2.2.2..",
+        ".2.2.2..",
+        "........",
+        "........",
+    ]);
+    // (9,5) STICK: thick diagonal branch (3 = lit top, 2 = shadow), twig stub upper-left
+    item_icon(s, 9, 5, &[
+        "......13",
+        "..3..132",
+        "...3132.",
+        "...132..",
+        "..132...",
+        ".132....",
+        "132.....",
+        "........",
+    ]);
+    // (10,5) CORD: coiled rope donut (strand twists 3) with a loose end
+    item_icon(s, 10, 5, &[
+        "..1111..",
+        ".123231.",
+        "123..321",
+        "132..231",
+        ".123321.",
+        "..1111..",
+        "....221.",
+        "........",
+    ]);
+    // (11,5) SHARP STONE: knapped flake — point up, sharp edge 3, facet body 2
+    item_icon(s, 11, 5, &[
+        "....11..",
+        "...131..",
+        "..1331..",
+        ".13321..",
+        ".13221..",
+        "12221...",
+        "1111....",
+        "........",
+    ]);
 }
 
 /* ==============================  UI (rows 11-13)  ============================== */
 
 /// Row 12: HUD status icons + the smash particle + the clothing item.
+///
+/// HUD palettes (renderer.rs render_gui): heart get4(-1,200,500,533) — 1 = dark-red
+/// rim, 2 = fill, 3 = shine; empty variants swap shades 2-3 to black, so the shade1
+/// rim must carry the full silhouette on its own.
 #[rustfmt::skip]
 fn ui_row12(s: &mut Sheet) {
-    // (0,12) heart: fill 2, shine 3, dark rim 1
-    icon8(s, 0, 12, &[
-        ".22.22..",
-        "2322222.",
-        "2322222.",
+    // (0,12) heart: classic two-lobe heart, full dark rim 1, fill 2, shine 3
+    item_icon(s, 0, 12, &[
+        ".11.11..",
+        "1322231.",
+        "1222221.",
         "1222221.",
         ".12221..",
         "..121...",
         "...1....",
         "........",
     ]);
-    // (1,12) stamina bolt
-    icon8(s, 1, 12, &[
-        "....33..",
-        "...33...",
-        "..33332.",
-        "....32..",
-        "...32...",
-        "..32....",
-        ".2......",
+    // (1,12) stamina: classic zigzag lightning bolt — pale core 3, yellow shade 2,
+    // dark trailing edge 1 (keeps the silhouette readable in the depleted variant,
+    // whose palette turns shades 2-3 black)
+    item_icon(s, 1, 12, &[
+        "...3321.",
+        "..3321..",
+        ".3321...",
+        ".333321.",
+        "...321..",
+        "..321...",
+        ".321....",
         "........",
     ]);
-    // (2,12) hunger burger: buns 2, patty 3, rim 1
-    icon8(s, 2, 12, &[
-        "........",
-        ".122221.",
-        "12222221",
-        "13333331",
-        "12222221",
-        ".122221.",
-        "........",
-        "........",
-    ]);
-    // (3,12) armor: shield (also the armor items' sprite)
-    icon8(s, 3, 12, &[
-        ".111111.",
-        "12222221",
-        "12233221",
-        "12233221",
-        ".122221.",
+    // (2,12) hunger: drumstick — round meat 2 (orange), roast shading 3, thin bone
+    // with a knob (shade3; the hunger palette has no light shade, so the bone reads
+    // as the dark part of the silhouette)
+    item_icon(s, 2, 12, &[
+        "..111...",
         ".12221..",
-        "..121...",
-        "...1....",
+        "122221..",
+        "122231..",
+        ".12231..",
+        "...133..",
+        "....333.",
+        "........",
+    ]);
+    // (3,12) armor: kite shield (also the armor items' sprite) — face 2, chevron 3
+    item_icon(s, 3, 12, &[
+        ".111111.",
+        "12233221",
+        "12233221",
+        "12233221",
+        ".122221.",
+        "..1221..",
+        "...11...",
+        "........",
     ]);
     // (5,12) smash particle: one quadrant of the burst, mirrored around the
     // tile center in-game (rays radiate from this cell's top-right corner)
@@ -1382,7 +1523,7 @@ fn ui_row12(s: &mut Sheet) {
         "........",
     ]);
     // (6,12) clothes: folded shirt, body 3, folds 2
-    icon8(s, 6, 12, &[
+    item_icon(s, 6, 12, &[
         "........",
         ".11..11.",
         "13311331",
@@ -2135,7 +2276,7 @@ fn furniture_sprites(s: &mut Sheet) {
 #[rustfmt::skip]
 fn furniture_icons(s: &mut Sheet) {
     // (0,10) anvil
-    icon8(s, 0, 10, &[
+    item_icon(s, 0, 10, &[
         "........",
         ".333333.",
         ".222222.",
@@ -2146,7 +2287,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (1,10) chest
-    icon8(s, 1, 10, &[
+    item_icon(s, 1, 10, &[
         "........",
         ".111111.",
         "13333331",
@@ -2157,7 +2298,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (2,10) oven
-    icon8(s, 2, 10, &[
+    item_icon(s, 2, 10, &[
         "........",
         "..1111..",
         ".133331.",
@@ -2168,7 +2309,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (3,10) furnace
-    icon8(s, 3, 10, &[
+    item_icon(s, 3, 10, &[
         "........",
         ".111111.",
         "12222221",
@@ -2179,7 +2320,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (4,10) workbench
-    icon8(s, 4, 10, &[
+    item_icon(s, 4, 10, &[
         "........",
         "........",
         ".111111.",
@@ -2190,7 +2331,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (5,10) lantern
-    icon8(s, 5, 10, &[
+    item_icon(s, 5, 10, &[
         "...11...",
         "..1111..",
         ".123321.",
@@ -2201,7 +2342,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (6,10) enchanter (open tome + sparkle)
-    icon8(s, 6, 10, &[
+    item_icon(s, 6, 10, &[
         "..3..3..",
         "........",
         ".111111.",
@@ -2212,7 +2353,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (7,10) tnt
-    icon8(s, 7, 10, &[
+    item_icon(s, 7, 10, &[
         "....1...",
         ".111111.",
         "12222221",
@@ -2223,7 +2364,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (8,10) bed
-    icon8(s, 8, 10, &[
+    item_icon(s, 8, 10, &[
         "........",
         "........",
         ".111111.",
@@ -2234,7 +2375,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (9,10) loom
-    icon8(s, 9, 10, &[
+    item_icon(s, 9, 10, &[
         "........",
         ".111111.",
         "1.2.2.21",
@@ -2245,7 +2386,7 @@ fn furniture_icons(s: &mut Sheet) {
         "........",
     ]);
     // (10,10) spawner
-    icon8(s, 10, 10, &[
+    item_icon(s, 10, 10, &[
         "........",
         ".111111.",
         "1.1..1.1",
@@ -2270,9 +2411,10 @@ fn frame16(s: &mut Sheet, cx: i32, cy: i32, rows: &[&str]) {
 }
 
 /// Humanoids (player/zombie share cells 0,14; the "suit" is the player skin variant):
-/// composed from a 9-row head (per facing) + a 7-row body (per frame), so all eight
-/// player sets stay consistent.
-fn humanoid(s: &mut Sheet, cx: i32, cy: i32, heads: [&[&str; 9]; 3], bodies: [&[&str; 7]; 4]) {
+/// composed from a 7-row head (per facing) + a 9-row body (per frame), so all eight
+/// player sets stay consistent. The head sits directly on the shoulder line — no neck
+/// row — matching the proportion discipline of the original Java sprite.
+fn humanoid(s: &mut Sheet, cx: i32, cy: i32, heads: [&[&str; 7]; 3], bodies: [&[&str; 9]; 4]) {
     for (i, body) in bodies.iter().enumerate() {
         let head = match i {
             0 => heads[0],
@@ -2289,10 +2431,14 @@ fn humanoid(s: &mut Sheet, cx: i32, cy: i32, heads: [&[&str; 9]; 3], bodies: [&[
 // IMPORTANT animation contract (see `compile_mob_sprite_animations`): the second walk
 // frame for down/up is this art *horizontally mirrored*, and left is the mirrored right
 // frames. Down/up frames MUST therefore be left-right asymmetric (arm swing + one boot
-// planted, one lifted) or walking shows no animation at all.
+// planted, one extended) or walking shows no animation at all.
 //
-// bare head: shade1 hair cap, shade3 face, shade1 eyes (8px wide — slim silhouette)
-const HEAD_DOWN: [&str; 9] = [
+// Proportions (matching the original Java sprite's discipline): 7-row head, identical
+// size in all four directions, sitting directly on the shoulder line — no neck row;
+// body as wide as the head; legs 2px wide with a clear stance change between frames.
+//
+// bare head: shade1 hair, shade3 face, shade1 eyes
+const HEAD_DOWN: [&str; 7] = [
     "....11111111....",
     "...1111111111...",
     "...1111111111...",
@@ -2300,10 +2446,8 @@ const HEAD_DOWN: [&str; 9] = [
     "...1331331331...", // eyes
     "...1333333331...",
     "....13333331....",
-    ".....111111.....",
-    "......1331......", // neck
 ];
-const HEAD_UP: [&str; 9] = [
+const HEAD_UP: [&str; 7] = [
     "....11111111....",
     "...1111111111...",
     "...1111111111...",
@@ -2311,22 +2455,18 @@ const HEAD_UP: [&str; 9] = [
     "...1121111211...", // hair strands
     "...1111111111...",
     "....11111111....",
-    ".....111111.....",
-    "......1111......",
 ];
-const HEAD_RIGHT: [&str; 9] = [
+const HEAD_RIGHT: [&str; 7] = [
     "....11111111....",
     "...1111111111...",
     "...1111111111...",
-    "...1111133331...",
-    "...1111133131...", // eye
-    "...1111133331...",
-    "....11113331....",
-    ".....111111.....",
-    "......1331......",
+    "...1111333331...",
+    "...1111333131...", // eye near the leading edge
+    "...1111333331...",
+    "....11133331....",
 ];
 // hooded suit head (hood in shade2 so it tints with the player's palette)
-const SUIT_DOWN: [&str; 9] = [
+const SUIT_DOWN: [&str; 7] = [
     "....22222222....",
     "...2222222222...",
     "...2222222222...",
@@ -2334,98 +2474,106 @@ const SUIT_DOWN: [&str; 9] = [
     "...2131331312...", // eyes
     "...2133333312...",
     "....21333312....",
-    ".....222222.....",
-    "......2332......",
 ];
-const SUIT_UP: [&str; 9] = [
+const SUIT_UP: [&str; 7] = [
     "....22222222....",
     "...2222222222...",
     "...2222222222...",
     "...2222222222...",
     "...2222112222...", // hood seam
     "...2222112222...",
-    "....22211222....",
-    ".....222222.....",
-    "......2222......",
+    "....22222222....",
 ];
-const SUIT_RIGHT: [&str; 9] = [
+const SUIT_RIGHT: [&str; 7] = [
     "....22222222....",
     "...2222222222...",
     "...2222222222...",
     "...2222133331...",
     "...2222133131...", // eye
     "...2222133331...",
-    "....22213331....",
-    ".....222222.....",
-    "......2332......",
+    "....22233331....",
 ];
-// walking bodies (shirt shade2, hands shade3, boots shade1).
-// Down/up: left hand swings up, right hand down; left boot planted, right leg lifted —
-// the mirrored frame is the opposite step.
-const BODY_D: [&str; 7] = [
-    "....12222221....",
-    "...312222221....", // left hand swung forward
-    "....122222213...", // right hand trailing
-    "....12222221....",
+// walking bodies (shirt shade2, hands shade3, boots shade1). Shoulders start directly
+// under the chin at full head width. Down/up: one hand swings up, the other trails
+// low; one boot planted short, the other leg extended — the mirror is the other step.
+const BODY_D: [&str; 9] = [
+    "...1222222221...",
+    "..31222222221...", // left hand swung up
+    "...1222222221...",
+    "...12222222213..", // right hand trailing low
+    "....11222211....",
     ".....22..22.....",
-    ".....11.........", // left boot planted, right lifted
+    ".....11..22.....", // left boot planted
+    ".........11.....", // right leg extended
     "................",
 ];
-const BODY_U: [&str; 7] = [
-    "....12222221....",
-    "...112222221....", // fists from behind
-    "....122222211...",
-    "....12222221....",
+const BODY_U: [&str; 9] = [
+    "...1222222221...",
+    "..11222222221...", // fists seen from behind
+    "...1222222221...",
+    "...12222222211..",
+    "....11222211....",
     ".....22..22.....",
-    ".....11.........",
+    ".....11..22.....",
+    ".........11.....",
     "................",
 ];
 // right 1: full stride — legs apart, arms swinging fore/aft
-const BODY_R1: [&str; 7] = [
-    ".....122221.....",
-    ".....1222213....", // front hand forward
-    "....3122221.....", // back hand trailing
-    ".....122221.....",
+const BODY_R1: [&str; 9] = [
+    "....12222221....",
+    "....122222213...", // front hand forward
+    "...312222221....", // back hand trailing
+    "....12222221....",
+    "....11222211....",
     "....22....22....", // legs apart
-    "....11....11....",
+    "....11....22....",
+    "..........11....",
     "................",
 ];
-// right 2: passing pose — legs together, arms tucked
-const BODY_R2: [&str; 7] = [
-    ".....122221.....",
-    ".....122221.....",
-    ".....122221.....",
-    ".....122221.....",
-    "......22.22.....", // legs together
-    "......11.11.....",
-    "................",
-];
-// carrying bodies (arms raised, hands shade3 up at the shoulders)
-const CARRY_D: [&str; 7] = [
-    "...3122222213...",
+// right 2: passing pose — legs together, arms at the sides (one px shorter: step bob)
+const BODY_R2: [&str; 9] = [
     "....12222221....",
     "....12222221....",
     "....12222221....",
-    ".....22..22.....",
-    ".....11.........", // asymmetric: mirrored frame = other step
-    "................",
-];
-const CARRY_R1: [&str; 7] = [
-    ".....1222213....",
-    ".....122221.....",
-    ".....122221.....",
-    ".....122221.....",
-    "....22....22....",
-    "....11....11....",
-    "................",
-];
-const CARRY_R2: [&str; 7] = [
-    ".....1222213....",
-    ".....122221.....",
-    ".....122221.....",
-    ".....122221.....",
+    "....12222221....",
+    "....11222211....",
     "......22.22.....",
     "......11.11.....",
+    "................",
+    "................",
+];
+// carrying bodies (arms raised, hands shade3 up beside the head)
+const CARRY_D: [&str; 9] = [
+    "..312222222213..",
+    "...1222222221...",
+    "...1222222221...",
+    "...1222222221...",
+    "....11222211....",
+    ".....22..22.....",
+    ".....11..22.....",
+    ".........11.....",
+    "................",
+];
+const CARRY_R1: [&str; 9] = [
+    "....122222213...",
+    "....12222221....",
+    "....12222221....",
+    "....12222221....",
+    "....11222211....",
+    "....22....22....",
+    "....11....22....",
+    "..........11....",
+    "................",
+];
+const CARRY_R2: [&str; 9] = [
+    "....122222213...",
+    "....12222221....",
+    "....12222221....",
+    "....12222221....",
+    "....11222211....",
+    "......22.22.....",
+    "......11.11.....",
+    "................",
     "................",
 ];
 

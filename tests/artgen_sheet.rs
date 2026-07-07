@@ -70,6 +70,13 @@ const INVENTORY: &[(i32, i32, i32, i32, &str)] = &[
     // -- items --
     (0, 4, 29, 1, "item icons row 4"),
     (0, 5, 8, 1, "tools row 5"),
+    (
+        8,
+        5,
+        4,
+        1,
+        "reserved crafting icons (fiber/stick/cord/sharp stone)",
+    ),
     (13, 5, 4, 1, "flight arrows"),
     (20, 5, 2, 1, "stick + grass fibers"),
     // -- logo + furniture + decor --
@@ -183,6 +190,7 @@ fn palette_cells_stay_grayscale() {
         (4, 3, 4, 1, "wheat"),
         (0, 4, 29, 1, "item icons"),
         (0, 5, 8, 1, "tools"),
+        (8, 5, 4, 1, "reserved crafting icons"),
         (13, 5, 4, 1, "arrows"),
         (2, 8, 2, 2, "chest"),
         (10, 8, 2, 2, "lantern"),
