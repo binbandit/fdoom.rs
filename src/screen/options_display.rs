@@ -31,7 +31,6 @@ impl OptionsDisplay {
             handle(SelectEntry::new("Change Key Bindings", |g: &mut Game| {
                 g.set_menu(KeyInputDisplay::new(g));
             })),
-            settings[5].1.clone(),
         ];
 
         let menu = MenuBuilder::new(false, 6, RelPos::Left, entries)

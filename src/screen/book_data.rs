@@ -7,7 +7,7 @@
 pub const ABOUT: &str = "Modded by David.b and +Dillyg10+ until 1.8, then taken over by Chris J. Our goal is to expand Minicraft to be more fun and continuous.\nMinicraft was originally made by Markus Perrson for ludum dare 22 competition.";
 
 /// Java `BookData.instructions`.
-pub const INSTRUCTIONS: &str = "With the default controls...\n\nMove your character with arrow keys or WSAD. Press C to attack and X to open the inventory, and to use items. Pickup furniture and torches with V. Select an item in the inventory to equip it.\n\nThe Goal: Defeat the air wizard!";
+pub const INSTRUCTIONS: &str = "Move with WASD or the arrow keys. SPACE attacks and uses your held item; E opens your inventory; Z crafts by hand.\n\nGather fibers from tall grass, sticks from trees, and stones — twist cord, knap a sharp stone, and lash together your first crude tools.\n\nShovel down through the dirt until you hit rock, then break through with a pickaxe to reach the mines below. Leave a ladder trail home.\n\nThe world is endless and it is yours: explore its biomes, loot its ruins, brave its nights, and build whatever you like.";
 
 /// Java `BookData.antVenomBook`.
 pub fn ant_venom_book() -> String {
