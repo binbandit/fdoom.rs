@@ -542,40 +542,27 @@ impl T16 {
 /// Wired via `Sprite::dots_at(22, 0, color::get4(141, 141, 252, 30))`:
 /// 1 = meadow base, 2 = light blade tips / mottle, 3 = dark blade shadows.
 fn grass_texture(s: &mut Sheet) {
+    // CALM BASE, SPARSE CLUSTERED DETAIL: ~90% flat meadow base; three small blade
+    // tufts and two soft sunlit patches, offset between the tile's four cells so
+    // tiling never grid-repeats.
     let mut t = T16::new(G1);
-    // soft light mottle patches first (under the tufts)
-    for &(x, y) in &[
-        (4, 3),
-        (5, 3),
-        (5, 4),
-        (12, 10),
-        (13, 10),
-        (12, 11),
-        (1, 14),
-    ] {
+    // soft light patches (3-5px irregular blobs)
+    for &(x, y) in &[(8, 1), (9, 1), (8, 2), (9, 2), (10, 2)] {
         t.set(x, y, G2);
     }
-    // tufts: two dark blades + a light tip blade, staggered in loose diagonal drifts
-    let tufts = [
-        (1, 1),
-        (7, 0),
-        (12, 2),
-        (3, 5),
-        (9, 6),
-        (13, 7),
-        (0, 9),
-        (5, 10),
-        (11, 9),
-        (2, 13),
-        (8, 13),
-        (13, 12),
-    ];
-    for &(x, y) in &tufts {
+    for &(x, y) in &[(2, 10), (3, 10), (2, 11), (3, 11)] {
+        t.set(x, y, G2);
+    }
+    // blade tufts: a small dark L of 3px with a light tip on the tallest blade
+    for &(x, y) in &[(3, 3), (12, 7), (6, 13)] {
         t.set(x, y, G3);
         t.set(x, y + 1, G3);
         t.set(x + 1, y + 1, G3);
-        t.set(x + 2, y, G2);
+        t.set(x + 1, y, G2);
     }
+    // two lone specks
+    t.set(14, 13, G2);
+    t.set(0, 6, G2);
     t.commit(s, 22, 0);
 }
 
@@ -584,24 +571,21 @@ fn grass_texture(s: &mut Sheet) {
 /// Wired via `Sprite::dots_at(26, 0, color::get4(552, 550, 440, 440))`:
 /// 0 = sunlit crest, 1 = sand base, 2/3 = ripple shadow.
 fn sand_texture(s: &mut Sheet) {
+    // CALM BASE: three 1px wavy ripple lines ~5px apart (they tile seamlessly across
+    // cells), no crest band, plus three lone grains on the flats.
     let mut t = T16::new(G1);
-    // each ripple: base row + per-x dip mask (1 = ride 1px higher) — masks chosen so
-    // the wave phase drifts between rows
-    let ripples: [(i32, u16); 4] = [
-        (2, 0b0001_1100_0000_0111),
-        (6, 0b1100_0000_1110_0000),
-        (10, 0b0000_0111_0000_0011),
-        (14, 0b0011_1000_0001_1100),
+    let ripples: [(i32, u16); 3] = [
+        (3, 0b0001_1100_0000_0111),
+        (8, 0b1100_0000_1110_0000),
+        (13, 0b0000_0111_1000_0011),
     ];
     for &(base_y, mask) in &ripples {
         for x in 0..16 {
             let y = base_y - ((mask >> (15 - x)) & 1) as i32;
             t.set(x, y, G3);
-            t.set(x, y - 1, G0);
         }
     }
-    // stray grains on the flats
-    for &(x, y) in &[(3, 4), (11, 3), (7, 8), (14, 12), (1, 12)] {
+    for &(x, y) in &[(11, 5), (4, 10), (14, 15)] {
         t.set(x, y, G3);
     }
     t.commit(s, 26, 0);
@@ -612,13 +596,13 @@ fn sand_texture(s: &mut Sheet) {
 /// (`get4(#ffffff, #ffffff, #dde6f0, #b9c8d8)`): 1 = snow, 2 = soft drift shading,
 /// 3 = deep drift edge / glint sparkle.
 fn snow_texture(s: &mut Sheet) {
+    // CALM BASE: a bright open field with three wind-piled drift arcs (shade2 with a
+    // shade3 undercut at the trailing tip) and three lone glints — nothing else.
     let mut t = T16::new(G1);
-    // drift arcs: a shade2 curve with a shade3 undercut at the trailing tip
-    let drifts: [&[(i32, i32)]; 4] = [
-        &[(2, 3), (3, 3), (4, 3), (5, 4), (6, 4)],
-        &[(10, 7), (11, 7), (12, 6), (13, 6)],
-        &[(4, 11), (5, 11), (6, 12), (7, 12), (8, 12)],
-        &[(12, 14), (13, 14), (14, 13)],
+    let drifts: [&[(i32, i32)]; 3] = [
+        &[(2, 3), (3, 3), (4, 3), (5, 4)],
+        &[(10, 8), (11, 8), (12, 7), (13, 7)],
+        &[(5, 13), (6, 13), (7, 14)],
     ];
     for arc in &drifts {
         for &(x, y) in *arc {
@@ -627,8 +611,7 @@ fn snow_texture(s: &mut Sheet) {
         let &(tx, ty) = arc.last().unwrap();
         t.set(tx + 1, ty + 1, G3);
     }
-    // lone glints
-    for &(x, y) in &[(9, 1), (1, 8), (14, 9), (7, 5), (3, 15)] {
+    for &(x, y) in &[(9, 1), (1, 9), (14, 12)] {
         t.set(x, y, G3);
     }
     t.commit(s, 13, 3);
@@ -639,22 +622,18 @@ fn snow_texture(s: &mut Sheet) {
 /// (`get4(dcol+111, dcol, dcol-111, dcol-111)`): 0 = lit clod top, 1 = soil base,
 /// 2 = clod under-shadow, 3 = stones.
 fn dirt_texture(s: &mut Sheet) {
+    // CALM BASE: ~93% flat soil; three clods (lit arc up-left, shadow down-right)
+    // and two small stone chips, offset between cells.
     let mut t = T16::new(G1);
-    // clods: light arc up-left, shadow arc down-right, hollow center
-    let clods = [(2, 2), (10, 4), (5, 8), (12, 11), (1, 12)];
+    let clods = [(3, 3), (11, 8), (5, 12)];
     for &(x, y) in &clods {
         t.set(x, y, G0);
         t.set(x + 1, y, G0);
-        t.set(x, y + 1, G0);
         t.set(x + 2, y + 1, G2);
-        t.set(x + 1, y + 2, G2);
-        t.set(x + 2, y + 2, G2);
     }
-    // small stones: a dark chip with a lit corner
-    for &(x, y) in &[(7, 1), (14, 7), (8, 14), (3, 6)] {
+    for &(x, y) in &[(13, 2), (2, 8)] {
         t.set(x, y, G3);
         t.set(x + 1, y, G3);
-        t.set(x, y - 1, G0);
     }
     t.commit(s, 21, 3);
 }
@@ -665,9 +644,12 @@ fn dirt_texture(s: &mut Sheet) {
 /// 3 = deep crack pits. Crack ends meet the tile edges at matching offsets so the
 /// network continues across tiles.
 fn stone_texture(s: &mut Sheet) {
+    // CALM BASE: flat faces split by two long 1px cracks (they meet the tile edges
+    // at matching offsets so the network continues across tiles); a pit only at the
+    // junction.
     let mut t = T16::new(G1);
-    let paths: [&[(i32, i32)]; 4] = [
-        // main fault: left edge (y6) to the center, then down and out the bottom (x5)
+    let paths: [&[(i32, i32)]; 2] = [
+        // main fault: left edge (y6) through the center, out the bottom (x5)
         &[
             (0, 6),
             (1, 6),
@@ -686,26 +668,16 @@ fn stone_texture(s: &mut Sheet) {
             (5, 14),
             (5, 15),
         ],
-        // branch: center out the right edge (y6)
+        // branch: junction out the right edge (y6)
         &[(9, 8), (10, 7), (11, 7), (12, 6), (13, 6), (14, 6), (15, 6)],
-        // branch: up from the fault bend and out the top (x5)
-        &[(3, 5), (4, 4), (4, 3), (5, 2), (5, 1), (5, 0)],
-        // hairline loner
-        &[(11, 12), (12, 13), (13, 13), (14, 14)],
     ];
     for path in &paths {
         for &(x, y) in *path {
             t.set(x, y, G2);
-            // lit plate edge along the upper side of the crack
-            if y > 0 && t.px[(y - 1) as usize][x as usize] == G1 {
-                t.set(x, y - 1, G0);
-            }
         }
     }
-    // junction pits
-    for &(x, y) in &[(3, 6), (8, 8), (8, 9)] {
-        t.set(x, y, G3);
-    }
+    // junction pit only — bright plate-edge highlights read as repeating sparkles
+    t.set(8, 8, G3);
     t.commit(s, 25, 3);
 }
 
@@ -2906,17 +2878,17 @@ fn flora_cells(s: &mut Sheet) {
     // FLAT-CROWN (11,26) + variant B (27,28): wide umbrella on a bare forked trunk
     let flat_a: [&str; 16] = [
         "................",
-        "..ddddddddddd...",
-        ".dhlllllllllmd..",
-        "dhlllllllllmmmd.",
+        "...ddddddddd....",
+        ".ddhlllllllldd..",
+        ".dhllllllllllmd.",
+        "dhllllllllllmmd.",
         ".ddmmmmmmmmmdd..",
-        "...k....bk......",
-        "....k..bk.......",
-        ".....kbbk.......",
+        "...ddm...mdd....",
+        ".......bk.......",
+        "......bbk.......",
         "......bk........",
         "......bk........",
         ".....bbk........",
-        ".....bk.........",
         "....dbkd........",
         "................",
         "................",
@@ -2939,19 +2911,19 @@ fn flora_cells(s: &mut Sheet) {
     fill_cells(s, 11, 26, &flat_tex);
     let flat_b: [&str; 16] = [
         "................",
-        "....ddddddd.....",
-        "...dhllllllmd...",
-        "..dhlllllllmmd..",
-        "...ddmmmmmmdd...",
-        ".dddddd.bk......",
-        "dhllllmdbk......",
-        ".ddmmmdkbk......",
-        ".....k.bbk......",
-        "......kbk.......",
-        ".......bk.......",
-        "......bbk.......",
+        "....ddddddddd...",
+        "..ddhlllllllldd.",
+        ".dhllllllllllmd.",
+        ".ddmmmmmmmmmmdd.",
+        "..dddd..bk......",
+        ".dhllmd.bk......",
+        ".ddmmdd.bk......",
+        "....k..bbk......",
+        ".....kbbk.......",
         "......bk........",
-        ".....dbkd.......",
+        ".....bbk........",
+        ".....bk.........",
+        "....dbkd........",
         "................",
         "................",
     ];
