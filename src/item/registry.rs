@@ -456,6 +456,17 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         "cloud",
         &["Infinite Fall"],
     ));
+    // Fossicking: mine-ceiling support; while one stands within 3 tiles, breaking
+    // rock never triggers a cave-in (level/tile/fossick.rs).
+    // TODO(art): dedicated prop icon (two uprights + header beam) - placeholder
+    // reuses the wall cell in raw-timber tones.
+    items.push(tile_item(
+        "Timber Prop",
+        (16, 4),
+        get4(-1, 100, 310, 431),
+        "Timber Prop",
+        &["dirt"],
+    ));
 
     // ToolItem.getAllInstances()
     for ttype in ToolType::VALUES {
@@ -507,6 +518,15 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items.push(stackable("Cord", (25, 4), get4(-1, 210, 320, 431)));
     // Knapped from 2 Stone in the personal crafting menu; the crude tool head.
     items.push(stackable("Sharp Stone", (23, 4), get4(-1, 111, 333, 444)));
+    // Fossicking: swirl creek mud / exposed tidal flats / wet banks for flecks and
+    // nuggets; find odds scale with the land's hidden richness field.
+    // TODO(art): dedicated pan icon (shallow dish with a glint) - placeholder reuses
+    // the bucket cell in beaten-tin gray.
+    items.push(stackable(
+        "Prospector's Pan",
+        (21, 4),
+        get4(-1, 111, 333, 444),
+    ));
     // Lets the player cross Deep Water while it's in the inventory (multi-level terrain).
     items.push(stackable("Raft", (28, 4), get4(-1, 210, 431, 321)));
     items.push(stackable("Wood", (28, 4), get4(-1, 310, 532, 532)));

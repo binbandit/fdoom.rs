@@ -20,6 +20,7 @@ pub mod farm;
 pub mod fence;
 pub mod floor;
 pub mod flower;
+pub mod fossick;
 pub mod grass;
 pub mod grave_stone;
 pub mod hard_rock;
@@ -41,6 +42,7 @@ pub mod snow_tree;
 pub mod stairs;
 pub mod tall_grass;
 pub mod tidal;
+pub mod timber_prop;
 pub mod torch;
 pub mod tree;
 pub mod tree_species;
@@ -254,6 +256,9 @@ pub enum TileKind {
     /// Intertidal shore band: submerged (water) at high tide, exposed wet sand at low
     /// tide; the state is a pure function of the day clock + per-tile elevation.
     TidalFlat,
+    /// Mine-ceiling support post; prevents cave-ins nearby (see `fossick.rs`).
+    /// Walk-through; one hit knocks it down and refunds the timber.
+    TimberProp,
     GraveStone {
         broken: bool,
     },
@@ -388,6 +393,9 @@ impl Tiles {
 
         // tides: the intertidal band between ocean and beach (see tidal.rs)
         set(64, super::tile::tidal::make("Tidal Flat"));
+
+        // fossicking: the mine-ceiling support post (see fossick.rs)
+        set(65, dispatch::make_timber_prop_tile("Timber Prop"));
 
         Tiles {
             list: RefCell::new(t),

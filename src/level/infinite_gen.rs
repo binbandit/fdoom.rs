@@ -88,6 +88,50 @@ pub fn land_at(seed: i64, x: i32, y: i32) -> f64 {
     land_parts(seed, x, y).0
 }
 
+/* ---------------------------------- fossicking fields --------------------------------- */
+
+/// Salt of the mineral-richness field (see `richness_at`).
+pub const RICHNESS_SALT: u64 = 0xF055_1C4E; // "fossicker"
+
+/// Per-area mineral richness in `[0, 1)` — the "reading the land" field the fossicking
+/// systems share. One creek-scale field for **every** depth: it scales the Prospector's
+/// Pan find odds on the surface, decides which rock outcrops carry a mineral-seep
+/// stain, and lowers the ore-vein threshold in the mines directly below — so a stained
+/// outcrop or a paying creek genuinely marks good digging underneath.
+pub fn richness_at(seed: i64, x: i32, y: i32) -> f64 {
+    fractal(seed, RICHNESS_SALT, x, y, 96, 2)
+}
+
+/// Salt of the per-tile mineral-seep stain roll (raw hash, no fractal).
+const STAIN_SALT: u64 = 0x5EE9; // "seep"
+
+/// Does a rock outcrop at this surface position carry a visible mineral-seep stain?
+/// True only on genuinely rich ground (the shared richness field, so the mines below
+/// really are richer) and only on some tiles of it (per-tile hash), so stains read as
+/// an occasional prospector's sign rather than a biome tint.
+pub fn mineral_stain_at(seed: i64, x: i32, y: i32) -> bool {
+    richness_at(seed, x, y) > 0.70 && unit(hash(seed, STAIN_SALT, x, y)) < 0.35
+}
+
+/// Highland ("tier-2 summit") rock: the upper band of the mountain belt, just below
+/// the snow line. Reads the same belt/rough fields as `biome_at`'s Mountains gate —
+/// the reuse is correct here, the tier *must* correlate with the biome. Highland rock
+/// renders visibly raised, takes double damage to break, and drops extra stone (see
+/// `tile/rock.rs`).
+pub fn highland_at(seed: i64, x: i32, y: i32) -> bool {
+    let (_, rough) = land_parts(seed, x, y);
+    rough > 0.55 && fractal(seed, 9, x, y, 320, 2) > 0.75
+}
+
+/// Salt of the ocean skerry scatter (raw hash on 2x2 tile cells).
+const SKERRY_SALT: u64 = 0x5EA0; // "sea"
+
+/// Skerries: sparse permanent rock outcrops in open Ocean water — sea stacks the tide
+/// never covers. Hashed per 2x2 cell so they surface as small stacks, not lone pixels.
+fn skerry_at(seed: i64, x: i32, y: i32) -> bool {
+    unit(hash(seed, SKERRY_SALT, x.div_euclid(2), y.div_euclid(2))) < 0.0025
+}
+
 /* ------------------------------------ tile rules ------------------------------------ */
 
 struct Ids {
@@ -250,6 +294,11 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             let land = land_at(seed, x, y);
             if (tidal::BAND_LOW..tidal::BAND_HIGH).contains(&land) {
                 return ids.tidal_flat;
+            }
+            // skerries: rare rock stacks breaking the open water (never in the
+            // intertidal band above, so they always read as permanent)
+            if skerry_at(seed, x, y) {
+                return ids.rock;
             }
             if land > 0.385 && land < tidal::BAND_LOW {
                 if detail < 0.10 {
@@ -420,9 +469,15 @@ fn mine_tile(seed: i64, depth: i32, x: i32, y: i32, ids: &Ids) -> u8 {
 
     // carved cave space vs solid rock
     if !(0.32..0.62).contains(&cave) {
-        // solid rock, with ore veins hiding inside
-        let vein = fractal(seed, salt + 40, x, y, 12, 2);
-        if vein > 0.78 && detail < 0.6 {
+        // Solid rock, with ore veins hiding inside. The vein noise is sampled
+        // anisotropically (one axis compressed 2x, axis alternating per depth) so
+        // veins RUN — long thin seams you chase rather than round blobs — and the
+        // shared surface richness field lowers the threshold, so ground under a
+        // mineral-seep stain genuinely carries more ore.
+        let (vx, vy) = if depth == -2 { (x, y * 2) } else { (x * 2, y) };
+        let vein = fractal(seed, salt + 40, vx, vy, 12, 2);
+        let vein_gate = 0.80 - 0.05 * richness_at(seed, x, y);
+        if vein > vein_gate && detail < 0.6 {
             return match depth {
                 -1 => {
                     if detail < 0.08 {
@@ -691,6 +746,40 @@ mod tests {
                 "seed {seed}: spawn ({sx},{sy}) not grass"
             );
         }
+    }
+
+    #[test]
+    fn ocean_has_skerries() {
+        // sparse permanent rock stacks stand in open Ocean water (never in the
+        // intertidal band, so they are not tide-dependent)
+        let tiles = Tiles::new();
+        let ids = Ids::get(&tiles);
+        let seed = 20260707;
+        let mut n = 0;
+        'sweep: for cy in -400..400i32 {
+            for cx in -400..400i32 {
+                let (x, y) = (cx * 2, cy * 2);
+                if !skerry_at(seed, x, y) {
+                    continue;
+                }
+                let land = land_at(seed, x, y);
+                if biome_at_blended(seed, x, y) != Biome::Ocean
+                    || (tidal::BAND_LOW..tidal::BAND_HIGH).contains(&land)
+                {
+                    continue;
+                }
+                assert_eq!(
+                    surface_tile(seed, x, y, &ids),
+                    ids.rock,
+                    "skerry cell at ({x},{y}) did not generate as rock"
+                );
+                n += 1;
+                if n >= 3 {
+                    break 'sweep;
+                }
+            }
+        }
+        assert!(n >= 3, "only {n} skerries in an 800x800-cell sweep");
     }
 
     #[test]

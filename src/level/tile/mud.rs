@@ -32,6 +32,10 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
+    // fossicking: mud is always pannable - creek beds are where the colors settle
+    if super::fossick::try_pan(g, lvl, xt, yt, player, item) {
+        return true;
+    }
     if let ItemKind::Tool {
         ttype,
         level: tool_level,

@@ -146,6 +146,9 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
             let dirt = g.tiles.get("dirt");
             g.set_tile_default(lvl, x, y, &dirt);
             count += 2;
+            // fossicking: ore still hiding within 2 tiles sparkles briefly, so the
+            // player chases the vein instead of strip-mining the wall
+            super::fossick::vein_ping(g, lvl, x, y);
         } else {
             g.level_mut(lvl).set_data(x, y, damage);
         }

@@ -170,6 +170,10 @@ temperature field and the moisture field are decorrelated even though they share
 | `salt + 40` | vein | `mine_tile` | 12 | 2 | ore vein mask inside solid rock |
 | `salt + 70` | pocket | `mine_tile` | 24 | 2 | lava pocket / underground water mask in open cave floor |
 | `0x6A7E6A7E6A7E6A7E ^ depth.unsigned_abs()` | gate | `gate_in_cell` | n/a (raw `hash`, `GATE_GRID`-cell) | n/a | dungeon gate presence + jitter, depth -3 only |
+| `0xF055_1C4E` | richness | `richness_at` | 96 | 2 | fossicking: shared mineral-richness field, every depth (§4.5) |
+| `0x5EE9` | stain | `mineral_stain_at` | n/a (raw `hash`) | n/a | per-tile mineral-seep stain roll on rich surface rock |
+| `0x5EA0` | skerry | `skerry_at` | n/a (raw `hash`, 2x2 cells) | n/a | ocean rock stacks (sea stacks in open water) |
+| `0xC4AC_4ED0` | rock character | `fossick::rock_character` | n/a (raw `hash`) | n/a | runtime field (not gen): cracked/dense rock per position (§4.5) |
 
 If you add a new noise field, **pick an unused salt** (anything not in the table) —
 reusing a salt correlates two fields that should be independent and will look wrong (e.g.
@@ -216,7 +220,7 @@ piecewise thresholds:
 
 | Biome | Rule |
 |---|---|
-| Ocean | shallows (recomputed `land > 0.400`, same salt-1/5 fields as `biome_at`): `detail<0.10` seaweed · `<0.13` coral · else (and everywhere deeper) `water` |
+| Ocean | tidal band first (§tides), then **skerries** — sparse permanent rock stacks, hashed per 2x2 cell (salt `0x5EA0`, ~1 cell in 400) so they surface as small sea stacks the tide never covers — then shallows (recomputed `land > 0.400`, same salt-1/5 fields as `biome_at`): `detail<0.10` seaweed · `<0.13` coral · else (and everywhere deeper) `water` |
 | DeepOcean | always `deep_water` |
 | Beach | `detail<0.02` palm · else sand |
 | Mountains | `temperature(salt6)<0.42 && belt(salt9)>0.76` snow (snow-capped cold peaks) · else rock |
@@ -291,9 +295,13 @@ do broadleaf forest.
 `salt = 10 + depth.unsigned_abs()` (11/12/13 for -1/-2/-3). Two-stage decision:
 
 1. **Cave vs rock**: `cave = fractal(seed, salt, x, y, period 32, octaves 4)`. If `cave`
-   is *outside* `0.32..0.62`, the tile is solid — either plain `rock`, or an ore vein if
-   `vein = fractal(seed, salt+40, x, y, 12, 2) > 0.78 && detail < 0.6` (`detail =
-   unit(hash(seed, salt+90, x, y))`):
+   is *outside* `0.32..0.62`, the tile is solid — either plain `rock`, or an ore vein.
+   The vein noise is sampled **anisotropically** (one axis compressed 2x — `(x*2, y)`,
+   or `(x, y*2)` at depth -2), so veins run as long thin seams rather than round blobs,
+   and the threshold is richness-gated: `vein = fractal(seed, salt+40, vx, vy, 12, 2) >
+   0.80 - 0.05 * richness_at(seed, x, y) && detail < 0.6` (`detail = unit(hash(seed,
+   salt+90, x, y))`). The richness field is the same one the surface reads (§4.5), so
+   ground under a mineral-seep stain genuinely carries more ore:
    - depth -1: `detail<0.08` → Lapis, else Iron
    - depth -2: `detail<0.08` → Lapis, else Gold
    - depth -3: always Gem
@@ -441,6 +449,67 @@ always may (items drift over it); every other entity kind is blocked. Rendering
 Deep Water` and draws a small two-tile raft glyph under the player sprite when true —
 this is purely cosmetic and independent of the `may_pass` gate (a creative player without
 a literal Raft item still gets the visual, since they're allowed to stand there).
+
+## 4.5 Fossicking — mining as reading the earth (`src/level/tile/fossick.rs`)
+
+The mining overhaul (sandbox era, no Java counterpart). One deterministic field ties it
+together: `infinite_gen::richness_at(seed, x, y)` — creek-scale (period 96, 2 octaves,
+salt `0xF055_1C4E`), **shared identically by every depth**, so surface signs truthfully
+advertise the mines below.
+
+**Prospector's Pan** (item; hand recipe `Stick*3 + Cord + Stone`). Used on Mud (always),
+an exposed Tidal Flat, or sand/dirt with a wet cardinal neighbor (Water / Deep Water /
+Tidal Flat / Mud — `fossick::water_adjacent`). Each pan costs 3 stamina and rolls
+`fossick::pan_outcome(richness, roll)` — a pure, test-pinned table where every find band
+widens with richness: gem `0.001+0.004r` · gold nugget `+0.004+0.026r` · iron fleck
+`+0.020+0.080r` · coal fleck `+0.040+0.100r` · stone `+0.300` · else nothing. At r=0 a
+pan pays ~36% of the time (almost all stone); at r=1 ~58%, with metal ~27% — some creeks
+are worth working, most aren't. Finds drop as the ordinary ore/stone items with a short
+notification ("A gold nugget winks up at you!").
+
+**Surface signs.** Rock outcrops on rich ground (`richness > 0.70`, per-tile hash salt
+`0x5EE9` keeps it to ~35% of qualifying tiles) render a mineral-seep stain: a damp
+streak with ochre flecks (`rock.rs::render`). Because the richness field is shared
+across depths, digging straight down under a stained outcrop finds denser veins — the
+mine-tile vein threshold is `0.80 - 0.05 * richness` (§3.4).
+
+**Vein-chasing.** Mining out an ore tile calls `fossick::vein_ping`: every ore tile
+still hiding within Chebyshev 2 gets a brief smash-particle sparkle, so the player
+follows the seam instead of strip-mining. Veins themselves are sampled anisotropically
+(§3.4) so there is a seam to follow.
+
+**Rock character** (`fossick::rock_character`, raw hash salt `0xC4AC_4ED0`, evaluated at
+runtime — no tile data, so it survives regeneration and save/load for free): ~20%
+of rock is *cracked* (renders shaded darker; health 30 vs 50 — breaks ~40% faster), ~10%
+*dense* (pale boss in the face; health 80, +1 stone on break).
+
+**Cave-ins + Timber Props.** Rock tile data layout: bit 7 = rubble flag
+(`fossick::RUBBLE_FLAG`), low 7 bits = accumulated damage (decays on tick, flag
+preserved). When a non-rubble rock breaks at depth < 0 (`fossick::collapse_check`): if
+the 5x5 open-floor count (open = not Rock/Ore/HardRock/Wall; unloaded chunks read as
+rock, i.e. solid) is >= 13, no Timber Prop stands within Chebyshev 3, and a 1-in-4
+`g.random` roll lands, the collapse *arms*: "The ceiling groans...", `Sound::Fuse`, and
+the freshly broken dirt tile's data is set to 255 (`COLLAPSE_FUSE`). On that tile's next
+random tick (`dirt::tick` → `fossick::fuse_tick`, ~1s at the 1-in-50 tile-tick cadence)
+the roof falls: up to 4 open, mob-free tiles in the immediate neighborhood become rock
+with the rubble flag (weak — health 12, 1-2 stone, never coal, never re-triggers a
+collapse), with "The ceiling comes down!" + `Sound::Explode`. A prop raised during the
+groan beat still saves the gallery. **Timber Prop** (tile id 65, `TileKind::TimberProp`;
+tile item placeable on dirt; hand recipe `Wood*2 + Stick*2`) is walk-through, prevents
+collapse within radius 3, and one hit knocks it down for 1-2 Wood + 1-2 Sticks.
+
+**Highland (tier-2) rock.** On the infinite surface only, `infinite_gen::highland_at` —
+the same belt/rough fields as the Mountains gate, thresholded higher (`belt > 0.75 &&
+rough > 0.55`, i.e. the band just under the `> 0.80` snow line) — marks summit rock: it
+renders visibly raised (bright rim chips north, shaded flanks, hard drop shadow south)
+and takes **double damage to break** (health 100), paying +2 stone. Deliberately kept as
+damage/render modulation on the one rock tile (v1); true climbable elevation tiers can
+layer on later without a save migration since no tile data is used.
+
+TODO(art): dedicated cells for the pan icon, timber-prop icon + tile, wet-sand pan
+ground, and a real seep-stain overlay — all current visuals reuse existing cells
+(bucket/wall/fence-post/speck) with palette tricks, marked with `TODO(art)` comments at
+each site.
 
 ## 5. Persistence (`src/saveload/save.rs`, `src/saveload/load.rs`)
 
@@ -742,6 +811,8 @@ a layer means:
 | `tests/level_gen_determinism.rs` | Classic finite generator: same seed -> same map; different seeds differ; all 4 `gen_type` × 5 `theme` combinations produce a map without error. |
 | `tests/underground_gen.rs` (`underground_has_ores_and_caves`) | Classic finite mine generator: ore/rock/dirt tile-count thresholds per depth, stairs-down present (except depth -3, which has none in the classic generator either — the dungeon gate stamp at depth>2 replaces it), and zero surface tiles (`grass`/`tree`) leak underground. |
 | `tests/underground_gen.rs` (`every_layer_has_stairs_down`) | Classic finite generator places at least one `Stairs Down` at every depth 0..-3 (progression isn't softlocked). |
+| `src/level/infinite_gen.rs` (`ocean_has_skerries`) | Sparse rock stacks generate in open Ocean water, outside the tidal band (skerry cells actually come out as rock). |
+| `tests/mining.rs` | Fossicking overhaul (§4.5): pan table pure + richness-scaled and only wet ground pans; cracked/dense hash distribution (~20%/~10%) and the 30/50/80 break thresholds; vein ping sparkles hidden ore within 2 tiles; collapse arms in a wide unpropped gallery (groan → fuse → rubble) and never with a Timber Prop in radius 3; rubble is weak and never cascades; prop place/break item round-trip; highland rock needs 100 damage and pays ≥3 stone. |
 | `tests/flora_gen.rs` | Flora wave (§3.3.1): chunk determinism incl. flora; every species appears in its home biome over a wide ring sweep (incl. snow-capped cold Mountains and the Forest cold-fringe pine); cave mushrooms at every mine depth; jack-o-lanterns present-but-rare in cemetery/village blueprints; berry pick → regrow → re-pick → tear-out cycle; palm fells into Coconuts, dead tree into sticks-only; pumpkin/Jack-O-Lantern drops + light radii; thicket paddock-core-only blocking. |
 
 Run everything terrain-related with `cargo test level` (matches test names/paths

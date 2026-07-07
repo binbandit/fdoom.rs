@@ -99,6 +99,24 @@ pub fn may_pass(g: &Game, x: i32, y: i32, e: &Entity) -> bool {
     }
 }
 
+/// Fossicking: an exposed flat is prime panning ground (the tide re-sorts the sand
+/// twice a day). Submerged, there is nothing to stand on.
+#[allow(clippy::too_many_arguments)]
+pub fn interact(
+    g: &mut Game,
+    lvl: usize,
+    xt: i32,
+    yt: i32,
+    player: &mut crate::entity::Entity,
+    item: &mut crate::item::Item,
+    _attack_dir: crate::entity::Direction,
+) -> bool {
+    if is_submerged(g, xt, yt) {
+        return false;
+    }
+    super::fossick::try_pan(g, lvl, xt, yt, player, item)
+}
+
 /// Random tile tick: beachcombing. While the flat is exposed, the receding tide
 /// rarely leaves a find behind — throttled by the number of item entities already
 /// lying nearby, so ignored shores don't silt up with litter.

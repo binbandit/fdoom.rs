@@ -182,6 +182,9 @@ impl Recipes {
             r("Slingshot", "Stick*2 + Cord*2"),
             r("Bandage", "Cord*2 + Grass Fibers*2"),
             r("Fishing Rod", "Stick + Cord*2"),
+            // fossicking: pan the creeks, shore up the tunnels
+            r("Prospector's Pan", "Stick*3 + Cord + Stone"),
+            r("Timber Prop", "Wood*2 + Stick*2"),
             r("Workbench", "Wood*10 + Stone*2"),
             // carve a pumpkin around a torch — a placeable ember-light
             r("Jack-O-Lantern", "Pumpkin + Torch"),

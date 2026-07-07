@@ -131,6 +131,9 @@ pub fn make_fence_tile(name: &str) -> TileDef {
 pub fn make_torch_tile(on: &TileDef) -> TileDef {
     torch::make(on)
 }
+pub fn make_timber_prop_tile(name: &str) -> TileDef {
+    timber_prop::make(name)
+}
 
 /* ---------------- dispatch (Java virtual methods) ---------------- */
 
@@ -172,6 +175,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         TileKind::Pumpkin { .. } => pumpkin::render(g, screen, def, lvl, x, y),
         TileKind::GraveStone { .. } => grave_stone::render(g, screen, def, lvl, x, y),
         TileKind::Fence => fence::render(g, screen, def, lvl, x, y),
+        TileKind::TimberProp => timber_prop::render(g, screen, def, lvl, x, y),
         TileKind::Torch { .. } => torch::render(g, screen, def, lvl, x, y),
         _ => default_render(g, screen, def, lvl, x, y),
     }
@@ -198,6 +202,7 @@ pub fn default_render(
 pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
     match &def.kind {
         TileKind::Grass => grass::tick(g, def, lvl, xt, yt),
+        TileKind::Dirt => dirt::tick(g, def, lvl, xt, yt),
         TileKind::Water => water::tick(g, def, lvl, xt, yt),
         TileKind::Rock => rock::tick(g, def, lvl, xt, yt),
         TileKind::Tree => tree::tick(g, def, lvl, xt, yt),
@@ -316,6 +321,7 @@ pub fn hurt_by(
         TileKind::GraveStone { .. } => {
             grave_stone::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir)
         }
+        TileKind::TimberProp => timber_prop::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         _ => false,
     }
 }
@@ -376,6 +382,7 @@ pub fn interact(
 ) -> bool {
     match &def.kind {
         TileKind::Mud => mud::interact(g, lvl, xt, yt, player, item, attack_dir),
+        TileKind::TidalFlat => tidal::interact(g, lvl, xt, yt, player, item, attack_dir),
         TileKind::DugPit => depth::dug_pit_interact(g, lvl, xt, yt, player, item, attack_dir),
         TileKind::Grass => grass::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Dirt => dirt::interact(g, def, lvl, xt, yt, player, item, attack_dir),

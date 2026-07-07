@@ -47,6 +47,12 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
+    // fossicking: dirt pans only where the water works it (a wet bank)
+    if super::fossick::water_adjacent(g, lvl, xt, yt)
+        && super::fossick::try_pan(g, lvl, xt, yt, player, item)
+    {
+        return true;
+    }
     if let ItemKind::Tool {
         ttype,
         level: tool_level,
@@ -77,6 +83,11 @@ pub fn interact(
         }
     }
     false
+}
+
+/// Random tile tick: fires an armed cave-in fuse (see `fossick::collapse_check`).
+pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {
+    super::fossick::fuse_tick(g, lvl, xt, yt);
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {

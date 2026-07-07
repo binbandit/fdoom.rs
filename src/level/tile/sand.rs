@@ -84,6 +84,12 @@ pub fn interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
+    // fossicking: sand pans only where the water works it (a wet bank)
+    if super::fossick::water_adjacent(g, lvl, xt, yt)
+        && super::fossick::try_pan(g, lvl, xt, yt, player, item)
+    {
+        return true;
+    }
     if let ItemKind::Tool {
         ttype,
         level: tool_level,
