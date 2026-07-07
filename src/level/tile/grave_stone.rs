@@ -78,35 +78,41 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
     let TileKind::GraveStone { broken: is_broken } = def.kind else {
         return;
     };
-    let has_spawned_zombie = HAS_SPAWNED_ZOMBIE.with(|c| c.get());
-    let has_run_tonight = HAS_RUN_TONIGHT.with(|c| c.get());
+    let flag = g.level(lvl).get_data(xt, yt);
 
-    if !has_spawned_zombie && is_broken && g.get_time() == Time::Night {
-        let mut new_mob = crate::entity::mob::zombie::new(g, 1);
-        // JAVA: sets the mob's pixel coordinates to the tile coordinates.
-        new_mob.c.x = xt;
-        new_mob.c.y = yt;
+    if is_broken {
+        if flag == 0 && g.get_time() == Time::Night {
+            let mut new_mob = crate::entity::mob::zombie::new(g, 1);
+            // JAVA: set the mob's *pixel* coordinates to the *tile* coordinates, dumping
+            // the zombie near the map origin. FIX: spawn at the grave tile's center.
+            new_mob.c.x = xt * 16 + 8;
+            new_mob.c.y = yt * 16 + 8;
+            g.level_mut(lvl).add(new_mob, lvl);
 
-        g.level_mut(lvl).add(new_mob, lvl);
-
-        HAS_SPAWNED_ZOMBIE.with(|c| c.set(true));
-    }
-    if is_broken || (g.get_time() == Time::Night && has_run_tonight) {
-        // As the grave is already broken, no need to run this.
+            g.level_mut(lvl).set_data(xt, yt, FLAG_SET);
+        }
         return;
     }
-    if g.get_time() == Time::Morning {
-        // We are going to assume that because it is morning... it has just been night.
-        // So we will reset the (hasRunTonight) variable aslong as the grave is not broken.
-        HAS_RUN_TONIGHT.with(|c| c.set(false));
-    }
 
-    if !HAS_RUN_TONIGHT.with(|c| c.get()) && g.get_time() == Time::Night {
-        if g.random.next_boolean() {
-            let broken = g.tiles.get_id(44);
-            g.set_tile_default(lvl, xt, yt, &broken);
+    match g.get_time() {
+        Time::Morning => {
+            // Night is over — allow this grave to roll its crumble chance again tonight.
+            if flag != 0 {
+                g.level_mut(lvl).set_data(xt, yt, 0);
+            }
         }
-        HAS_RUN_TONIGHT.with(|c| c.set(true));
+        Time::Night if flag == 0 => {
+            // One crumble roll per grave per night.
+            if g.random.next_boolean() {
+                let broken = g.tiles.get_id(44);
+                // set_tile_default resets the data byte, so the fresh broken grave
+                // starts with its "spawned zombie" flag clear.
+                g.set_tile_default(lvl, xt, yt, &broken);
+            } else {
+                g.level_mut(lvl).set_data(xt, yt, FLAG_SET);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -137,8 +143,11 @@ pub fn interact(
         return false;
     };
     if !broken {
-        // JAVA: the zombie is added without setting a position.
-        let zombie = crate::entity::mob::zombie::new(g, 5);
+        // JAVA: the zombie was added without a position (spawned at 0,0). FIX: spawn it
+        // at the center of the grave tile being disturbed.
+        let mut zombie = crate::entity::mob::zombie::new(g, 5);
+        zombie.c.x = xt * 16 + 8;
+        zombie.c.y = yt * 16 + 8;
         g.level_mut(lvl).add(zombie, lvl);
         let broken_tile = g.tiles.get_id(44);
         g.set_tile_default(lvl, xt, yt, &broken_tile);
@@ -162,8 +171,11 @@ pub fn hurt_by(
         return true;
     };
     if !broken {
-        // JAVA: the zombie is added without setting a position.
-        let zombie = crate::entity::mob::zombie::new(g, 1);
+        // JAVA: the zombie was added without a position (spawned at 0,0). FIX: spawn it
+        // at the center of the grave tile being disturbed.
+        let mut zombie = crate::entity::mob::zombie::new(g, 1);
+        zombie.c.x = x * 16 + 8;
+        zombie.c.y = y * 16 + 8;
         g.level_mut(lvl).add(zombie, lvl);
         let broken_tile = g.tiles.get_id(44);
         g.set_tile_default(lvl, x, y, &broken_tile);

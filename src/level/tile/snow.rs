@@ -125,9 +125,10 @@ pub fn interact(
                 for _ in 0..2 {
                     crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, seeds.clone());
                 }
-                return true;
             }
-            // JAVA: falls through to return false when no seeds drop.
+            // JAVA: returned false unless seeds dropped, swallowing the successful shovel
+            // (no use feedback despite the tile changing). FIX: report success like sand.
+            return true;
         }
     }
     false

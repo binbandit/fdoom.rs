@@ -28,7 +28,9 @@ pub fn make() -> TileDef {
 #[allow(clippy::too_many_arguments)]
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     let data = g.level(lvl).get_data(x, y);
-    let color = WOOL_COLORS[data as usize].1;
+    // FIX: out-of-range data (bad save data) falls back to uncolored wool instead of
+    // panicking (Java threw ArrayIndexOutOfBoundsException).
+    let color = WOOL_COLORS.get(data as usize).unwrap_or(&WOOL_COLORS[0]).1;
     if let Some(sprite) = &def.sprite {
         sprite.render_color(screen, x * 16, y * 16, color);
     }
@@ -74,14 +76,18 @@ pub fn get_data_str(_def: &TileDef, data: &str) -> i32 {
             return i as i32;
         }
     }
-    // JAVA: Enum.valueOf throws IllegalArgumentException on an unknown constant.
-    panic!("No enum constant WoolTile.WoolColor.{data}");
+    // JAVA: Enum.valueOf threw IllegalArgumentException on an unknown constant, crashing
+    // on a corrupted save. FIX: log and fall back to uncolored wool (ordinal 0).
+    println!("WoolTile.getData: unknown wool color {data:?}, defaulting to NONE");
+    0
 }
 
 /// Java `WoolTile.getName(String)` — the wool color is treated as a data value; the Rust
 /// hook receives it already parsed as the ordinal.
 pub fn get_name(def: &TileDef, data: i32) -> String {
-    format!("{} {}", WOOL_COLORS[data as usize].0, def.name)
+    // FIX: guard the index like `render` — bad data no longer panics.
+    let color_name = WOOL_COLORS.get(data as usize).unwrap_or(&WOOL_COLORS[0]).0;
+    format!("{} {}", color_name, def.name)
 }
 
 /// Java `WoolTile.matches(int thisData, String tileInfo)`.

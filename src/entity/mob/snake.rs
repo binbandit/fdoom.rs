@@ -26,6 +26,9 @@ pub struct SnakeData {
 
 /// Java `new Snake(lvl)`.
 pub fn new(g: &Game, lvl: i32) -> Entity {
+    // FIX: clamp to the lvlcols range — Java indexed lvlcols[lvl-1] unchecked and an
+    // out-of-range level (e.g. from a hand-edited save) crashed the game.
+    let lvl = lvl.clamp(1, LVLCOLS.len() as i32);
     let diff_idx = g.settings.get_idx("diff");
     let (enemy, col) = EnemyMobData::simple(
         lvl,

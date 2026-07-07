@@ -25,6 +25,10 @@ pub struct ZombieData {
 
 /// Java `new Zombie(lvl)`.
 pub fn new(g: &Game, lvl: i32) -> Entity {
+    // JAVA: EnemyMob indexed lvlcols[lvl-1] unchecked, so Zombie(5) (spawned by
+    // interacting with a grave stone) threw ArrayIndexOutOfBoundsException. FIX: clamp
+    // the mob level to the supported color range.
+    let lvl = lvl.clamp(1, LVLCOLS.len() as i32);
     let diff_idx = g.settings.get_idx("diff");
     let (enemy, col) = EnemyMobData::simple(lvl, &SPRITES, &LVLCOLS, 5, 100, diff_idx);
     let mut c = EntityCommon::new(4, 3);

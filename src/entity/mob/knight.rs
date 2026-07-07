@@ -26,6 +26,9 @@ pub struct KnightData {
 
 /// Java `new Knight(lvl)`.
 pub fn new(g: &Game, lvl: i32) -> Entity {
+    // FIX: clamp to the lvlcols range — Java indexed lvlcols[lvl-1] unchecked and an
+    // out-of-range level (e.g. from a hand-edited save) crashed the game.
+    let lvl = lvl.clamp(1, LVLCOLS.len() as i32);
     let diff_idx = g.settings.get_idx("diff");
     let (enemy, col) = EnemyMobData::simple(lvl, &SPRITES, &LVLCOLS, 9, 100, diff_idx);
     let mut c = EntityCommon::new(4, 3);

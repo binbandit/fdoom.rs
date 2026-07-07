@@ -1,7 +1,5 @@
 //! Port of `fdoom.level.tile.RockTile`.
 
-use std::sync::atomic::{AtomicI32, Ordering};
-
 use super::{ConnectorSprite, TileDef, TileKind, dirt, dispatch};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
@@ -13,10 +11,13 @@ use crate::gfx::{Screen, Sprite, color};
 use crate::item::{Item, ItemKind, ToolType};
 use crate::level::drop_items_counted;
 
-/// Java `RockTile.coallvl` — instance state on the singleton tile.
-// JAVA: set to 1 on the first pickaxe interact (or creative break) and never reset, so
-// every later rock break drops coal.
-static COALLVL: AtomicI32 = AtomicI32::new(0);
+// JAVA: `RockTile.coallvl` was instance state on the singleton tile — set to 1 on the
+// first pickaxe interact (or creative break) and never reset, so whether *any* rock ever
+// dropped coal depended on process-global history that leaked across worlds and saves.
+// FIX: the intent ("rocks mined with a pickaxe drop coal, rocks smashed by mobs or
+// explosions just crumble to stone") is derived per break: `hurt_dmg_inner` takes a
+// `drops_coal` flag — true from the pickaxe interact (and creative breaks), false from
+// mob damage and the generic `hurt_dmg` dispatch entry (explosions). No global state.
 
 /// Java `RockTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -51,7 +52,8 @@ pub fn hurt_by(
     _dmg: i32,
     _attack_dir: Direction,
 ) -> bool {
-    hurt_dmg(g, def, lvl, x, y, 1);
+    // Mob smashing: stone only, no coal (see the coallvl note above).
+    hurt_dmg_inner(g, def, lvl, x, y, 1, false);
     true
 }
 
@@ -77,23 +79,37 @@ pub fn interact(
             && pay_stamina(player, 4 - tool_level)
             && item.pay_durability(g.is_mode("creative"))
         {
-            COALLVL.store(1, Ordering::Relaxed);
             let dmg = g.random.next_int_bound(10) + tool_level * 5 + 10;
-            hurt_dmg(g, def, lvl, xt, yt, dmg);
+            // Pickaxe mining: eligible for coal drops.
+            hurt_dmg_inner(g, def, lvl, xt, yt, dmg, true);
             return true;
         }
     }
     false
 }
 
-pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i32) {
+/// Generic damage entry (dispatch/explosions) — smashed rock drops stone, not coal.
+pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i32) {
+    hurt_dmg_inner(g, def, lvl, x, y, dmg, false);
+}
+
+fn hurt_dmg_inner(
+    g: &mut Game,
+    _def: &TileDef,
+    lvl: usize,
+    x: i32,
+    y: i32,
+    dmg: i32,
+    drops_coal: bool,
+) {
     let mut dmg = dmg;
     let mut damage = g.level(lvl).get_data(x, y) + dmg;
+    let mut drops_coal = drops_coal;
     let rock_health = 50;
     if g.is_mode("creative") {
         dmg = rock_health;
         damage = rock_health;
-        COALLVL.store(1, Ordering::Relaxed);
+        drops_coal = true;
     }
     g.play_sound(Sound::MonsterHurt); // JAVA: the SmashParticle constructor plays this.
     g.level_mut(lvl)
@@ -109,12 +125,10 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
     if damage >= rock_health {
         // JAVA: unused `int count = random.nextInt(1) + 0;` — consumes a random value.
         let _count = g.random.next_int_bound(1);
-        let coallvl = COALLVL.load(Ordering::Relaxed);
-        if coallvl == 0 {
+        if !drops_coal {
             let stone = crate::item::registry::get(g, "Stone");
             drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 4, &[stone]);
-        }
-        if coallvl == 1 {
+        } else {
             let stone = crate::item::registry::get(g, "Stone");
             drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[stone]);
             let mut mincoal = 0;
