@@ -1,5 +1,8 @@
 # fdoom.rs
 
+See also: `docs/` — ARCHITECTURE.md (codebase tour), DEV_GUIDE.md (commands, FDOOM_DEMO
+scripted runs, headless testing, cheat keys), ADDING_CONTENT.md (item/tile/mob recipes).
+
 Rust port of the Java game "Fossickers Doom" (Fossicker repo). **Read `PORTING.md` first** —
 it defines the architecture and the Java→Rust conventions. The Java source of truth lives in
 a scratch clone outside this repo; when in doubt about behavior, defer to the Java code.

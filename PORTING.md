@@ -5,7 +5,8 @@ This repository began as a faithful 1:1 port of
 game, Java package `fdoom`, version "2.6") to Rust. **The tag `v0.1.0` marks the pure
 conversion**; development after that tag deliberately evolves beyond the Java original
 (cleanups, modernized controls, infinite worlds), so "faithful" below describes the ported
-baseline, not a constraint on new work.
+baseline, not a constraint on new work. For a present-tense tour of the codebase (rather
+than the port rationale), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 "Faithful" means: identical rendering (same software renderer, same palette math, same
 sprite sheet), identical game logic (same tick rates, same formulas, same RNG behavior for
