@@ -31,21 +31,63 @@
 //!    mask entirely — open terrain costs what it always did.
 //! 3. **Event skies** — Aurora nights (`core::events`) drift slow green/teal bands over
 //!    the scene, additively and subtly.
+//!
+//! The visual-excellence wave adds, all quantized/dithered pixel-art (never smooth
+//! alpha): a **seam color-carry** inside the ground blend (ground families speckle
+//! their base color across family borders, so snow bleeds white stipple into grass
+//! instead of ending in a hard connector edge); **night emitter halos** (one extra
+//! half-band dither ring beyond strong emitters — bloom without blur); **torch
+//! breathing** (flame emitters swell/settle their radius on a slow per-emitter
+//! phase; lanterns stay steady); and **mine depth fog** (underground, darkness
+//! deepens in two hash-dithered bands beyond each emitter's reach instead of a flat
+//! ambient floor). Scene-space cousins (golden-hour long shadows, contact shadows,
+//! water glitter, heat shimmer, drifting motes) live in `gfx::ambience` and are
+//! driven from [`render_pass`].
+
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::core::game::Game;
 use crate::core::updater::DAY_LENGTH;
 use crate::core::weather::{self, Precip};
 use crate::entity::EntityKind;
 use crate::entity::furniture::crafter::CrafterType;
+use crate::gfx::ambience;
 use crate::gfx::screen::{self, Screen};
 use crate::item::ItemKind;
+use crate::level::tile::TileKind;
 
 /// Number of light bands above ambient (band 0 = pure ambient, band `BANDS` = full
 /// warm light). Few enough that the dithered steps read as deliberate pixel-art.
 const BANDS: usize = 10;
 
 /// Bayer 4x4 ordered-dither thresholds (0-15), same matrix as `Screen::DITHER`.
-const BAYER: [i32; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+pub(crate) const BAYER: [i32; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+/* ------------------------- effect toggles (test support) ------------------------- */
+
+pub const FX_SEAM_BLEND: u32 = 1 << 0;
+pub const FX_LONG_SHADOWS: u32 = 1 << 1;
+pub const FX_CONTACT_SHADOWS: u32 = 1 << 2;
+pub const FX_EMITTER_HALO: u32 = 1 << 3;
+pub const FX_WATER_GLITTER: u32 = 1 << 4;
+pub const FX_HEAT_SHIMMER: u32 = 1 << 5;
+pub const FX_MOTES: u32 = 1 << 6;
+pub const FX_TORCH_BREATHING: u32 = 1 << 7;
+pub const FX_DEPTH_FOG: u32 = 1 << 8;
+
+/// Bitmask of effects currently disabled. The game never touches this — it exists so
+/// `tests/visuals.rs` can render true A/B pairs of the same frame.
+static DISABLED_FX: AtomicU32 = AtomicU32::new(0);
+
+/// Disable a set of effects (`FX_*` bitmask; 0 = everything on). Test support only.
+pub fn set_disabled_fx(mask: u32) {
+    DISABLED_FX.store(mask, Ordering::Relaxed);
+}
+
+/// Whether an effect (one `FX_*` bit) is enabled this frame.
+pub fn fx_on(bit: u32) -> bool {
+    DISABLED_FX.load(Ordering::Relaxed) & bit == 0
+}
 
 /// The tint a fully-lit pixel converges to: warm torchlight — extra red, eased green,
 /// pulled-back blue. (Tint only; band brightness ramps separately in `build_luts`.)
@@ -159,8 +201,44 @@ pub fn ambient_for(g: &Game, lvl: usize) -> Ambient {
     }
 }
 
-/// The whole pipeline: grade + radiance + event sky. `screen` is the freshly drawn
-/// world frame; `light` is the scratch light buffer (raw 0-255 brightness).
+/// Per-frame lighting context, shared between [`render_pass`] and [`stamp_emitters`]
+/// so the halo/fog math sees the exact ambient the compose uses.
+struct FrameCtx {
+    amb: Ambient,
+    precip: Precip,
+    aurora: bool,
+    ember: bool,
+}
+
+/// The frame's graded ambient + which sky show (weather/event) owns the visuals.
+/// Weather is surface-only presentation, and event skies own the night: an Ember
+/// Rain's warm glow and falling embers would clash with cool rain streaks, and an
+/// aurora shimmers over a *clear* sky by definition. The schedule itself coexists
+/// (weather::is_raining stays live); only the visuals yield.
+fn frame_ctx(g: &Game, lvl: usize) -> FrameCtx {
+    let aurora = crate::core::events::aurora_active(g) && lvl >= 3;
+    let ember = crate::core::events::ember_rain_active(g);
+    let precip = if lvl == 3 && !aurora && !ember {
+        weather::precip(g)
+    } else {
+        Precip::None
+    };
+    FrameCtx {
+        amb: weather_grade(ambient_for(g, lvl), precip),
+        precip,
+        aurora,
+        ember,
+    }
+}
+
+/// Underground layers (caves + dungeon) get the depth-fog treatment.
+fn is_underground(lvl: usize) -> bool {
+    matches!(lvl, 0..=2 | 5)
+}
+
+/// The whole pipeline: grade + radiance + event sky + scene ambience. `screen` is the
+/// freshly drawn world frame; `light` is the scratch light buffer (raw 0-255
+/// brightness).
 pub fn render_pass(
     screen: &mut Screen,
     light: &mut Screen,
@@ -175,20 +253,18 @@ pub fn render_pass(
         ground_blend_pass(screen, g, lvl, x_scroll, y_scroll);
     }
 
-    // Weather is surface-only presentation, and event skies own the night: an Ember
-    // Rain's warm glow and falling embers would clash with cool rain streaks, and an
-    // aurora shimmers over a *clear* sky by definition. The schedule itself coexists
-    // (weather::is_raining stays live); only the visuals yield.
-    let aurora = crate::core::events::aurora_active(g) && lvl >= 3;
-    let precip = if lvl == 3 && !aurora && !crate::core::events::ember_rain_active(g) {
-        weather::precip(g)
-    } else {
-        Precip::None
-    };
+    let ctx = frame_ctx(g, lvl);
+    let amb = ctx.amb;
 
-    let amb = weather_grade(ambient_for(g, lvl), precip);
+    // Golden-hour long shadows: a low clear sun stretches soft dithered strips off
+    // trees and walls. Before the grade, so the amber/rose tint sits on top of them.
+    if lvl == 3 && ctx.precip == Precip::None && fx_on(FX_LONG_SHADOWS) {
+        if let Some((dir, q)) = ambience::golden_hour(g.tick_count) {
+            ambience::long_shadows(screen, g, lvl, x_scroll, y_scroll, dir, q);
+        }
+    }
 
-    if !amb.is_identity() || aurora {
+    if !amb.is_identity() || ctx.aurora {
         let a8 = ((amb.brightness * 255.0).round() as i32).clamp(0, 254);
         // Near full daylight the light term can never exceed ambient — skip the stamp.
         let stamp = a8 < 240;
@@ -196,22 +272,38 @@ pub fn render_pass(
             stamp_emitters(light, g, lvl, x_scroll, y_scroll);
         }
 
-        let luts = build_luts(&amb);
-        compose(screen, light, &luts, a8, stamp, x_scroll, y_scroll);
+        let fog = stamp && is_underground(lvl) && fx_on(FX_DEPTH_FOG);
+        let luts = build_luts(&amb, fog);
+        compose(screen, light, &luts, a8, stamp, fog, x_scroll, y_scroll);
 
-        if aurora {
+        if ctx.aurora {
             aurora_bands(screen, g, x_scroll);
         }
     }
 
-    // Ambience on top of the graded frame (surface only): fish bubbles on open water,
-    // then whatever falls from the sky.
+    // Heat shimmer wobbles the finished frame (lava rows on any level; desert sand
+    // only under a punishing clear noon sun). Runs pre-HUD, so UI rows never bend.
+    if fx_on(FX_HEAT_SHIMMER) {
+        let desert_noon =
+            lvl == 3 && ctx.precip == Precip::None && ambience::high_noon(g.tick_count);
+        ambience::heat_shimmer(screen, g, lvl, x_scroll, y_scroll, desert_noon);
+    }
+
+    // Ambience on top of the graded frame (surface only): sun/moon glitter and fish
+    // bubbles on open water, then whatever falls from the sky (or drifts through it).
     if lvl == 3 {
+        if ctx.precip == Precip::None && !ctx.ember && fx_on(FX_WATER_GLITTER) {
+            ambience::water_glitter(screen, g, lvl, x_scroll, y_scroll, amb.brightness);
+        }
         fish_bubbles(screen, g, lvl, x_scroll, y_scroll, amb.brightness);
-        match precip {
+        match ctx.precip {
             Precip::Rain(i) => rain_streaks(screen, g, i, amb.brightness, x_scroll, y_scroll),
             Precip::Snow(i) => snow_flecks(screen, g, i, amb.brightness, x_scroll, y_scroll),
-            Precip::None => {}
+            Precip::None => {
+                if fx_on(FX_MOTES) {
+                    ambience::drift_motes(screen, g, x_scroll, y_scroll, amb.brightness);
+                }
+            }
         }
     }
 }
@@ -408,19 +500,57 @@ fn biome_factor(b: crate::level::infinite_gen::Biome) -> [i32; 3] {
     }
 }
 
-/// The ground-blend factor of one surface tile. Hard ground families read as
-/// themselves wherever they sit (a lone snow patch is frosty even outside tundra);
-/// grass, dirt, water, and everything else take the biome tint — that is where the
-/// per-biome hue direction (deep forest green, warm savanna...) comes from.
-fn tile_factor(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> [i32; 3] {
-    use crate::level::tile::TileKind;
+/// Ground family of a surface tile — the unit the seam color-carry blends between.
+/// A family groups the tiles that share a base ground look (a tree still stands on
+/// grass; a cactus on sand), so borders are detected where the *ground* changes, not
+/// where props do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GroundFam {
+    /// Water, rock, floors... — never carries and never receives (their connector
+    /// art already handles those seams).
+    Other,
+    Grass,
+    Dirt,
+    Sand,
+    Snow,
+    Mud,
+}
+
+/// Representative on-screen base color per ground family (what the tile art reads
+/// as at noon). The seam carry lerps border pixels toward the *neighbor's* color.
+fn fam_color(f: GroundFam) -> i32 {
+    match f {
+        GroundFam::Grass => 0x5FA85A, // mid meadow green
+        GroundFam::Dirt => 0x9A7A55,  // dry earth tan
+        GroundFam::Sand => 0xE3D06A,  // warm dune yellow
+        GroundFam::Snow => 0xEFF4F9,  // frost white, faintly blue
+        GroundFam::Mud => 0x584A38,   // dark peat
+        GroundFam::Other => 0,
+    }
+}
+
+/// The ground-blend factor *and* family of one surface tile. Hard ground families
+/// read as themselves wherever they sit (a lone snow patch is frosty even outside
+/// tundra); grass, dirt, water, and everything else take the biome tint — that is
+/// where the per-biome hue direction (deep forest green, warm savanna...) comes from.
+fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], GroundFam) {
+    let biome = || biome_factor(crate::level::infinite_gen::biome_at_blended(seed, tx, ty));
     match g.tile_at(lvl, tx, ty).kind {
         TileKind::Sand | TileKind::Cactus | TileKind::FruitingCactus | TileKind::QuickSand => {
-            SAND_F
+            (SAND_F, GroundFam::Sand)
         }
-        TileKind::Snow | TileKind::SnowTree => SNOW_F,
-        TileKind::Mud => MUD_F,
-        _ => biome_factor(crate::level::infinite_gen::biome_at_blended(seed, tx, ty)),
+        TileKind::Snow | TileKind::SnowTree => (SNOW_F, GroundFam::Snow),
+        TileKind::Mud => (MUD_F, GroundFam::Mud),
+        TileKind::Dirt | TileKind::Farm => (biome(), GroundFam::Dirt),
+        TileKind::Grass
+        | TileKind::Flower
+        | TileKind::TallGrass { .. }
+        | TileKind::Tree
+        | TileKind::TreeSpecies { .. }
+        | TileKind::Sapling { .. }
+        | TileKind::BerryBush
+        | TileKind::DryBush => (biome(), GroundFam::Grass),
+        _ => (biome(), GroundFam::Other),
     }
 }
 
@@ -444,13 +574,16 @@ fn ground_blend_pass(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
     let nx = (((x_scroll + screen::W - 1) >> 4) - tx0 + 1) as usize;
     let ny = (((y_scroll + screen::H - 1) >> 4) - ty0 + 1) as usize;
 
-    // Per-tile factors over the visible grid plus a one-tile margin (edge corners
-    // average tiles just off screen).
+    // Per-tile factors + ground families over the visible grid plus a one-tile
+    // margin (edge corners average tiles just off screen; edge seams carry from it).
     let tw = nx + 2;
     let mut tf = vec![NEUTRAL_F; tw * (ny + 2)];
+    let mut fam = vec![GroundFam::Other; tw * (ny + 2)];
     for j in 0..ny + 2 {
         for i in 0..tw {
-            tf[j * tw + i] = tile_factor(g, lvl, seed, tx0 + i as i32 - 1, ty0 + j as i32 - 1);
+            let (f, fm) = tile_ground(g, lvl, seed, tx0 + i as i32 - 1, ty0 + j as i32 - 1);
+            tf[j * tw + i] = f;
+            fam[j * tw + i] = fm;
         }
     }
 
@@ -524,25 +657,158 @@ fn ground_blend_pass(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
             }
         }
     }
+
+    // The multiplier blend above nudges hue; the seam carry below is what actually
+    // bridges strongly different grounds (snow-white into grass-green).
+    if fx_on(FX_SEAM_BLEND) {
+        seam_carry(screen, &fam, tw, nx, ny, tx0, ty0, x_scroll, y_scroll);
+    }
 }
+
+/// Seam carry depth: how many pixels each side of a family border blends.
+const CARRY_DEPTH: i32 = 5;
+
+/// Bayer coverage (of 16) per pixel of depth from the seam: near-solid on the border
+/// row, gone 5 px in. Quantized ramp — the dither *is* the gradient.
+const CARRY_COV: [i32; CARRY_DEPTH as usize] = [13, 10, 7, 4, 2];
+
+/// How far a carried pixel lerps toward the neighbor family's color (of 256).
+/// Strong enough to read as that ground, weak enough to keep the art's shading.
+const CARRY_LERP: i32 = 168;
+
+/// Dithered color-carry across ground-family seams: wherever two adjacent tiles
+/// belong to different ground families, pixels within [`CARRY_DEPTH`] of the shared
+/// edge (on *both* sides — each tile paints its own strip) lerp toward the
+/// neighbor's representative base color, masked by ordered Bayer dither whose
+/// coverage ramps ~100% -> 0% across the strip. Snow bleeds white speckle into the
+/// grass edge and grass speckles green back into the snow — the hard connector
+/// border dissolves into pixel-art interpenetration, and isolated one-tile freckles
+/// read as soft-edged patches. Corners get both axes (the two strips overlap).
+#[allow(clippy::too_many_arguments)]
+fn seam_carry(
+    screen: &mut Screen,
+    fam: &[GroundFam],
+    tw: usize,
+    nx: usize,
+    ny: usize,
+    tx0: i32,
+    ty0: i32,
+    x_scroll: i32,
+    y_scroll: i32,
+) {
+    #[inline]
+    fn lerp_px(p: &mut i32, target: i32, k: i32) {
+        let (pr, pg, pb) = ((*p >> 16) & 0xFF, (*p >> 8) & 0xFF, *p & 0xFF);
+        let (tr, tg, tb) = ((target >> 16) & 0xFF, (target >> 8) & 0xFF, target & 0xFF);
+        let r = pr + (((tr - pr) * k) >> 8);
+        let g = pg + (((tg - pg) * k) >> 8);
+        let b = pb + (((tb - pb) * k) >> 8);
+        *p = (r << 16) | (g << 8) | b;
+    }
+
+    // One strip: `horiz` = seam runs horizontally (neighbor above/below).
+    // `d`-th pixel row/column from the seam, world-anchored Bayer.
+    let mut strip = |tx: i32, ty: i32, dx: i32, dy: i32, ncol: i32| {
+        for d in 0..CARRY_DEPTH {
+            let cov = CARRY_COV[d as usize];
+            if dy != 0 {
+                // horizontal seam: rows into the tile from its top (dy<0) or bottom
+                let wy = if dy < 0 {
+                    ty * 16 + d
+                } else {
+                    ty * 16 + 15 - d
+                };
+                let y = wy - y_scroll;
+                if !(0..screen::H).contains(&y) {
+                    continue;
+                }
+                let x0 = (tx * 16 - x_scroll).max(0);
+                let x1 = (tx * 16 + 16 - x_scroll).min(screen::W);
+                let row = (y * screen::W) as usize;
+                let by = ((wy & 3) << 2) as usize;
+                for x in x0..x1 {
+                    if BAYER[((x + x_scroll) & 3) as usize + by] < cov {
+                        lerp_px(&mut screen.pixels[row + x as usize], ncol, CARRY_LERP);
+                    }
+                }
+            } else {
+                // vertical seam: columns into the tile from its left/right edge
+                let wx = if dx < 0 {
+                    tx * 16 + d
+                } else {
+                    tx * 16 + 15 - d
+                };
+                let x = wx - x_scroll;
+                if !(0..screen::W).contains(&x) {
+                    continue;
+                }
+                let y0 = (ty * 16 - y_scroll).max(0);
+                let y1 = (ty * 16 + 16 - y_scroll).min(screen::H);
+                let bx = (wx & 3) as usize;
+                for y in y0..y1 {
+                    if BAYER[bx + (((y + y_scroll) & 3) << 2) as usize] < cov {
+                        lerp_px(
+                            &mut screen.pixels[(y * screen::W) as usize + x as usize],
+                            ncol,
+                            CARRY_LERP,
+                        );
+                    }
+                }
+            }
+        }
+    };
+
+    for tj in 0..ny {
+        for ti in 0..nx {
+            let f = fam[(tj + 1) * tw + ti + 1];
+            if f == GroundFam::Other {
+                continue;
+            }
+            let (tx, ty) = (tx0 + ti as i32, ty0 + tj as i32);
+            // (grid dx, grid dy) of the four neighbors; the strip hugs that edge.
+            for (dx, dy) in [(0i32, -1i32), (0, 1), (-1, 0), (1, 0)] {
+                let n = fam[(tj as i32 + 1 + dy) as usize * tw + (ti as i32 + 1 + dx) as usize];
+                if n != GroundFam::Other && n != f {
+                    strip(tx, ty, dx, dy, fam_color(n));
+                }
+            }
+        }
+    }
+}
+
+/// Depth-fog band multipliers on the ambient grade (underground only): the fringe
+/// band just beyond an emitter's reach, then the deep dark. Two quantized steps —
+/// the hash-dithered edge between them does the "gradient" work.
+const FOG_FRINGE: f32 = 0.60;
+const FOG_DEEP: f32 = 0.32;
 
 /// Build the per-frame grading tables: for each light band, a 256-entry map per
 /// channel. Band 0 is the pure ambient grade; higher bands ramp brightness toward
 /// full while the tint converges on [`WARM_TINT`] *faster* than the brightness
 /// (sqrt bias) — so even the dim outer falloff already reads as firelight, not as a
 /// neutral "hole" in the darkness that lets the terrain's own hue glow green.
-fn build_luts(amb: &Ambient) -> Vec<[[u8; 256]; 3]> {
-    let mut luts = vec![[[0u8; 256]; 3]; BANDS + 1];
+///
+/// With `fog`, two extra tables follow the light bands: `BANDS+1` = fog fringe,
+/// `BANDS+2` = fog deep (the ambient grade scaled by [`FOG_FRINGE`]/[`FOG_DEEP`]).
+fn build_luts(amb: &Ambient, fog: bool) -> Vec<[[u8; 256]; 3]> {
+    let n = BANDS + 1 + if fog { 2 } else { 0 };
+    let mut luts = vec![[[0u8; 256]; 3]; n];
     for (k, lut) in luts.iter_mut().enumerate() {
-        let w = k as f32 / BANDS as f32;
-        let ws = w * w * (3.0 - 2.0 * w); // smoothstep: soft shoulder at both ends
-        let wt = ws.powf(0.4); // tint leads brightness: even dim falloff reads warm
-        let brightness = amb.brightness + (1.0 - amb.brightness) * ws;
+        let (ws, wt, extra) = if k <= BANDS {
+            let w = k as f32 / BANDS as f32;
+            let ws = w * w * (3.0 - 2.0 * w); // smoothstep: soft shoulder at both ends
+            (ws, ws.powf(0.4), 1.0) // tint leads brightness: dim falloff reads warm
+        } else if k == BANDS + 1 {
+            (0.0, 0.0, FOG_FRINGE)
+        } else {
+            (0.0, 0.0, FOG_DEEP)
+        };
+        let brightness = (amb.brightness + (1.0 - amb.brightness) * ws) * extra;
         for c in 0..3 {
             let tint = amb.tint[c] + (WARM_TINT[c] - amb.tint[c]) * wt;
             let gain_fp = (tint * brightness * 256.0).round() as i32;
             // the atmosphere wash fades out where real light takes over
-            let wash = (amb.wash[c] * (1.0 - ws)).round() as i32;
+            let wash = (amb.wash[c] * (1.0 - ws) * extra).round() as i32;
             for (v, out) in lut[c].iter_mut().enumerate() {
                 *out = (((v as i32 * gain_fp) >> 8) + wash).min(255) as u8;
             }
@@ -639,45 +905,84 @@ fn occlusion_mask(g: &Game, lvl: usize, etx: i32, ety: i32, rt: i32) -> Option<O
     Some(Occlusion { vis, etx, ety, rt })
 }
 
+/// Night-halo ring width beyond the falloff radius, in pixels.
+const HALO_W: i32 = 8;
+
+/// Depth-fog reach beyond the falloff radius: how far an emitter pushes the
+/// underground fog back before the fringe/deep bands take over.
+const FOG_REACH: i32 = 26;
+
 /// Stamp one emitter's radial falloff (the `Screen::render_light` curve) into the
 /// light buffer, masked per tile by the emitter's line-of-sight when it has one.
+///
+/// `halo_v > 0` adds the night bloom ring: everything out to `r + HALO_W` is floored
+/// at `halo_v` (half a band above ambient), which the compose dithers into a single
+/// warm stipple ring hugging the lit edge. `fog_a8 > 0` (underground) additionally
+/// writes a sub-ambient ramp out to `r + FOG_REACH` — values below ambient never
+/// brighten anything, they only encode "how close is the nearest light" for the
+/// depth-fog bands in [`compose`].
+#[allow(clippy::too_many_arguments)]
 fn stamp_falloff(
     light: &mut Screen,
     cx: i32,
     cy: i32,
     r: i32,
+    halo_v: i32,
+    fog_a8: i32,
     occ: Option<&Occlusion>,
     x_scroll: i32,
     y_scroll: i32,
 ) {
+    let rh = if halo_v > 0 { r + HALO_W } else { r };
+    let rf = if fog_a8 > 0 { r + FOG_REACH } else { r };
+    let reach = rh.max(rf);
     let x = cx - x_scroll;
     let y = cy - y_scroll;
-    let x0 = (x - r).max(0);
-    let x1 = (x + r).min(screen::W);
-    let y0 = (y - r).max(0);
-    let y1 = (y + r).min(screen::H);
+    let x0 = (x - reach).max(0);
+    let x1 = (x + reach).min(screen::W);
+    let y0 = (y - reach).max(0);
+    let y1 = (y + reach).min(screen::H);
     let rr = r * r;
+    let rh2 = rh * rh;
+    let rf2 = rf * rf;
     for yy in y0..y1 {
         let ty = (yy + y_scroll) >> 4;
         let yd = (yy - y) * (yy - y);
         let row = (yy * screen::W) as usize;
         for xx in x0..x1 {
+            let xd = xx - x;
+            let dist = xd * xd + yd;
+            if dist > rr && dist > rh2 && dist > rf2 {
+                continue;
+            }
             if let Some(o) = occ {
                 if !o.visible((xx + x_scroll) >> 4, ty) {
                     continue;
                 }
             }
-            let xd = xx - x;
-            let dist = xd * xd + yd;
-            if dist <= rr {
-                let br = 255 - dist * 255 / rr;
-                let px = &mut light.pixels[row + xx as usize];
-                if *px < br {
-                    *px = br;
-                }
+            let mut br = if dist <= rr { 255 - dist * 255 / rr } else { 0 };
+            if fog_a8 > 0 && dist <= rf2 {
+                br = br.max((fog_a8 * (rf2 - dist) / (rf2 - rr).max(1)).min(fog_a8));
+            }
+            if halo_v > 0 && dist > rr && dist <= rh2 {
+                br = br.max(halo_v);
+            }
+            let px = &mut light.pixels[row + xx as usize];
+            if *px < br {
+                *px = br;
             }
         }
     }
+}
+
+/// Slow per-emitter breathing offset for flame light (±1/4 tile in 2 px quantized
+/// steps over ~2 s): firelight swells and settles instead of holding a perfect
+/// circle. Kept under the menu's ±0.5 tile — side-by-side torches must still read
+/// as equals in a still frame. Steady emitters (lanterns, pumpkins, lava) skip it.
+fn flame_breath(g: &Game, cx: i32, cy: i32) -> i32 {
+    const WAVE: [i32; 8] = [-4, -2, 0, 2, 4, 2, 0, -2];
+    let h = crate::level::infinite_gen::hash(g.world_seed, 0xB4EA7, cx, cy);
+    WAVE[(((g.game_time / 16) + (h & 7) as i32) & 7) as usize]
 }
 
 /// Collect this frame's emitters and stamp radial falloff into the light buffer,
@@ -692,8 +997,21 @@ pub fn stamp_emitters(light: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
     let h = (screen::H + 15) >> 4;
     const MARGIN: i32 = 8; // widest emitter (gold lantern, r=15) reaches ~8 tiles
 
-    // (level-pixel center x, y, pixel radius) per emitter this frame.
-    let mut emitters: Vec<(i32, i32, i32)> = Vec::new();
+    // Halo/fog context: the same graded ambient the compose will use.
+    let amb = frame_ctx(g, lvl).amb;
+    let a8 = ((amb.brightness * 255.0).round() as i32).clamp(0, 254);
+    // Half a compose band above ambient — dithers to a 50% stipple ring.
+    let half_band = (((255 - a8) / (BANDS as i32 * 2)).max(1) + a8).min(254);
+    let halo_on = a8 <= 120 && fx_on(FX_EMITTER_HALO);
+    let fog_a8 = if is_underground(lvl) && fx_on(FX_DEPTH_FOG) {
+        a8
+    } else {
+        0
+    };
+    let breathe = fx_on(FX_TORCH_BREATHING);
+
+    // (level-pixel center x, y, pixel radius, is-flame) per emitter this frame.
+    let mut emitters: Vec<(i32, i32, i32, bool)> = Vec::new();
 
     // Entity emitters: lanterns, glow worms, night wisps, the player (bigger radius
     // when holding a torch or lantern), plus furnace/oven ember glow.
@@ -709,15 +1027,16 @@ pub fn stamp_emitters(light: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
             continue;
         };
         let mut r = crate::entity::behavior::get_light_radius(e);
+        let mut flame = matches!(e.kind, EntityKind::Campfire(_));
         match &e.kind {
             EntityKind::Player(_) => {
                 let mut holds_light = false;
                 if let Some(item) = &e.player().active_item {
                     let held = item.get_name();
-                    if matches!(item.kind, ItemKind::Torch { .. })
-                        || held.contains("Torch")
-                        || held.contains("Lantern")
-                    {
+                    if matches!(item.kind, ItemKind::Torch { .. }) || held.contains("Torch") {
+                        flame = true; // a held torch breathes like a planted one
+                    }
+                    if flame || held.contains("Lantern") {
                         holds_light = true;
                         r = r.max(8);
                     }
@@ -738,47 +1057,92 @@ pub fn stamp_emitters(light: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
             _ => {}
         }
         if r > 0 {
-            emitters.push((e.c.x - 1, e.c.y - 4, r * PX_PER_RADIUS));
+            emitters.push((e.c.x - 1, e.c.y - 4, r * PX_PER_RADIUS, flame));
         }
     }
 
     // Tile emitters: torches, lava, lit pumpkins, broken gravestones... — whatever
     // `dispatch::get_light_radius` reports. `tile_at` handles infinite/chunked levels
     // (negative coordinates included), unlike the legacy `level::render_light` scan.
+    // Torch tiles are flames (they breathe); burning tiles already flicker through
+    // `fire::light_radius`, and lava/pumpkins/gravestones hold steady.
     for yt in (yo - MARGIN)..=(yo + h + MARGIN) {
         for xt in (xo - MARGIN)..=(xo + w + MARGIN) {
             let tile = g.tile_at(lvl, xt, yt);
             let lr = crate::level::tile::dispatch::get_light_radius(g, &tile, lvl, xt, yt);
             if lr > 0 {
-                emitters.push((xt * 16 + 8, yt * 16 + 8, lr * PX_PER_RADIUS));
+                let flame = matches!(tile.kind, TileKind::Torch { .. });
+                emitters.push((xt * 16 + 8, yt * 16 + 8, lr * PX_PER_RADIUS, flame));
             }
         }
     }
 
-    for (cx, cy, r) in emitters {
-        // Tile reach of the falloff: r px / 16, +1 for the emitter's own off-center
-        // position within its tile.
-        let rt = (r >> 4) + 1;
+    for (cx, cy, mut r, flame) in emitters {
+        if flame && breathe {
+            r = (r + flame_breath(g, cx, cy)).max(8);
+        }
+        // Strong emitters (a torch and up) get the night bloom ring.
+        let halo_v = if halo_on && r >= 20 { half_band } else { 0 };
+        // Tile reach of the widest write (falloff/halo/fog): px / 16, +1 for the
+        // emitter's own off-center position within its tile.
+        let reach = r + if fog_a8 > 0 {
+            FOG_REACH
+        } else if halo_v > 0 {
+            HALO_W
+        } else {
+            0
+        };
+        let rt = (reach >> 4) + 1;
         let occ = occlusion_mask(g, lvl, cx >> 4, cy >> 4, rt);
-        stamp_falloff(light, cx, cy, r, occ.as_ref(), x_scroll, y_scroll);
+        stamp_falloff(
+            light,
+            cx,
+            cy,
+            r,
+            halo_v,
+            fog_a8,
+            occ.as_ref(),
+            x_scroll,
+            y_scroll,
+        );
     }
+}
+
+/// Cheap integer scramble in 0..16 — an *unordered* (non-Bayer) dither for the depth
+/// fog's edge, so the fog boundary reads as organic grain rather than the same
+/// crosshatch the light bands use. World-anchored like everything else.
+#[inline]
+fn fog_noise(x: i32, y: i32) -> i32 {
+    let mut h = (x as u32).wrapping_mul(0x9E37_79B9) ^ (y as u32).wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0xC2B2_AE35);
+    ((h >> 24) & 15) as i32
 }
 
 /// Final per-pixel mix: `grade(pixel) * max(ambient, light)`, with the light term
 /// quantized into [`BANDS`] steps and Bayer-dithered so falloff edges read as ordered
 /// pixel-art stipple. Dither coordinates are world-anchored (scroll added) so the
 /// pattern doesn't crawl against the terrain when the camera moves.
+///
+/// With `fog` (underground), pixels at band 0 sort into three depths by their
+/// sub-ambient light value (the [`FOG_REACH`] ramp [`stamp_falloff`] wrote): near a
+/// light = the normal ambient floor, then a fringe band, then deep dark — each edge
+/// broken up by [`fog_noise`] grain instead of a hard ring.
+#[allow(clippy::too_many_arguments)]
 fn compose(
     screen: &mut Screen,
     light: &Screen,
     luts: &[[[u8; 256]; 3]],
     a8: i32,
     stamp: bool,
+    fog: bool,
     x_scroll: i32,
     y_scroll: i32,
 ) {
     // Fixed-point band scale: excess light 0..(255-a8) -> band*16 (4 fraction bits).
     let inv = ((BANDS as i32 * 16) << 8) / (255 - a8).max(1);
+    // Fog thresholds on the sub-ambient ramp, in thirds of ambient.
+    let (fog_hi, fog_lo) = (a8 * 2 / 3, a8 / 3);
 
     for y in 0..screen::H {
         let by = (((y + y_scroll) & 3) << 2) as usize;
@@ -787,7 +1151,8 @@ fn compose(
             let i = row + x as usize;
             let mut band = 0usize;
             if stamp {
-                let excess = light.pixels[i] - a8;
+                let lv = light.pixels[i];
+                let excess = lv - a8;
                 if excess > 0 {
                     let q = (excess * inv) >> 8; // band index in 4.4 fixed point
                     let mut b = (q >> 4) as usize;
@@ -795,6 +1160,15 @@ fn compose(
                         b += 1;
                     }
                     band = b.min(BANDS);
+                } else if fog {
+                    // ±a8/8 grain on the two fog edges
+                    let j = ((fog_noise(x + x_scroll, y + y_scroll) - 8) * a8) >> 6;
+                    let lvj = lv + j;
+                    if lvj < fog_lo {
+                        band = BANDS + 2; // deep dark
+                    } else if lvj < fog_hi {
+                        band = BANDS + 1; // fringe
+                    }
                 }
             }
             let lut = &luts[band];

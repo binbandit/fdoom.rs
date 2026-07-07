@@ -1,8 +1,8 @@
 # Rendering & UI
 
-Exhaustive reference for fdoom.rs's software renderer, sprite/font systems, the art
-generator that produces `assets/sprites.png`, the per-frame render pipeline, and the
-display/menu system. See also [ARCHITECTURE.md](ARCHITECTURE.md) for the whole-codebase
+Exhaustive reference for fdoom.rs's software renderer, sprite/font systems, the split
+sprite tree (`assets/sprites/**`) and its atlas stitcher, the per-frame render pipeline,
+and the display/menu system. See also [ARCHITECTURE.md](ARCHITECTURE.md) for the whole-codebase
 tour, [TERRAIN.md](TERRAIN.md) for world generation, and
 [CORE_AND_SAVES.md](CORE_AND_SAVES.md) for the `Game` struct and tick order this pipeline
 runs inside.
@@ -141,13 +141,16 @@ pub struct SpriteSheet {
     pub width: i32,
     pub height: i32,
     pub pixels: Vec<SheetPixel>,
+    pub cells: HashMap<String, CellRect>, // name -> cells, for parts-stitched sheets
 }
 ```
 
-`SpriteSheet::from_png(png_bytes)` decodes via the `png` crate, expanding whatever the PNG's
-`ColorType` is (Grayscale, GrayscaleAlpha, Rgb, Rgba — indexed PNGs are `unreachable!()`
-since the `png` crate auto-expands them) into `(r, g, b, a)` per source pixel, then
-classifies:
+The live sheet is stitched at load time from the split sprite files under
+`assets/sprites/**` (`SpriteSheet::from_parts`, see §7 and docs/ART_GUIDE.md);
+`SpriteSheet::from_png(png_bytes)` still decodes monolithic PNGs (the golden test
+fixture, studio previews). Both expand whatever the PNG's `ColorType` is (Grayscale,
+GrayscaleAlpha, Rgb, Rgba — indexed PNGs are `unreachable!()` since the `png` crate
+auto-expands them) into `(r, g, b, a)` per source pixel, then classify:
 
 ```rust
 if a < 128        { SheetPixel::Transparent }
@@ -155,14 +158,14 @@ else if r == g && g == b { SheetPixel::Palette(r / 64) }   // buckets 0-63/64-12
 else               { SheetPixel::Rgb((r << 16) | (g << 8) | b) }
 ```
 
-So the sheet PNG itself is a normal RGBA image; the *classification rule* is what makes it
+So the sheet pixels are normal RGBA; the *classification rule* is what makes the atlas
 hybrid — any pixel with `r==g==b` (true gray) becomes a recolorable `Palette` shade, any
 other color is baked in as literal `Rgb`, and low alpha is always `Transparent` regardless
-of color. **`artgen.rs` bakes exact gray levels `0/85/170/255`** for the four shades (see
-§6) — the `/64` bucketing maps these cleanly to shades `0/1/2/3`; do not author "true-color"
-art using an accidental `r==g==b` value or it will silently become a recolorable palette
-cell instead of literal color (`artgen.rs`'s `rgb()` helper asserts `!(r==g && g==b)` to
-catch this at generation time).
+of color. **Palette-mode art uses exactly the gray ladder `0/85/170/255`** for the four
+shades — the `/64` bucketing maps these cleanly to shades `0/1/2/3`; do not author
+"true-color" art using an accidental `r==g==b` value or it will silently become a
+recolorable palette pixel instead of literal color (`tests/sprite_atlas.rs` enforces the
+ladder for `pal`-flagged files; pixel_studio warns on gray/color mixing).
 
 ## 4. `color` — packed palettes and the 0-5 cube (`src/gfx/color.rs`)
 
@@ -247,8 +250,8 @@ pub struct Sprite {
 Constructors: `from_pos(pos, color)`, `new1x1`, `new(sx,sy,sw,sh,color,mirror)`,
 `new_onepixel(...)` (every cell reuses one sheet cell — solid fills like `blank`/`repeat`),
 `with_mirrors(...)` (per-cell mirror bitmask array), `from_pixels(...)` (raw),
-`missing_texture(w,h)` = `Sprite::new(30,30,w,h,color::get(505,505),0)` (matches the
-`artgen_sheet.rs` cell `(30,30)`), `blank(w,h,col)` = cell `(7,2)`, `repeat(sx,sy,w,h,col)`
+`missing_texture(w,h)` = `Sprite::new(30,30,w,h,color::get(505,505),0)` (the
+`tiles/missing.png` cell `(30,30)`), `blank(w,h,col)` = cell `(7,2)`, `repeat(sx,sy,w,h,col)`
 (tiles one cell across an arbitrarily large block), `dots(col)` (the 4 "dots" cells at row
 0), `random_dots(seed,col)` (deterministic via `Rng::new(seed)`).
 
@@ -280,8 +283,8 @@ pub fn compile_mob_sprite_animations(sheet_x, sheet_y) -> MobAnims {
 ```
 Down/up's second walk frame and both left-facing frames are the **same source art** as the
 right-facing/first-frame cells, reused via `mirror=1` (whole-sprite flip). This is why
-`artgen.rs`'s mob recipes only ever paint a right-facing walk cycle — everything else is
-derived by this mirror, not separately drawn.
+the mob frame strips (`assets/sprites/mobs/*/`) only contain a right-facing walk cycle —
+everything else is derived by this mirror, not separately drawn.
 
 ### `ConnectorSprite` — terrain-edge pieces
 
@@ -337,11 +340,12 @@ sheet, starting at sheet position `30*32` (row 30):
 ```
 "ABCDEFGHIJKLMNOPQRSTUVWXYZ      0123456789.,!?'\"-+=/\\%()<>:;^@bcdefghijklmnopqrstuvwxyz"
 ```
-6 spaces after `Z` are reserved blank cells. **Lowercase glyphs at the tail are currently
-unreachable**: `Font::draw` uppercases text before lookup, and `artgen.rs`'s `glyph(ch)`
-only has ASCII-art defined for `A-Z`, `0-9`, and the listed punctuation — there is no
-lowercase branch, so those sheet cells exist as reserved space but are never populated with
-actual strokes (confirmed by `tests/artgen_sheet.rs`'s `FONT_CHARS`, which stops at `@`).
+6 spaces after `Z` are reserved blank cells (their sheet slots are solid shade-0 backing
+boxes, `assets/sprites/font/space_*.png`; the sixth slot holds `tiles/missing.png`).
+**Lowercase glyphs at the tail are currently unreachable**: `Font::draw` uppercases text
+before lookup, and glyph files only exist for `A-Z`, `0-9`, and the listed punctuation
+(`assets/sprites/font/`, one 8x8 file per glyph) — those tail cells exist as reserved
+space but have no strokes.
 
 Default style helpers: `default_background_color()`, `default_border_color()`,
 `default_text_color()`, `default_title_color()` — used by `render_frame` (below).
@@ -389,119 +393,74 @@ text on top. `set_shadow_type(color, full)`: `full` ⇒ `"10101010"` (full outli
 out of the whole paragraph's bounding box per call, so each line can independently align
 (e.g. right-pad) within the paragraph.
 
-## 7. The art generator (`src/bin/artgen.rs`, ~3500 lines)
+## 7. The sprite tree and atlas stitcher (`assets/sprites/**`, `src/gfx/sprite_sheet.rs`)
 
-**Contract** (top doc comment): this file is *the* source of truth for the sprite sheet —
-never hand-edit the PNG. Run with `cargo run --bin artgen`. Pure `std` + the `png` crate, no
-`rand`-crate RNG — a deterministic hash function (`speck`) stands in for "noise" so output
-is bit-for-bit reproducible run to run.
+**Contract**: the split PNG files under `assets/sprites/**` are *the* source of truth for
+the game's art — one file per sprite, frame strip, or connector set, organized as
+`tiles/ mobs/<mob>/ items/ ui/ font/ logo/ fx/`. See **docs/ART_GUIDE.md** for the full
+authoring guide (folder layout, manifest format, palette rules, piece orders, pixel
+budgets, acceptance checklist). The old deterministic generator (`src/bin/artgen.rs`) and
+its monolithic `assets/sprites.png` were retired; edit the PNGs directly (pixel_studio or
+any editor).
 
-**Output**: `fn main()` (end of file) calls every recipe function in a fixed order (terrain
-→ items/UI → furniture → mobs → text), then:
-```rust
-let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/sprites.png");
-s.save(&path);
-```
-**`assets/sprites.png`** (repo-root-relative via `CARGO_MANIFEST_DIR`) is the confirmed
-output path. It is loaded back at runtime via `src/assets.rs`:
-```rust
-pub const SPRITES_PNG: &[u8] = include_bytes!("../assets/sprites.png");
-```
-and decoded into the live `Arc<SpriteSheet>` in `src/lib.rs` via `SpriteSheet::from_png`.
-**There is no build-time regeneration** — if you edit `artgen.rs`, you must re-run the
-binary and commit the resulting PNG; the game embeds whatever bytes are on disk at compile
-time.
+**Stitching**: the renderer wants one flat cell-addressed pixel array (`pos = cx + cy*32`,
+8x8 cells, 256px-wide — ~0.5 MB, cache-friendly, no per-sprite indirection). So the tree
+is composed back into that atlas at load time:
 
-### Sheet contract (from the file's own doc comment — worth mining verbatim)
+- `assets/sprites/manifest.txt` pins every legacy file to its historical cell rectangle
+  (`<path> <cell_x> <cell_y> <w_cells> <h_cells> <pal|rgb>`), so numeric cell addresses in
+  game code keep working unchanged.
+- Files **not** in the manifest (new art) are shelf-packed onto appended rows (row 32+;
+  the atlas grows in height only) and resolved by name: `sheet.cell("items/berry")`
+  returns a `CellRect` whose `.pos()` is the index render calls take. **New sprites never
+  need a manifest edit.**
+- `stitch()` / `SpriteSheet::from_parts()` validate everything loudly: missing pinned
+  files, size/pin mismatches, non-multiple-of-8 dimensions, duplicate paths.
 
-256x256px, 32x32 grid of 8x8 cells, `pos = cx + cy*32` (same addressing as `Px::new`).
-Palette-mode cells are grayscale quantized to 4 shades (`G0..G3 = [0, 85, 170, 255]`,
-alpha 255) recolored via `color::get4` at draw time; true-color cells are drawn literally
-(alpha 0 = transparent). **Never author an `r==g==b` color for true-color art** — it will
-silently reclassify as a palette shade (`SheetPixel::Palette`) instead of `Rgb` (see §3);
-`artgen.rs`'s `rgb()` helper asserts against this at generation time.
+**Loading** (`assets::sprite_sheet()`, `src/assets.rs`): dev runs inside the repo read the
+folder at startup — edit a PNG, relaunch, see it, no rebuild. Everywhere else (release,
+installed binaries) a build-time embedded copy of the tree is stitched instead
+(`build.rs` generates `EMBEDDED_SPRITE_MANIFEST`/`EMBEDDED_SPRITE_PARTS` and reruns
+automatically when `assets/sprites/` changes). A present-but-broken folder panics rather
+than silently falling back.
 
-### Drawing kit (artgen.rs:80-280)
+### Sheet contract
 
-- `Ink = [u8; 4]` — one RGBA pixel. `TR` = transparent; `G0..G3` = the four palette grays.
-- `const fn rgb(r,g,b) -> Ink` — panics if `r==g==b` (the true-color guard above).
-- `Sheet { px: Vec<Ink> }` — `new()` (all transparent), `set`/`get`, `save(path)` (writes
-  RGBA PNG via `png::Encoder`).
-- `C<'a> { s: &mut Sheet, ox: i32, oy: i32 }` — a cursor canvas anchored at one cell's pixel
-  origin (`cell(s, cx, cy) -> C`). Methods: `set`, `rect`, `hline`/`vline`,
-  `disc(cx,cy,r,ink)` (rasterized circle), `dither(x,y,w,h,phase,ink)` (checkerboard),
-  `pat(x,y,rows: &[&str], map: &[(char,Ink)])` — **the dominant authoring style**: paint a
-  cell from an ASCII-art block, one string per row, unmapped chars (`.`) leave the pixel
-  untouched — `outline(x,y,w,h,ink)` (auto 1px silhouette outline for true-color sprites).
-- `speck(x,y,seed,one_in) -> bool` — deterministic hash noise (fixed multiply-xor-shift
-  constants), returns true roughly 1-in-`one_in`.
-- `rounded_inside(x,y,w,h,inset,r) -> bool` — point-in-rounded-rect test for blobs/discs.
+Base atlas 256x256px, 32x32 grid of 8x8 cells, `pos = cx + cy*32` (same addressing as
+`Px::new`); appended rows extend downward. Palette-mode pixels are grayscale quantized to
+4 shades (the ladder `0/85/170/255`, alpha 255) recolored via `color::get4` at draw time;
+true-color pixels draw literally; alpha < 128 is transparent. **Never author an
+`r==g==b` color in true-color art** — it silently reclassifies as a palette shade (§3).
 
-A shared ~24-color true-color palette (`OUT`, `LEAF_DK/MD/LT/HI`, `BARK[_DK]`,
-`WOOD_LT/MD/DK`, `SAND_LT/DK`, `STONE_LT/MD/DK`, `IRON_LT/DK`, `FLAME_YL/OR/RD`, `CREAM`,
-`RED_CL`, `MAGIC[_LT]`, `PUMPK[_DK]`, `GOLDEN`, `MOSS`) keeps all scenery art-directed
-consistently.
+As a rule: font glyphs, item/tool icons, mob walk-cycle strips, HUD icons, terrain
+connector blobs, and UI frame pieces are **palette-mode** (`pal` in the manifest — so they
+can be recolored per-instance); tree canopies, cactus, torch flame, pumpkin, the title
+logo, TNT, grave stones, quicksand, campfires, and the flora rows are **true-color**
+(`rgb` — painterly detail a 4-shade quantization would flatten). Per-shade role
+conventions (what shade 0/1/2/3 mean for items, mobs, stairs, walls, ...) are catalogued
+in ART_GUIDE.md.
 
-### Per-sprite recipe organization
+## 8. `tests/sprite_atlas.rs` — what it locks in
 
-One function per logical sheet region — generic reusable painters (`blob24` for
-connector-sparse blobs parameterized by radius/inks/seed, used by rock/grass/water
-connectors; `sides16` for rock/cloud/wall "sides" blocks; `icon8`/`item_icon`/`center8` for
-auto-centered 8x8 inventory icons; `spr16`/`tc16` generic 16x16 palette/true-color
-painters; `frame16`, the 16x16 ASCII-art painter used for every mob frame — the player/suit/carry
-sets are pixel-for-pixel transcriptions of the original Java sheet (`icons.png`,
-removed after tracing — see git history),
-and `marsh_lurker`, `pig`, `knight`, `feral_hound`, `cow`, `stone_golem`, `night_wisp`,
-`sheep`, `snake`, `glow_worm` each have their own recipe; the old `humanoid` head+body
-composer was retired with the traced player art), plus per-tile-family functions (`wool_cell`, `cloud_full_cells`, `farm_cell`,
-`ore_cells`, `quicksand_cells`, `stairs_cells`, `cactus_cells`, `wheat_cells`,
-`sapling_cell`, `torch_cell`, `floor_cells`, `tree_cells`, `door_cells`, `wall_cells`,
-`gravestone_cells`, `pumpkin_cells`, `tall_grass_cells`, `furniture_sprites`,
-`furniture_icons`, `items_row4`/`items_row5`, `ui_row12`/`ui_row13`, `splash_cells`), and
-text (`glyph(ch)` — 7-row ASCII-art glyph defs; `font(s)` — paints `G0` background +
-`G3`-only strokes per char; `logo(s)` — the true-color "FDOOM" title art, 2 rows tall at
-cells `(0..14, 6..8)`).
+Unlike the artgen-era structural test, this suite **is** anchored to a golden image:
 
-`missing_texture(s)` — cell `(30,30)`: flat `G1`/`G2` dither checkerboard, recolored magenta
-at runtime by `Sprite::missing_texture`'s `color::get(505,505)`.
+1. `stitched_atlas_matches_golden` — stitching `assets/sprites/**` reproduces
+   `assets/golden_atlas.png` **byte-for-byte** (the frozen pre-decomposition sheet, not
+   shipped or loaded by the game). Any pixel change to pinned art fails this test until
+   the golden is deliberately regenerated (ART_GUIDE.md tells you how).
+2. `manifest_integrity` — every pin has a file of the pinned size, pins never overlap,
+   paths are unique, no sprite file is fully transparent.
+3. `palette_files_use_legal_grays` — `pal`-flagged files contain only the
+   `0/85/170/255` ladder (+ transparent), keeping the `/64` quantization exact.
+4. `name_lookup_resolves_pins` / `unpinned_files_auto_allocate_appended_rows` — the
+   name -> cells table matches historical addresses, and unpinned files land on appended
+   rows reachable via `sheet.cell(..)`.
+5. `embedded_copy_matches_disk` — the build-time embedded fallback tracks the folder.
+6. `write_atlas_preview` — dumps the stitched atlas to `target/verify/atlas.png`
+   (`just preview` opens it).
 
-### Palette-mode vs. true-color rules (enforced by tests, §8)
-
-The doc comment inventories which cell ranges are palette-mode vs. true-color and per-cell
-shade-role conventions (e.g. shade1=interior, shade2=edge band, shade3="outside"/recolored
-for connector blobs). As a rule: font glyphs, item/tool icons, mob walk-cycle rows, HUD
-icons, terrain connector blobs, and UI frame pieces are **palette-mode** (so they can be
-recolored per-instance); tree canopies, cactus, torch flame, pumpkin, the title logo, TNT,
-grave stones, and quicksand are **true-color** (painterly detail that a 4-shade quantization
-would flatten).
-
-## 8. `tests/artgen_sheet.rs` — what it locks in
-
-**Important**: this is *not* a byte-identical/hash/pixel-diff test against a separately
-checked-in golden image. It loads the **same** `assets/sprites.png` bytes shipped in the
-repo (via `fdoom::assets::SPRITES_PNG`, decoded through the real `SpriteSheet::from_png`)
-and asserts **structural/semantic** properties of that decoded sheet:
-
-1. `sheet_is_256x256` — dimensions.
-2. `every_referenced_cell_has_art` — a hand-maintained `INVENTORY: &[(cx, cy, w, h, &str)]`
-   table (built by auditing every `Sprite::*` constructor, raw `screen.render(.., pos, ..)`
-   call, the font, and the title logo) asserts every listed cell range has at least one
-   non-`Transparent` pixel.
-3. `font_glyphs_are_palette_grayscale` — every char up to `@` in `Font::CHARS` (the
-   actually-renderable prefix) is `pure_grayscale()` (all `Palette`), and non-space glyphs
-   have at least one non-zero-shade pixel (actual strokes, not just background).
-4. `palette_cells_stay_grayscale` — a second hand-maintained range list (dots, terrain
-   blobs, wool, ore, stairs, floor, wheat, item icons, tools, furniture/HUD icons, frame,
-   effect sprites, mob rows, doors, walls) must **never** contain `SheetPixel::Rgb`.
-5. `scenery_cells_are_true_color` — spot-checks 8 cells (tree canopy, cactus, torch,
-   pumpkin, title logo, tnt, grave stone, quicksand) each contain at least one `Rgb` pixel.
-
-So the test would **not** catch a color value changing within a cell as long as the pixel
-*mode* (palette vs. rgb vs. transparent) is unchanged — only `artgen.rs`'s own determinism
-(no RNG, a stable hash) guarantees byte-identical regeneration across runs. If you add a new
-sprite/cell, add it to `INVENTORY` (and to `palette_cells_stay_grayscale`/
-`scenery_cells_are_true_color` if it needs a mode guarantee) or the test won't catch a
-missing/blank cell.
+New sprite files are covered automatically (integrity tests walk the folder); a *visual*
+regression in unpinned art still needs an eyeball check (`just preview`, headless shots).
 
 ## 9. The frame pipeline
 
@@ -623,12 +582,17 @@ the visible tile window (`W>>4 = 18` wide, `H>>4 = 12` tall, plus the scrolled t
 **Entity drawing — confirmed y-sort** (painter's algorithm): `level::render_sprites` collects
 every entity in the visible tile window, **sorts by `e.c.y` ascending** ("Java spriteSorter"),
 then renders each via `g.with_entity(eid, entity_render)` (the take-out pattern). Entities not
-on this level or `removed` are pruned from the level rather than drawn.
+on this level or `removed` are pruned from the level rather than drawn. Immediately *before*
+this pass, `gfx::ambience::contact_shadows` stamps a 2-px-tall dithered ellipse under every
+grounded mob (skipping swimmers, deep-water raft riders, ghosts, and night wisps) so feet
+land on their own shadow — the one ambience effect drawn under the sprites instead of in
+the lighting post-pass.
 
 **Lighting/atmosphere post-pass**: `render_level` ends with
 `gfx::lighting::render_pass(&mut screen, &mut light_screen, g, lvl, x_scroll, y_scroll)` —
-ground blend, time-of-day grading, emitter radiance, and event skies, applied before
-the HUD so UI text stays crisp (the module's doc comment is the full reference).
+ground blend, time-of-day grading, emitter radiance, event skies, and the scene ambience
+effects, applied before the HUD so UI text stays crisp (the `lighting`/`ambience` module
+doc comments are the full reference).
 The ground blend (`ground_blend_pass`, surface layer only) is the Minecraft-style
 seamless biome coloring: each visible tile's pixels are multiplied by a mild color
 factor (0.85–1.10 per channel) **bilinearly interpolated between the tile's four
@@ -636,16 +600,52 @@ corners**, where a corner's factor averages the 4 tiles sharing it. A tile's fac
 comes from its ground family via `TileKind` (sand/cactus/quicksand → warm, snow/snow
 tree → bright frost, mud → dark peat), falling back to the per-biome tint
 (`biome_at_blended`: forest deeper green, savanna warmer, marsh sage, tundra cool...)
-for grass/dirt/water/everything else. Result: a grass→sand boundary grades over ~2
-tiles instead of switching per tile, and snow edges soften into a frosty fringe —
-while the tile art itself stays pixel-crisp, since only the color multiplier is
-interpolated. Per frame it costs one factor lookup per tile of the visible grid plus
-a one-tile margin (~315) and one corner average per corner (~280); tiles whose four
-corners agree take a flat-multiply fast path, and fully neutral tiles skip entirely. Emitter
+for grass/dirt/water/everything else. On top of the multiplier, a **seam color-carry**
+(`seam_carry`) dissolves hard ground-family borders: wherever two adjacent tiles belong
+to different families (grass/dirt/sand/snow/mud — water and rock opt out), pixels within
+5 px of the shared edge on *both* sides lerp toward the neighbor family's representative
+base color, masked by world-anchored Bayer coverage ramping near-solid → nothing across
+the strip. Snow bleeds white stipple into grass and grass speckles back into snow, so an
+isolated snow freckle reads as a soft-edged patch instead of a hard white square — while
+the tile art itself stays pixel-crisp (the multiplier interpolates, the carry dithers;
+nothing is alpha-blended). Per frame the ground pass costs one tile lookup per visible
+tile plus a one-tile margin (~315) and one corner average per corner (~280); tiles whose
+four corners agree take a flat-multiply fast path, fully neutral tiles skip entirely, and
+carry strips only exist on family borders. Emitter
 stamping is **occlusion-aware**: tiles with `TileDef.blocks_light` (walls, rock, hard rock;
 closed doors via `dispatch::blocks_light`) cast per-emitter tile-grid shadows, so torchlight
 fills a room and beams through doorways/Windows instead of glowing through walls. Emitters
 with no blocker in reach skip the mask — open terrain stamps at the pre-occlusion cost.
+
+**Visual-excellence effects** (all quantized/dithered, world-anchored, and individually
+toggleable through `lighting::set_disabled_fx` for the A/B tests in `tests/visuals.rs`):
+
+- **Golden-hour long shadows** (`ambience::long_shadows`, surface + clear sky only):
+  inside the dawn (day-fraction ~0.03–0.17) and dusk (~0.515–0.64) windows, trees and
+  light-blocking tiles darken up to one tile of ground on the sun-away side — west at
+  dawn, east at dusk — in two Bayer steps (denser near the caster). Strength/length
+  quantize to 4 envelope steps; casters never shadow other casters, so forest interiors
+  stay clean and only the sun-away edge throws.
+- **Night emitter halo** (`stamp_falloff`): when ambient is dark, strong emitters gain
+  one extra half-band dither ring 8 px past their falloff — bloom without blur. Respects
+  the occlusion mask like the falloff itself.
+- **Torch breathing** (`flame_breath`): flame emitters (torch tiles, campfires, a held
+  torch) swell/settle their radius ±4 px in 2-px steps on a slow per-emitter phase;
+  lanterns, pumpkins, and lava hold steady. Burning tiles already flicker on their own.
+- **Sun/moon glitter** (`ambience::water_glitter`, surface, clear sky): a world-anchored
+  sparkle band (wavelength ~96 px, drifting westward with the sun) flashes short warm
+  glints on water/deep-water by day, with a 1-px dash leaning toward the sun (east before
+  noon, west after); clear nights get cool, sparser moon glints.
+- **Heat shimmer** (`ambience::heat_shimmer`): rows over lava (any level, any hour) and
+  over desert-biome sand at a clear high noon slide 1 px left/right on a slow 16-row
+  wave. Runs inside the post-pass — before the HUD — so UI rows never wobble.
+- **Drifting motes** (`ambience::drift_motes`, clear daylight, surface): 3–6 tumbling
+  2-px leaves over forest / winking pollen specks over plains, on a 64-px falling
+  lattice; disabled in rain.
+- **Mine depth fog** (`stamp_falloff` + `compose`, cave/dungeon layers): emitters write a
+  sub-ambient ramp out to +26 px; band-0 pixels then sort into normal ambient / fringe
+  (×0.60) / deep dark (×0.32) with a hash-grain dithered edge — darkness deepens beyond
+  the lit pool instead of holding one flat floor.
 
 ### 9.5 `render_gui` — full HUD anatomy (`renderer.rs:197-393`)
 
@@ -902,25 +902,20 @@ size/theme/type). `Settings` itself (`src/core/io/settings.rs`) is a plain
 
 ### 11.3 Add a sprite + regenerate the sheet
 
-1. Pick free sheet cells (grep `INVENTORY`/the range tables in `tests/artgen_sheet.rs` and
-   the doc-comment cell inventory in `artgen.rs` to avoid colliding with an existing range).
-2. Add a recipe function in `src/bin/artgen.rs` following the nearest existing pattern
-   (`pat(...)` ASCII-art painting is the default idiom; reuse a generic helper like `icon8`/
-   `spr16`/`blob24` if your sprite fits one of those shapes). Decide palette-mode vs.
-   true-color (§7) — remember the `r==g==b` trap.
-3. Call your function from `fn main()` in the same "terrain → items/UI → furniture → mobs →
-   text" order as neighboring calls (order doesn't affect output, but keep it legible).
-4. Run `cargo run --bin artgen` — this **overwrites `assets/sprites.png`**; check the diff
-   and commit it (binary asset, not auto-generated at build time).
-5. Wire the new cells into a `Sprite`/`ConnectorSprite`/`MobSprite` constructor at the game
-   code call site (`src/level/tile/*.rs`, `src/entity/mob/*.rs`, `src/item/registry.rs`,
-   etc.), using `color::get4`/`get` for the palette word if palette-mode.
-6. Add your cell range to `tests/artgen_sheet.rs`'s `INVENTORY` (non-emptiness) and, if
-   applicable, `palette_cells_stay_grayscale`/`scenery_cells_are_true_color` — otherwise a
-   blank or wrongly-classified cell won't be caught.
-7. Run `cargo test --test artgen_sheet` (and `cargo test` broadly, since headless render
-   tests will show a missing-texture magenta checkerboard if a code path references a cell
-   your art doesn't cover).
+1. Draw a new PNG under `assets/sprites/` (`just studio` or any pixel editor) — 8x8 for
+   an item icon, 16x16 for a tile, a 64x16 strip for a mob walk cycle. Prefer true color;
+   remember the `r==g==b` trap (§3). Full conventions: docs/ART_GUIDE.md.
+2. **No manifest edit** — an unpinned file auto-allocates onto appended atlas rows and is
+   resolved by name: `sheet.cell("items/moonfruit")` (`.pos()` gives the render index).
+3. Wire it into a `Sprite`/`ConnectorSprite`/`MobSprite` constructor at the game code call
+   site (`src/level/tile/*.rs`, `src/entity/mob/*.rs`, `src/item/registry.rs`, etc.),
+   using `color::get4`/`get` for the palette word if palette-mode.
+4. Run `cargo test --test sprite_atlas` (integrity checks pick the file up automatically)
+   and `cargo test` broadly — headless render tests show a missing-texture magenta
+   checkerboard if a code path references a cell your art doesn't cover. `just preview`
+   to eyeball the stitched atlas.
+5. Only when *changing pinned legacy art*: the golden test fails by design; review the
+   visual diff and regenerate `assets/golden_atlas.png` (ART_GUIDE.md).
 
 ### 11.4 Add a menu entry type
 
@@ -950,27 +945,27 @@ size/theme/type). `Settings` itself (`src/core/io/settings.rs`) is a plain
 - **Palette bytes of `255` mean transparent-for-this-shade**, both in the packed
   `rgb4Sprite` word (`get_byte(-1) == 255`) and in `Screen::render`'s `if col < 255` guard —
   don't reuse `255` as a legitimate encoded color.
-- **`r == g == b` in artgen-authored true-color art silently becomes a palette cell**, not
-  an error at runtime (only `artgen.rs`'s own `rgb()` helper catches it, at generation time,
-  not at load time). A true-color sprite that starts flickering between two random-looking
-  colors after a recolor is a symptom of this — check the source art wasn't accidentally
-  gray.
+- **`r == g == b` in true-color art silently becomes a palette pixel**, not an error at
+  runtime. A true-color sprite that starts flickering between two random-looking colors
+  after a recolor is a symptom of this — check the source art wasn't accidentally gray
+  (pixel_studio warns; `tests/sprite_atlas.rs` polices `pal` files but `rgb` files are
+  only guarded by the studio warning).
 - **Lowercase font glyphs are unreachable.** `Font::draw` uppercases before lookup and
-  `artgen.rs`'s `glyph()` has no lowercase branch — don't spend time trying to render
-  lowercase text without first deciding whether to add real lowercase glyphs.
+  only uppercase glyph files exist under `assets/sprites/font/` — don't spend time trying
+  to render lowercase text without first deciding whether to add real lowercase glyphs.
 - **`MobSprite`'s left-facing/second-frame art is derived, not drawn.** Editing a mob's walk
-  cycle only requires touching the right-facing recipe in `artgen.rs`; the mirror handles
-  the rest. If a mob's left-right silhouette isn't actually symmetric under a flip (rare,
-  but possible for asymmetric gear), that mob needs its own non-mirrored recipe instead of
-  `compile_mob_sprite_animations`.
+  cycle only requires touching the right-facing frames in `assets/sprites/mobs/<mob>/`; the
+  mirror handles the rest. If a mob's left-right silhouette isn't actually symmetric under
+  a flip (rare, but possible for asymmetric gear), that mob needs its own non-mirrored
+  frame strip instead of `compile_mob_sprite_animations`.
 - **`Menu`/`Display` mutations via `set_menu`/`clear_menu`/`exit_menu` are never immediate**
   — they stage `PendingMenu` and apply on the *next* `Game::tick`'s
   `apply_menu_transition()`. Code that pushes a display and then expects to immediately
   query it as the new top-of-stack in the same tick will not see it yet.
-- **`artgen_sheet.rs` is a structural contract test, not a snapshot test.** It will not catch
-  a subtly-wrong color within a cell, only a wrong pixel *mode* or an empty cell that should
-  have art. Don't rely on it to catch "the sprite looks different than before" — that needs
-  a visual check (`tests/biome_frames.rs`-style PNG dump, or `cargo run`).
+- **`sprite_atlas.rs`'s golden test only covers *pinned* art.** Byte-identity against
+  `assets/golden_atlas.png` catches any pixel change in manifest-pinned files, but new
+  (auto-allocated) sprites have no golden — a visual regression there needs an eyeball
+  check (`just preview`, `tests/biome_frames.rs`-style PNG dump, or `cargo run`).
 - **The flyover always uses level slot 3 and reuses whatever's there.** If you ever change
   which slot index is "the surface," update `LVL` in `render_flyover` too, or the title
   screen will start flying over the wrong level (or silently tear itself down if slot 3
@@ -982,11 +977,14 @@ size/theme/type). `Settings` itself (`src/core/io/settings.rs`) is a plain
 |---|---|
 | `src/gfx/color.rs` inline `#[cfg(test)]` | `get4`/`get_byte`/`upgrade`/etc. numeric values, captured from the real Java `Color` class on a JVM. |
 | `src/gfx/font.rs` inline tests | `text_width`, `get_lines` word-wrap output for known inputs. |
-| `tests/artgen_sheet.rs` | Sheet dimensions, every referenced cell has art, font glyphs are palette-grayscale, palette-mode cells never leak true-color, spot-checked scenery cells are true-color. See §8 for exactly what this does/doesn't catch. |
+| `tests/sprite_atlas.rs` | Stitched atlas is byte-identical to `assets/golden_atlas.png`; manifest integrity (files exist, sizes match, no pin overlaps); `pal` files use only the legal gray ladder; name lookup + auto-allocation of unpinned files; embedded copy tracks the folder. See §8. |
 | `tests/headless_render.rs` | Renders frames to PNG with no window — the general smoke test that the render pipeline doesn't panic and produces plausible output; also where a missing sprite would show up as a magenta `missing_texture` checkerboard. |
 | `tests/display_flow.rs` | Menu/display stack transitions (push/pop/exit sequencing) tick correctly end-to-end. |
 | `tests/keymap_check.rs` | Key-binding related coverage — see CORE_AND_SAVES.md for the input-handler test details. |
+| `tests/lighting.rs` | Day-cycle grading frames + luma ordering, ambient continuity (no pops), torch radiance, cave darkness, biome ground tint, aurora subtlety, and the lighting-pass perf ceiling. |
+| `tests/light_shelter.rs` | Occlusion-aware emitter stamping: sealed walls contain light, windows/open doors beam it, plus the occluded-stamp perf ceiling. |
+| `tests/visuals.rs` | Visual-excellence wave: true A/B pairs per effect (seam color-carry, long shadows, contact shadows, halo, breathing, glitter, shimmer, motes, depth fog — `lighting::set_disabled_fx`), pixel-presence asserts, two hero shots, and the whole-pass perf budget (release ceiling 400µs asserted when built with `--release`). Frames land in `target/verify/visfx_*.png` at 3x. |
 
-Run `cargo test` for everything; `cargo run --bin artgen` to regenerate `assets/sprites.png`
-after any `artgen.rs` change (then re-run `cargo test --test artgen_sheet` and
-`cargo test --test headless_render` to confirm nothing regressed visually/structurally).
+Run `cargo test` for everything. After any art change, `cargo test --test sprite_atlas`
+(golden + integrity) and `cargo test --test headless_render` confirm nothing regressed
+structurally; `just preview` for the visual check.

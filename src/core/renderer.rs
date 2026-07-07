@@ -196,6 +196,8 @@ impl Renderer {
         }
 
         crate::level::render_background(g, &mut self.screen, lvl, x_scroll, y_scroll);
+        // contact shadows sit on the ground, under the y-sorted sprite pass
+        crate::gfx::ambience::contact_shadows(&mut self.screen, g, lvl, x_scroll, y_scroll);
         crate::level::render_sprites(g, &mut self.screen, lvl, x_scroll, y_scroll);
 
         // JAVA: the fork's cave-darkness light overlay stays disabled (see Renderer.java

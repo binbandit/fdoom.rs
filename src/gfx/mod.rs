@@ -4,6 +4,7 @@
 //! (its only caller) because it needs tile-registry types; the sprite-building half
 //! (`make_sprite`) is here in `sprite.rs`.
 
+pub mod ambience;
 pub mod color;
 pub mod dimension;
 pub mod ellipsis;
