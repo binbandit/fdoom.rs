@@ -96,11 +96,14 @@ impl Screen {
         }
     }
 
-    /// Darken a screen-space rectangle by `amount` (0 = untouched, 255 = black).
-    /// Coordinates are level-space; the screen offset applies like `render`.
-    pub fn darken_rect(&mut self, mut xp: i32, mut yp: i32, w: i32, h: i32, amount: i32) {
-        xp -= self.x_offset;
-        yp -= self.y_offset;
+    /// Darken a level-space rectangle by `amount` (0 = untouched, 255 = black); the
+    /// screen offset applies like `render`.
+    pub fn darken_rect(&mut self, xp: i32, yp: i32, w: i32, h: i32, amount: i32) {
+        self.darken_rect_screen(xp - self.x_offset, yp - self.y_offset, w, h, amount);
+    }
+
+    /// Darken a rectangle in raw screen coordinates (UI panels).
+    pub fn darken_rect_screen(&mut self, xp: i32, yp: i32, w: i32, h: i32, amount: i32) {
         let keep = (255 - amount.clamp(0, 255)) as u32;
         for y in yp.max(0)..(yp + h).min(H) {
             for x in xp.max(0)..(xp + w).min(W) {

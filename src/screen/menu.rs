@@ -391,6 +391,15 @@ impl Menu {
         let bottom = self.bounds.bottom() - sprite_sheet::BOX_WIDTH;
         let right = self.bounds.right() - sprite_sheet::BOX_WIDTH;
 
+        // smoked-glass panel: darken what's behind instead of a flat opaque fill
+        screen.darken_rect_screen(
+            self.bounds.left(),
+            self.bounds.top(),
+            self.bounds.width(),
+            self.bounds.height(),
+            185,
+        );
+
         let mut y = self.bounds.top();
         while y <= bottom {
             let mut x = self.bounds.left();
@@ -405,13 +414,9 @@ impl Menu {
                     2
                 };
                 let mirrors = (if x == right { 1 } else { 0 }) + (if y == bottom { 2 } else { 0 });
-                let color = if xend || yend {
-                    self.frame_edge_color
-                } else {
-                    self.frame_fill_color
-                };
-
-                screen.render(x, y, spriteoffset + 13 * 32, color, mirrors);
+                if xend || yend {
+                    screen.render(x, y, spriteoffset + 13 * 32, self.frame_edge_color, mirrors);
+                }
 
                 if x < right && x + sprite_sheet::BOX_WIDTH > right {
                     x = right - sprite_sheet::BOX_WIDTH;
@@ -466,9 +471,10 @@ impl MenuBuilder {
             full_title_color: false,
             set_title_color: false,
             title_col: 550,
-            frame_fill_col: 5,
-            frame_edge_stroke: 1,
-            frame_edge_fill: 445,
+            // dark slate edges over the smoked-glass fill (was the classic blue 5/1/445)
+            frame_fill_col: 111,
+            frame_edge_stroke: 0,
+            frame_edge_fill: 333,
             anchor: Point::new(crate::gfx::screen::W / 2, crate::gfx::screen::H / 2),
             menu_pos: RelPos::Center,
             menu_size: None,

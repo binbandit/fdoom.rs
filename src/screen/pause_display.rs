@@ -39,16 +39,6 @@ impl PauseDisplay {
             })),
         ];
 
-        // JAVA: if(!Game.ISONLINE) — always true; Network.startMultiplayerServer() has no
-        // network layer in this build (see PORTING.md "Multiplayer").
-        entries.push(handle(SelectEntry::new(
-            "Make World Multiplayer",
-            |g: &mut Game| {
-                g.clear_menu();
-                g.notify_all("Multiplayer is not available in this build");
-            },
-        )));
-
         // JAVA: if(!Game.isValidClient()) — always true.
         entries.push(handle(SelectEntry::new("Save Game", |g: &mut Game| {
             g.clear_menu();
