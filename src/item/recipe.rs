@@ -126,7 +126,23 @@ impl Recipes {
         let mut oven = Vec::new();
         let mut enchant = Vec::new();
 
-        craft.push(Recipe::new("Workbench_1", &["Wood_10"]));
+        // Personal crafting (no station): the bare-handed survival chain.
+        // Punch tall grass for fibers (and the odd loose stone), punch trees for
+        // sticks, then: fibers -> cord, knap stone -> sharp stone, lash the three
+        // together into crude tools. Everything past crude needs the workbench.
+        craft.push(Recipe::new("Cord_1", &["Grass Fibers_3"]));
+        craft.push(Recipe::new("Sharp Stone_1", &["Stone_2"]));
+        craft.push(Recipe::new("Stick_2", &["Wood_1"]));
+        craft.push(Recipe::new(
+            "Crude Axe_1",
+            &["Stick_1", "Cord_1", "Sharp Stone_1"],
+        ));
+        craft.push(Recipe::new(
+            "Crude Pickaxe_1",
+            &["Stick_1", "Cord_1", "Sharp Stone_1"],
+        ));
+        craft.push(Recipe::new("Fishing Rod_1", &["Stick_1", "Cord_2"]));
+        craft.push(Recipe::new("Workbench_1", &["Wood_10", "Stone_2"]));
         craft.push(Recipe::new("Torch_2", &["Wood_1", "coal_1"]));
         craft.push(Recipe::new("Grass Seeds_1", &["seeds_1", "Flower_2"]));
         craft.push(Recipe::new("plank_2", &["Wood_1"]));
@@ -148,7 +164,7 @@ impl Recipes {
         workbench.push(Recipe::new("Anvil_1", &["iron_5"]));
         workbench.push(Recipe::new("Tnt_1", &["Gunpowder_10", "Sand_8"]));
         workbench.push(Recipe::new("Loom_1", &["Wood_10", "Wool_5"]));
-        workbench.push(Recipe::new("Fishing Rod_1", &["Wood_5", "String_3"]));
+        // (Fishing Rod moved to personal crafting: Stick + Cord.)
 
         loom.push(Recipe::new("String_2", &["Wool_1"]));
         loom.push(Recipe::new("red wool_1", &["Wool_1", "rose_1"]));
@@ -176,21 +192,38 @@ impl Recipes {
         ));
         loom.push(Recipe::new("reg clothes_1", &["cloth_5"]));
 
-        workbench.push(Recipe::new("Wood Sword_1", &["Wood_5"]));
-        workbench.push(Recipe::new("Wood Axe_1", &["Wood_5"]));
-        workbench.push(Recipe::new("Wood Hoe_1", &["Wood_5"]));
-        workbench.push(Recipe::new("Wood Pickaxe_1", &["Wood_5"]));
-        workbench.push(Recipe::new("Wood Shovel_1", &["Wood_5"]));
-        workbench.push(Recipe::new("Wood Bow_1", &["Wood_5", "string_2"]));
-        workbench.push(Recipe::new("Rock Sword_1", &["Wood_5", "Stone_5"]));
-        workbench.push(Recipe::new("Rock Axe_1", &["Wood_5", "Stone_5"]));
-        workbench.push(Recipe::new("Rock Hoe_1", &["Wood_5", "Stone_5"]));
-        workbench.push(Recipe::new("Rock Pickaxe_1", &["Wood_5", "Stone_5"]));
-        workbench.push(Recipe::new("Rock Shovel_1", &["Wood_5", "Stone_5"]));
+        // Verbose assembly: wood/rock tools are hafted (sticks) and lashed (cord),
+        // not conjured from raw logs. Bows take an extra cord for the string.
         workbench.push(Recipe::new(
-            "Rock Bow_1",
-            &["Wood_5", "Stone_5", "string_2"],
+            "Wood Sword_1",
+            &["Wood_5", "Stick_2", "Cord_1"],
         ));
+        workbench.push(Recipe::new("Wood Axe_1", &["Wood_5", "Stick_2", "Cord_1"]));
+        workbench.push(Recipe::new("Wood Hoe_1", &["Wood_5", "Stick_2", "Cord_1"]));
+        workbench.push(Recipe::new(
+            "Wood Pickaxe_1",
+            &["Wood_5", "Stick_2", "Cord_1"],
+        ));
+        workbench.push(Recipe::new(
+            "Wood Shovel_1",
+            &["Wood_5", "Stick_2", "Cord_1"],
+        ));
+        workbench.push(Recipe::new("Wood Bow_1", &["Wood_5", "Stick_2", "Cord_2"]));
+        workbench.push(Recipe::new(
+            "Rock Sword_1",
+            &["Stone_5", "Stick_2", "Cord_1"],
+        ));
+        workbench.push(Recipe::new("Rock Axe_1", &["Stone_5", "Stick_2", "Cord_1"]));
+        workbench.push(Recipe::new("Rock Hoe_1", &["Stone_5", "Stick_2", "Cord_1"]));
+        workbench.push(Recipe::new(
+            "Rock Pickaxe_1",
+            &["Stone_5", "Stick_2", "Cord_1"],
+        ));
+        workbench.push(Recipe::new(
+            "Rock Shovel_1",
+            &["Stone_5", "Stick_2", "Cord_1"],
+        ));
+        workbench.push(Recipe::new("Rock Bow_1", &["Wood_5", "Stone_5", "Cord_2"]));
 
         workbench.push(Recipe::new("arrow_3", &["Wood_2", "Stone_2"]));
         workbench.push(Recipe::new("Leather Armor_1", &["leather_10"]));

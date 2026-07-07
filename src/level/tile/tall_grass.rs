@@ -66,7 +66,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
 #[allow(clippy::too_many_arguments)]
 pub fn hurt_by(
     g: &mut Game,
-    _def: &TileDef,
+    def: &TileDef,
     lvl: usize,
     x: i32,
     y: i32,
@@ -74,18 +74,34 @@ pub fn hurt_by(
     _dmg: i32,
     _attack_dir: Direction,
 ) -> bool {
+    let TileKind::TallGrass { kind } = def.kind else {
+        return false;
+    };
     let grass = g.tiles.get("grass");
     g.set_tile_default(lvl, x, y, &grass);
     g.play_sound(Sound::MonsterHurt);
-    if g.random.next_int_bound(4) == 0 {
-        // JAVA: dropItem(x, y, count, item) — exactly 1 stone.
-        let stone = crate::item::registry::get(g, "Stone");
-        crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, stone);
-    }
-    // JAVA: dropItem(x, y, count, item) — exactly 2 grass fibers.
+
+    // Drops scale with growth (kind 0/1 = small/medium, 2 = tall). Tall grass is the
+    // reliable fiber source of the bare-handed starter loop; every stage can also
+    // uncover a loose stone "pebble" — the no-pickaxe way to get Stone for knapping.
     let fibers = crate::item::registry::get(g, "grass fibers");
-    for _ in 0..2 {
-        crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, fibers.clone());
+    let stone = crate::item::registry::get(g, "Stone");
+    if kind == 2 {
+        // JAVA: dropItem(x, y, count, item) — exactly 2 grass fibers.
+        for _ in 0..2 {
+            crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, fibers.clone());
+        }
+        if g.random.next_int_bound(4) == 0 {
+            crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, stone);
+        }
+    } else {
+        // Younger growth: fibers only sometimes, pebbles rarely.
+        if g.random.next_int_bound(3) == 0 {
+            crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, fibers);
+        }
+        if g.random.next_int_bound(8) == 0 {
+            crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, stone);
+        }
     }
 
     true

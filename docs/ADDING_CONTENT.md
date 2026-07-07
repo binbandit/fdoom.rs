@@ -38,8 +38,11 @@ order; keep the new item next to its family):
 
 1. If it's a new *kind* of tool (not just a material tier): add a variant to `ToolType`
    in `src/item/tool_type.rs` — name, sheet sprite row, durability, plus the `VALUES`
-   array. All five material tiers (Wood/Rock/Iron/Gold/Gem) are generated automatically
-   by the `ToolType::VALUES` loop in `build_registry` (`src/item/registry.rs`).
+   array. All six material tiers (Crude/Wood/Rock/Iron/Gold/Gem, tool levels 0–5;
+   `TOOL_LEVEL_NAMES`) are generated automatically by the `ToolType::VALUES` loop in
+   `build_registry` (`src/item/registry.rs`). Names are derived as
+   `"{tier} {type}"` — `"Crude Axe"`, `"Gem Pickaxe"` — so that's what recipes and
+   saves reference.
 2. Give it behavior: tool effectiveness against tiles is per-tile — see each tile's
    `hurt_by`/`interact` (`tool_type == ToolType::Pickaxe` checks and the like). Attack
    damage bonuses are in `attack`/`get_attack_damage` in
@@ -59,7 +62,18 @@ In `Recipes::new()` in `src/item/recipe.rs`:
    Format: `"Product_amount"`, costs `"Item_amount"`. Duplicate cost entries are summed.
 2. The product and every cost must be real item names from `build_registry`
    (case-insensitive). A typo won't fail the build — it crafts an `UnknownItem` /
-   never becomes craftable — so test it in-game.
+   never becomes craftable — but `tests/crafting_chain.rs` sweeps every recipe's
+   product and costs against the registry, so `cargo test` catches it.
+3. Respect the progression ladder when picking a station. The early game is a
+   deliberate 7-Days-style gathering chain (see the comment atop `Recipes::new()`):
+   - **Personal crafting** (`craft`, `Z`) is for things makeable bare-handed in a
+     field: Cord (3 Grass Fibers), Sharp Stone (knapped from 2 Stone), Sticks from
+     Wood, the Crude Axe/Pickaxe (Stick + Cord + Sharp Stone), the Fishing Rod, the
+     Workbench itself, torches. No recipe here should conjure a finished
+     wood/metal-tier tool from raw materials.
+   - **Workbench and up** is for assembled goods. Tool recipes stay verbose: a
+     handle (Sticks), a lashing (Cord), and the head material (Wood/Stone/metal).
+     Follow the `Wood Axe = Wood_5 + Stick_2 + Cord_1` pattern for new tiers.
 
 ## New tile
 

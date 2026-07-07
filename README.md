@@ -63,6 +63,10 @@ unmapped cheat keys (time of day, game speed, give items, ...) listed in
 - Procedural island/box/mountain/irregular worlds, 128–512 tiles square, seedable
 - 6 vertical levels: sky, surface, three mine levels, dungeon
 - Day/night cycle with mob spawning, beds, farming, 46 tile types, ~150 items
+- **Progression**: a 7-Days-style survival start — punch tall grass for fibers and
+  loose stones, punch trees for sticks; twist fibers into cord, knap stone sharp, and
+  lash together your first crude axe and pickaxe with bare hands. Real wood/stone
+  tools then need a workbench (and cord), and the metal tiers an anvil beyond that.
 - Crafting stations: workbench, oven, furnace, anvil, enchanter, loom
 - Survival / Creative / Hardcore / Score modes, three difficulties
 - Save/load in the original Java-compatible text format, autosave

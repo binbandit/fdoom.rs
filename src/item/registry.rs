@@ -11,11 +11,14 @@ use crate::entity::{furniture, mob};
 use crate::gfx::{Sprite, color};
 use crate::item::{Fill, Inventory, Item, ItemKind, PotionType, ToolType};
 
-/// Java `ToolItem.LEVEL_NAMES`.
-pub const TOOL_LEVEL_NAMES: [&str; 5] = ["Wood", "Rock", "Iron", "Gold", "Gem"];
+/// Java `ToolItem.LEVEL_NAMES`, extended post-port with the "Crude" tier at level 0
+/// (knapped stone-and-cord tools, hand-craftable with no station). Wood..Gem shifted
+/// up one level; tool names are unchanged, so recipes and old saves keep working.
+pub const TOOL_LEVEL_NAMES: [&str; 6] = ["Crude", "Wood", "Rock", "Iron", "Gold", "Gem"];
 
-/// Java `ToolItem.LEVEL_COLORS`.
-pub const TOOL_LEVEL_COLORS: [i32; 5] = [
+/// Java `ToolItem.LEVEL_COLORS` (+ crude tier).
+pub const TOOL_LEVEL_COLORS: [i32; 6] = [
+    color::get4(-1, 100, 221, 332), // crude (dull stone-on-stick)
     color::get4(-1, 100, 321, 431), // wood
     color::get4(-1, 100, 321, 111), // rock/stone
     color::get4(-1, 100, 321, 555), // iron
@@ -23,8 +26,9 @@ pub const TOOL_LEVEL_COLORS: [i32; 5] = [
     color::get4(-1, 100, 321, 55),  // gem
 ];
 
-/// Java `ToolItem.BOW_COLORS`.
-pub const TOOL_BOW_COLORS: [i32; 5] = [
+/// Java `ToolItem.BOW_COLORS` (+ crude tier).
+pub const TOOL_BOW_COLORS: [i32; 6] = [
+    color::get4(-1, 100, 444, 332),
     color::get4(-1, 100, 444, 431),
     color::get4(-1, 100, 444, 111),
     color::get4(-1, 100, 444, 555),
@@ -435,7 +439,8 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         if ttype == ToolType::FishingRod {
             continue;
         }
-        for lvl in 0..=4 {
+        // level 0 = the post-port Crude tier, 1..=5 = the Java Wood..Gem tiers.
+        for lvl in 0..=5 {
             items.push(new_tool_item(ttype, lvl));
         }
     }
@@ -500,6 +505,18 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items.push(stackable(
         "Stick",
         Sprite::new1x1(20, 5, color::get4(-1, color::hex("#b5651d"), 532, 532)),
+    ));
+    // Twisted grass fibers — lashing for tools, bowstrings, fishing line.
+    // TODO(art): final icon — placeholder reuses the string cell (25,4) recolored.
+    items.push(stackable(
+        "Cord",
+        Sprite::new1x1(25, 4, color::get4(-1, 210, 320, 431)),
+    ));
+    // Knapped from 2 Stone in the personal crafting menu; the crude tool head.
+    // TODO(art): final icon — placeholder reuses the shard cell (23,4) recolored.
+    items.push(stackable(
+        "Sharp Stone",
+        Sprite::new1x1(23, 4, color::get4(-1, 111, 333, 444)),
     ));
     items.push(stackable(
         "Wood",

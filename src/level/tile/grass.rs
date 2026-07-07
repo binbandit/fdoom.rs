@@ -74,6 +74,12 @@ pub fn interact(
             let dirt = g.tiles.get("dirt");
             g.set_tile_default(lvl, xt, yt, &dirt);
             g.play_sound(Sound::MonsterHurt);
+            // Digging up turf occasionally frees usable fibers — the rare plain-grass
+            // counterpart to the reliable Tall Grass drop.
+            if g.random.next_int_bound(4) == 0 {
+                let fibers = crate::item::registry::get(g, "Grass Fibers");
+                drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, fibers);
+            }
             if g.random.next_int_bound(5) == 0 {
                 // JAVA: dropItem(x, y, 2, seeds) — the count overload, two drops.
                 let seeds = crate::item::registry::get(g, "seeds");

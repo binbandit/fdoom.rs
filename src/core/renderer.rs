@@ -80,6 +80,7 @@ impl Renderer {
 
         if self.flyover.is_none() {
             let seed = g.random.next_long();
+            // (heading doubles as the frame counter for the pan cadence)
             // a fresh menu-world level in the surface slot (only when no game is loaded)
             let mut level = crate::level::Level::empty(128, 128, 0, 1);
             level.chunks = Some(crate::level::chunk::ChunkMap::default());
@@ -91,7 +92,7 @@ impl Renderer {
                 seed,
                 cam_x: (sx * 16) as f64,
                 cam_y: (sy * 16) as f64,
-                heading: 0.6,
+                heading: 0.0,
             });
         }
         let Some(fly) = self.flyover.as_mut() else {
@@ -103,10 +104,14 @@ impl Renderer {
             return;
         }
 
-        // slow drift with a lazily wandering heading
-        fly.heading += 0.0007;
-        fly.cam_x += fly.heading.cos() * 0.35;
-        fly.cam_y += fly.heading.sin() * 0.35;
+        // Smooth pan: exactly one pixel every other frame (a regular cadence reads far
+        // smoother than fractional speeds, which step at irregular intervals), plus a
+        // very slow north/south wander.
+        fly.heading += 1.0; // frame counter (repurposed field)
+        if fly.heading as u64 % 2 == 0 {
+            fly.cam_x += 1.0;
+        }
+        fly.cam_y += (fly.heading * 0.004).sin() * 0.12;
         let (cx, cy) = (fly.cam_x as i32, fly.cam_y as i32);
         let _ = fly.seed;
 
@@ -116,10 +121,17 @@ impl Renderer {
         let y_scroll = cy - (screen::H - 8) / 2;
         crate::level::render_background(g, &mut self.screen, LVL, x_scroll, y_scroll);
 
-        // dusk dimming (~3/8 brightness) so menu text stays readable over bright tiles
-        for p in self.screen.pixels.iter_mut() {
-            let half = (*p >> 1) & 0x7F7F7F;
-            *p = half - ((half >> 2) & 0x1F1F1F);
+        // dusk dimming, deepening smoothly toward the menu area: per-row brightness
+        // ramps from 50% (top, showcases the world) to ~22% (bottom, text contrast)
+        for y in 0..screen::H {
+            let k: i32 = 128 - ((y - 40).clamp(0, 100) * 72) / 100; // 128 -> 56
+            let row = (y * screen::W) as usize;
+            for p in self.screen.pixels[row..row + screen::W as usize].iter_mut() {
+                let r = (((*p >> 16) & 0xFF) * k) >> 8;
+                let g2 = (((*p >> 8) & 0xFF) * k) >> 8;
+                let b = ((*p & 0xFF) * k) >> 8;
+                *p = (r << 16) | (g2 << 8) | b;
+            }
         }
     }
 

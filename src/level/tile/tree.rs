@@ -125,6 +125,13 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
         drop_item(g, lvl, x * 16 + 8, y * 16 + 8, apple);
     }
 
+    // Glancing blows knock loose sticks (~1 in 6 hits), so even bare-handed low-damage
+    // punching yields the handle for the first crude tool before the tree falls.
+    if g.random.next_int_bound(6) == 0 {
+        let stick = crate::item::registry::get(g, "Stick");
+        drop_item(g, lvl, x * 16 + 8, y * 16 + 8, stick);
+    }
+
     let mut dmg = dmg;
     let mut damage = g.level(lvl).get_data(x, y) + dmg;
     let tree_health = 20;
