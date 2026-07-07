@@ -52,7 +52,15 @@ pub fn may_pass(_g: &Game, _def: &TileDef, _lvl: usize, _x: i32, _y: i32, _e: &E
 /// Regrowth: same odds family as tall grass growth (`next_int_bound(2000)` per random
 /// tick ≈ a few in-game days per stage).
 pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {
-    if g.level(lvl).get_data(xt, yt) != DATA_RIPE && g.random.next_int_bound(2000) == 0 {
+    if g.level(lvl).get_data(xt, yt) != DATA_RIPE
+        && g.random
+            .next_int_bound(if crate::core::weather::growth_boost(g) {
+                1000
+            } else {
+                2000
+            })
+            == 0
+    {
         g.level_mut(lvl).set_data(xt, yt, DATA_RIPE);
     }
 }

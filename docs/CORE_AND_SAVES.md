@@ -241,6 +241,45 @@ The "sweeping black squares" stair-transition animation (Java `LevelTransitionDi
 (a preserved Java quirk — it ignores the actual screen size), sliding up or down depending
 on `dir`.
 
+### 2.5 Weather (`src/core/weather.rs`)
+
+Common-ambience rain/snow, layered *under* the rare-events scheduler (`core::events`) and
+ticked right after it in `Game::tick` (so the day counter it reads is current). Nothing is
+saved — like the event calendar, the whole schedule is a **pure function** of
+`(world_seed, g.events.day_number, tick_count)`:
+
+- **Schedule**: each day splits into `SLICES_PER_DAY = 6` slices (`SLICE_LEN =
+  DAY_LENGTH/6` ticks). Each slice hashes (`WEATHER_SALT`, same SplitMix64 avalanche as
+  terrain/events) into rain-or-dry (one slice in `RAIN_SLICE_ODDS = 5`) with a hash-picked
+  plateau peak in 0.55..1.0. Intensity ramps by smoothstep over the last/first
+  `SLICE_LEN/8` ticks of each slice, meeting at the midpoint of the two adjacent peaks —
+  continuous everywhere, so rain always fades in/out. Day 0 is always dry (calm first
+  session day, same convention as events). `schedule_intensity(seed, day, tick)` is the
+  pure curve; `rain_intensity(g)` / `is_raining(g)` are the live queries.
+- **Biome gating at the player** (presentation + effects): Desert only passes a rare
+  per-slice roll (`desert_slice_wet`, ~15% — a gate, not a scaled drizzle); Tundra
+  presents the same intensity as snowfall (`Precip::Snow`), which does **not** count as
+  rain for the effects API; underground renders nothing (gate in
+  `gfx::lighting::render_pass`, surface slot only) and cues stay silent.
+- **Effects API** (for the fire/mob/crop waves): `extinguishes_fire(g)` (intensity >
+  0.5), `growth_boost(g)`, `fireflies_hidden(g)` — tile/entity hooks are one-liners on
+  the consumer side.
+- **Cues**: "Rain patters down..." / "The rain clears." (snow variants in Tundra) fire on
+  `CUE_THRESHOLD = 0.05` crossings, surface-only. **Stateless** edge detection:
+  `weather::tick` re-derives the previous intensity from the pure schedule at
+  `tick_count - 1` (day-normalized), guarded by `g.paused` and the day-cycle divisor so a
+  frozen clock can never re-fire an edge. Events coexist with weather; an Ember Rain
+  night merely suppresses the rain *visuals* (see `gfx::lighting`).
+- **Rendering** (`gfx::lighting::render_pass`, surface only): a cool ambient dim
+  multiplied into the grade LUTs, world-anchored diagonal rain streaks / slow snow flecks
+  (Bayer-ordered activation + hash jitter, like the radiance dither), and — independent
+  of weather — fish bubbles on open-water tiles where `fish_presence(seed, x, y)` (a
+  pure value-noise field, `FISH_SALT`) exceeds `FISH_PRESENCE_THRESHOLD`; the upcoming
+  fishing wave reads the same field for its hotspots.
+
+Test coverage: `tests/weather.rs` (schedule fraction/determinism, ramp smoothness,
+desert/tundra gating, cue edges, fish-presence field, render smoke + perf ceiling).
+
 ## 3. Platform layer (`src/platform/`)
 
 ### 3.1 `src/platform/mod.rs` — winit loop, tick/render split, blit

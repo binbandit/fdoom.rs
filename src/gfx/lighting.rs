@@ -23,6 +23,7 @@
 
 use crate::core::game::Game;
 use crate::core::updater::DAY_LENGTH;
+use crate::core::weather::{self, Precip};
 use crate::entity::EntityKind;
 use crate::entity::furniture::crafter::CrafterType;
 use crate::gfx::screen::{self, Screen};
@@ -163,25 +164,204 @@ pub fn render_pass(
         biome_tint_pass(screen, g, x_scroll, y_scroll);
     }
 
-    let amb = ambient_for(g, lvl);
+    // Weather is surface-only presentation, and event skies own the night: an Ember
+    // Rain's warm glow and falling embers would clash with cool rain streaks, and an
+    // aurora shimmers over a *clear* sky by definition. The schedule itself coexists
+    // (weather::is_raining stays live); only the visuals yield.
     let aurora = crate::core::events::aurora_active(g) && lvl >= 3;
+    let precip = if lvl == 3 && !aurora && !crate::core::events::ember_rain_active(g) {
+        weather::precip(g)
+    } else {
+        Precip::None
+    };
 
-    if amb.is_identity() && !aurora {
-        return; // full neutral day: nothing else to do
+    let amb = weather_grade(ambient_for(g, lvl), precip);
+
+    if !amb.is_identity() || aurora {
+        let a8 = ((amb.brightness * 255.0).round() as i32).clamp(0, 254);
+        // Near full daylight the light term can never exceed ambient — skip the stamp.
+        let stamp = a8 < 240;
+        if stamp {
+            stamp_emitters(light, g, lvl, x_scroll, y_scroll);
+        }
+
+        let luts = build_luts(&amb);
+        compose(screen, light, &luts, a8, stamp, x_scroll, y_scroll);
+
+        if aurora {
+            aurora_bands(screen, g, x_scroll);
+        }
     }
 
-    let a8 = ((amb.brightness * 255.0).round() as i32).clamp(0, 254);
-    // Near full daylight the light term can never exceed ambient — skip the stamp.
-    let stamp = a8 < 240;
-    if stamp {
-        stamp_emitters(light, g, lvl, x_scroll, y_scroll);
+    // Ambience on top of the graded frame (surface only): fish bubbles on open water,
+    // then whatever falls from the sky.
+    if lvl == 3 {
+        fish_bubbles(screen, g, lvl, x_scroll, y_scroll, amb.brightness);
+        match precip {
+            Precip::Rain(i) => rain_streaks(screen, g, i, amb.brightness, x_scroll, y_scroll),
+            Precip::Snow(i) => snow_flecks(screen, g, i, amb.brightness, x_scroll, y_scroll),
+            Precip::None => {}
+        }
     }
+}
 
-    let luts = build_luts(&amb);
-    compose(screen, light, &luts, a8, stamp, x_scroll, y_scroll);
+/// Rain's cool dim, multiplied into the ambient the grade LUTs are built from:
+/// darker, cooler, and the dawn/sunset atmosphere wash rained out. Snow dims far less.
+fn weather_grade(amb: Ambient, precip: Precip) -> Ambient {
+    let d = match precip {
+        Precip::Rain(i) => i,
+        Precip::Snow(i) => 0.4 * i,
+        Precip::None => return amb,
+    };
+    let mut a = Ambient::from_tint(
+        amb.brightness * (1.0 - 0.26 * d),
+        [
+            amb.tint[0] * (1.0 - 0.10 * d),
+            amb.tint[1] * (1.0 - 0.04 * d),
+            amb.tint[2] * (1.0 + 0.05 * d),
+        ],
+    );
+    let wash = 1.0 - 0.7 * d;
+    a.wash = [amb.wash[0] * wash, amb.wash[1] * wash, amb.wash[2] * wash];
+    a
+}
 
-    if aurora {
-        aurora_bands(screen, g, x_scroll);
+/// World-anchored diagonal rain streaks. Streaks live on lanes of constant
+/// `d = 3*wx + wy` (falling steeply down-left); activation is Bayer-ordered over the
+/// (lane, epoch) cell grid so partial intensity reads as deliberate pixel-art dither,
+/// while per-cell hash jitter (phase along the lane, offset within it, 3-4 px length)
+/// keeps the full downpour from reading as a ruled grid. The epoch coordinate rides
+/// the fall offset, so each drop streaks down its lane and re-rolls next cycle.
+fn rain_streaks(
+    screen: &mut Screen,
+    g: &Game,
+    intensity: f32,
+    ambient: f32,
+    x_scroll: i32,
+    y_scroll: i32,
+) {
+    const RAIN_SALT: u64 = 0xDA0B5;
+    const LANE: i32 = 11; // d-units between lanes
+    const SEG: i32 = 22; // y-period between drops on a lane
+
+    let fall = g.game_time as i64 * 3; // 3 px/tick
+    // scale the additive streak by daylight so night rain doesn't glow
+    let lift = 0.35 + 0.65 * ambient.clamp(0.0, 1.0);
+    let boost = lift * (0.55 + 0.45 * intensity);
+    let (ar, ag, ab) = (
+        (52.0 * boost) as i32,
+        (64.0 * boost) as i32,
+        (86.0 * boost) as i32,
+    );
+    let coverage = (intensity * 16.0).ceil() as i32; // Bayer level 0..16
+
+    let d0 = 3 * x_scroll + y_scroll;
+    let d1 = 3 * (x_scroll + screen::W) + y_scroll + screen::H;
+    let e0 = (y_scroll as i64 - fall).div_euclid(SEG as i64) as i32 - 1;
+    let e1 = ((y_scroll + screen::H) as i64 - fall).div_euclid(SEG as i64) as i32 + 1;
+    for q in (d0.div_euclid(LANE) - 1)..=(d1.div_euclid(LANE) + 1) {
+        for e in e0..=e1 {
+            if BAYER[((q & 3) + ((e & 3) << 2)) as usize] >= coverage {
+                continue;
+            }
+            let h = crate::level::infinite_gen::hash(g.world_seed, RAIN_SALT, q, e);
+            let len = 3 + (h & 1) as i32; // 3-4 px streaks
+            let s0 = ((h >> 8) % (SEG - len) as u64) as i32; // phase along the lane
+            let dq = q * LANE + ((h >> 24) % (LANE - 2) as u64) as i32; // offset in lane
+            let wy0 = (e as i64 * SEG as i64 + fall) as i32 + s0;
+            for k in 0..len {
+                let wy = wy0 + k;
+                let wx = (dq - wy).div_euclid(3);
+                screen.add_rgb(wx - x_scroll, wy - y_scroll, ar, ag, ab);
+            }
+        }
+    }
+}
+
+/// Tundra snowfall: slow-drifting single white specks on a world-anchored cell grid —
+/// same Bayer-ordered activation as the rain, but falling at a third of the speed
+/// with a gentle side-to-side sway.
+fn snow_flecks(
+    screen: &mut Screen,
+    g: &Game,
+    intensity: f32,
+    ambient: f32,
+    x_scroll: i32,
+    y_scroll: i32,
+) {
+    const SNOW_SALT: u64 = 0x5A02;
+    const CELL: i32 = 13;
+
+    let t = g.game_time as i64;
+    let fall = t / 3; // ~0.33 px/tick — lazy drift
+    let coverage = (intensity * 16.0).ceil() as i32;
+    let lift = 0.45 + 0.55 * ambient.clamp(0.0, 1.0);
+    let a = (105.0 * lift) as i32;
+
+    let i0 = x_scroll.div_euclid(CELL) - 1;
+    let i1 = (x_scroll + screen::W).div_euclid(CELL) + 1;
+    let j0 = (y_scroll as i64 - fall).div_euclid(CELL as i64) as i32 - 1;
+    let j1 = ((y_scroll + screen::H) as i64 - fall).div_euclid(CELL as i64) as i32 + 1;
+    for j in j0..=j1 {
+        for i in i0..=i1 {
+            if BAYER[((i & 3) + ((j & 3) << 2)) as usize] >= coverage {
+                continue;
+            }
+            let h = crate::level::infinite_gen::hash(g.world_seed, SNOW_SALT, i, j);
+            let sway = [0, 1, 0, -1][((t / 14 + ((h >> 40) & 0xF) as i64) & 3) as usize];
+            let wx = i * CELL + ((h >> 8) % CELL as u64) as i32 + sway;
+            let wy = (j as i64 * CELL as i64 + fall) as i32 + ((h >> 16) % CELL as u64) as i32;
+            let (sx, sy) = (wx - x_scroll, wy - y_scroll);
+            screen.add_rgb(sx, sy, a, a, a + 10);
+            screen.add_rgb(sx, sy + 1, a / 2, a / 2, a / 2 + 6); // soft tail
+        }
+    }
+}
+
+/// Fish bubbles: open-water tiles whose deterministic fish-presence field
+/// (`weather::fish_presence`) runs high host 2-3 tiny bubbles rising through a
+/// phase window — the same phase-offset trick as `deep_water_render`'s wave crests,
+/// but living in the post pass and marking the future fishing wave's hotspots.
+pub fn fish_bubbles(
+    screen: &mut Screen,
+    g: &Game,
+    lvl: usize,
+    x_scroll: i32,
+    y_scroll: i32,
+    ambient: f32,
+) {
+    const BUBBLE_SALT: u64 = 0xB0BB1E5;
+    const CYCLE: i32 = 96; // phase steps per cycle (one step per 2 ticks)
+    const WINDOW: i32 = 30; // bubbles visible for this many steps of the cycle
+
+    let seed = g.world_seed;
+    let lift = 0.4 + 0.6 * ambient.clamp(0.0, 1.0);
+    let a = (46.0 * lift) as i32;
+    for ty in (y_scroll >> 4)..=((y_scroll + screen::H - 1) >> 4) {
+        for tx in (x_scroll >> 4)..=((x_scroll + screen::W - 1) >> 4) {
+            if crate::core::weather::fish_presence(seed, tx, ty)
+                <= crate::core::weather::FISH_PRESENCE_THRESHOLD
+            {
+                continue;
+            }
+            let name = &g.tile_at(lvl, tx, ty).name;
+            if name != "WATER" && name != "DEEP WATER" {
+                continue;
+            }
+            let h = crate::level::infinite_gen::hash(seed, BUBBLE_SALT, tx, ty);
+            let phase = (g.tick_count / 2 + (h & 0xFF) as i32).rem_euclid(CYCLE);
+            if phase >= WINDOW {
+                continue;
+            }
+            let n = 2 + (h >> 9 & 1) as i32; // 2-3 bubbles
+            for k in 0..n {
+                let hk = h >> (12 + 10 * k as u64);
+                let bx = tx * 16 + 3 + (hk % 10) as i32;
+                let start = ((hk >> 4) % 5) as i32 + k * 4; // staggered release
+                let by = ty * 16 + 13 - (phase - start).clamp(0, 11);
+                screen.add_rgb(bx - x_scroll, by - y_scroll, a, a + 6, a + 12);
+            }
+        }
     }
 }
 

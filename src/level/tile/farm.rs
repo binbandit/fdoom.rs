@@ -61,7 +61,13 @@ pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {
 }
 
 pub fn stepped_on(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32, _e: &mut Entity) {
-    if g.random.next_int_bound(60) != 0 {
+    // rain waters the fields: crops advance twice as fast while it pours
+    let odds = if crate::core::weather::growth_boost(g) {
+        30
+    } else {
+        60
+    };
+    if g.random.next_int_bound(odds) != 0 {
         return;
     }
     if g.level(lvl).get_data(xt, yt) < 5 {

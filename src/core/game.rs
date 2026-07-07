@@ -340,6 +340,9 @@ impl Game {
 
         // rare-world-events scheduler: day counting + dusk/dawn cues (core::events)
         crate::core::events::tick(self);
+        // common-ambience weather under it: rain/snow set-in and clear cues
+        // (core::weather; the rain itself renders in gfx::lighting)
+        crate::core::weather::tick(self);
 
         // This is the general action statement thing! Regulates menus, mostly.
         if !self.has_focus && self.has_gui {
