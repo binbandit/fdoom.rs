@@ -136,7 +136,18 @@ Done-when: all 9 shipped, round-trip tests extended (canvas-mode edit spanning t
   updated. Commit `feat(tools): pixel_studio v2 — canvas mode, previews, real tools`.
 
 ## 2. QUEUED WAVES (start after the above)
-### 2a. Creative-director pass (user grant: "see how it can be improved and extended, then do it")
+### 2a. Creative-director pass — SUBSTANTIALLY DONE
+Playtest ran (docs/PLAYTEST.md, df50bce: 9 scenarios, ranked top-10, 6 bugs).
+Landed: #1 combat juice + #3 night eyes (e1427d4), #2 notifications + #9 HUD clip
++ save toast (4dacdd9, warning retier 9a05e5d), #5 held-item save/load (0a460f3),
+#6 cave-ins reachable + pan feedback (3e38de0), #7 map rebuild (e525614),
+#8 village light + #10 flora grounding (94bae2d). Audit debt closed (f0193f0:
+natural spawns + continuous bare-hands chain). #4 first-day thread: last lane,
+in flight at handoff. Remaining from the report: near-misses (fishing cast/bobber
+feedback, dawn-darkness at spawn, mountains ground identity, marsh
+distinctiveness) + suspected bugs 4 (durability on null uses) and 5 (/tp while
+swimming) need verification — good next wave.
+Original spec (for reference):
   Method: scripted play-sessions (FDOOM_DEMO) across: fresh spawn day + night, each
   biome, mining trip incl. cave-in + props, rainy night at a campfire, Hollow Night
   cemetery, ocean raft + tides + fishing hotspot, village+trail loot run, window-lit
@@ -162,11 +173,12 @@ Done-when: all 9 shipped, round-trip tests extended (canvas-mode edit spanning t
   pale), wet-sand tidal cells. All TODO(art) comments in code mark exact sites.
 
 ## 3. VERIFICATION DEBT (cheap, do opportunistically)
-- Swim render: screenshot a swimming player; user said it "looks really weird" once —
-  rule fixed + audited, render never re-judged since sprite tracing. If ugly: the swim
-  clip draws top-half only + splash ring — check MobSprite frame choice vs traced cells.
+- Swim render: PLAYTEST scenario 7 judged it good ("head-only sprite + ring reads
+  well") — debt closed.
+- Save toast: done (bottom-right small, 4dacdd9).
 - Boundary blend re-check with the user after 1c P0.
-- Hero screenshots for README after everything lands.
+- Hero screenshots for README after everything lands (the rainy-night campfire
+  frame from PLAYTEST is the anointed hero shot).
 
 ## 4. GOTCHAS
 - Never two agents on one file; registry.rs is the classic collision.
