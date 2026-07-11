@@ -148,7 +148,8 @@ Done-when: all 9 shipped, round-trip tests extended (canvas-mode edit spanning t
   or manual verification for title/worldgen/options/death/book screens.
   Done-when: PLAYTEST.md committed with before/afters; improvements committed; audit
   docs updated.
-### 2b. --debug dev console (part of DX phase 2; needs renderer free after 1c)
+### 2b. --debug dev console — DONE (6f2e6aa: F4 overlay + / command line;
+  give/tp/time/heal; tests/dev_console.rs; documented in DEV_GUIDE)
   Overlay (toggle via a --debug key): tile name+data under player, biome, seed, day/
   clock, fps; commands: give <item> <n>, tp <x> <y>, time <morning|noon|dusk|night>,
   heal. Method: small module + renderer hook + input capture in debug only.
