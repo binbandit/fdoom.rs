@@ -210,7 +210,7 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         let needs_rattle = d2 < RATTLE_RANGE * RATTLE_RANGE
             && matches!(&e.kind, EntityKind::Snake(d) if !d.rattled);
         if needs_rattle {
-            g.notify_all("A dry rattle rises from the sand...");
+            g.push_warning("A dry rattle rises from the sand...");
             g.play_sound(crate::core::io::sound::Sound::MonsterHurt);
             if let EntityKind::Snake(d) = &mut e.kind {
                 d.rattled = true;
@@ -270,6 +270,11 @@ pub fn render(g: &mut Game, screen: &mut crate::gfx::Screen, e: &mut Entity) {
         e.c.col
     };
     COILED.render_color(screen, e.c.x - 8, e.c.y - 11, col);
+
+    // the coiled pose keeps the hostile night eye-glint too (see behavior.rs)
+    if crate::entity::behavior::hostile_glint_shows(g, e) {
+        crate::entity::behavior::render_eye_glint(screen, e.c.x, e.c.y);
+    }
 }
 
 /// Java `Snake.touchedBy(entity)` — damage is `lvl + diffIdx` (not EnemyMob's

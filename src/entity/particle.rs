@@ -59,6 +59,27 @@ pub fn new_smoke_particle(x: i32, y: i32, thin: bool, random: &mut Rng) -> Entit
     e
 }
 
+/// Attack-impact feedback: a small, short-lived puff of the struck material (stone
+/// chips, leaf flecks, dust) — the thin smoke wisp cell under a material-tinted
+/// palette. Whiffs spawn none; the caller picks the tint (see the player attack path).
+/// `(x, y)` is the puff's *center* (particle sprites draw from their top-left, so the
+/// 8x8 cell is offset here — see the smash particle's tile-corner convention).
+pub fn new_material_puff(x: i32, y: i32, palette: i32, random: &mut Rng) -> Entity {
+    let mut e = new_particle(
+        x - 4,
+        y - 4,
+        1,
+        10 + random.next_int_bound(6),
+        Sprite::new1x1(9, 18, palette),
+    );
+    if let EntityKind::Particle(p) = &mut e.kind {
+        p.rise = 0.3;
+        p.sway = 1.0;
+        p.phase = random.next_float() * std::f32::consts::TAU;
+    }
+    e
+}
+
 /// Java `new FireParticle(x, y)` — used by Spawners when they spawn an entity.
 pub fn new_fire_particle(x: i32, y: i32) -> Entity {
     new_particle(

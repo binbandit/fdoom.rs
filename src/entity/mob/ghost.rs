@@ -121,6 +121,11 @@ pub fn render(_g: &mut Game, screen: &mut crate::gfx::Screen, e: &mut Entity) {
     let bob = if (mob.tick_time / 16) % 2 == 0 { 0 } else { 1 };
     let frame = if solid { 1 } else { 0 };
     SPRITES[0][frame].render_color(screen, e.c.x - 8, e.c.y - 11 + bob, col);
+
+    // the ghost is translucent and night-bound, so its warm eye-glint is always on
+    // when the body draws (it blinks out with the phase-form flicker above) — often
+    // the only thing you see coming
+    crate::entity::behavior::render_eye_glint(screen, e.c.x, e.c.y + bob);
 }
 
 pub fn touched_by(g: &mut Game, this_e: &mut Entity, by: &mut Entity) {

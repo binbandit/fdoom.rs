@@ -175,6 +175,11 @@ pub fn get_light_radius(e: &Entity) -> i32 {
         EntityKind::NightWisp(_) => 4, // a drifting lantern of the night
         EntityKind::Fireflies(_) => 2, // a faint swarm-glow, like the glow worm
         EntityKind::Ghost(_) => 1,     // a cold gleam; night-only, so it never glares
+        // Night threat legibility: every hostile's eyes catch what little light there
+        // is — an 8px gleam that lets the eye-glint pixels ride the warm light bands
+        // instead of being crushed by the night grade. Invisible in full daylight
+        // (ambient is already 1.0), a faint head-gleam in the dark.
+        _ if e.is_enemy_mob() => 1,
         _ => 0,
     }
 }
@@ -938,9 +943,24 @@ fn sway_offset(tick: i32, period: i32, dx: i32, dy: i32) -> Option<(i32, i32)> {
     }
 }
 
-/// Sheet cell (11,20): two warm eye-glint pixels for grass-hidden hostiles at night
+/// Sheet cell (11,20): two warm eye-glint pixels for hostiles in the dark
 /// (a true-color cell — the palette is ignored, so the glints survive the night grade).
-const EYES_POS: i32 = 11 + 20 * 32;
+pub(crate) const EYES_POS: i32 = 11 + 20 * 32;
+
+/// Night threat legibility (playtest #3): whether a hostile shows its warm eye-glint
+/// on top of its sprite — night on the surface or any underground layer, and only
+/// while the mob stands outside torchlight (light already reveals it). Rendered
+/// additively by the mob render paths; never an anatomy change.
+pub(crate) fn hostile_glint_shows(g: &Game, e: &Entity) -> bool {
+    let Some(lvl) = e.c.level else { return false };
+    let dark_world = g.get_time() == Time::Night || g.level(lvl).depth < 0;
+    dark_world && !level::is_light(g, lvl, e.c.x >> 4, e.c.y >> 4)
+}
+
+/// Draw the two warm eye-glint pixels over a mob standing at `(x, y)` (entity px).
+pub(crate) fn render_eye_glint(screen: &mut Screen, x: i32, y: i32) {
+    screen.render(x - 4, y - 8, EYES_POS, 0, 0);
+}
 
 /// Java `MobAi.render(screen)` — the shared mob render, plus the tall-grass stealth
 /// clip: a mob standing in tall grass sinks in (lower half clipped, like the swimming
@@ -972,7 +992,7 @@ pub fn mobai_render(g: &Game, screen: &mut Screen, e: &mut Entity) {
             .unwrap_or(false);
     if in_tall_grass && mob.hurt_time == 0 {
         if e.is_enemy_mob() && g.get_time() == Time::Night {
-            screen.render(e.c.x - 4, e.c.y - 8, EYES_POS, 0, 0);
+            render_eye_glint(screen, e.c.x, e.c.y);
             return;
         }
         yo += 4;
@@ -981,6 +1001,11 @@ pub fn mobai_render(g: &Game, screen: &mut Screen, e: &mut Entity) {
     }
 
     cur_sprite.render_color(screen, xo, yo, color);
+
+    // every hostile in the dark carries the glint, not just the grass-hidden ones
+    if e.is_enemy_mob() && hostile_glint_shows(g, e) {
+        render_eye_glint(screen, e.c.x, e.c.y);
+    }
 }
 
 /// Java `MobAi.randomizeWalkDir(byChance)` — with the PassiveMob override.

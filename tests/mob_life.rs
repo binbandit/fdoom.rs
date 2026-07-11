@@ -123,8 +123,9 @@ fn rattler_warns_then_strikes() {
         matches!(&g.entities.get(rid).unwrap().kind,
         EntityKind::Snake(d) if d.coiled)
     };
+    // the rattle telegraph is warning-tier (centered band), not ambient
     let rattled = |g: &Game| {
-        g.notifications
+        g.warnings
             .iter()
             .any(|n| n.to_uppercase().contains("RATTLE"))
     };
@@ -453,8 +454,12 @@ fn hostile_in_tall_grass_at_night_shows_only_eye_glints() {
         warm >= 1,
         "no warm eye glints found near hidden zombie at ({cx},{cy})"
     );
+    // Hostiles now carry a faint radius-1 eye-gleam emitter (night threat
+    // legibility, playtest #3), which warm-tints a speckle of grass around the
+    // hiding spot — so the bound allows the pool but still catches a full body
+    // render leaking through the grass clip (~100+ px).
     assert!(
-        warm <= 12,
+        warm <= 90,
         "too many warm pixels ({warm}) — body not clipped to eyes?"
     );
 }

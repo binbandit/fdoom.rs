@@ -71,6 +71,10 @@ pub struct PlayerData {
 
     pub attack_time: i32,
     pub attack_dir: Direction,
+    /// Melee-swing sweep countdown (render-only juice): while positive, an extra
+    /// slash arc detaches and travels into the facing tile. Set by `attack()`,
+    /// ticked down alongside `attack_time`; never saved.
+    pub swing_flash: i32,
 
     pub on_stair_delay: i32,
 
@@ -181,6 +185,7 @@ pub fn new(g: &Game, previous: Option<&PlayerData>) -> Entity {
         prev_item: None,
         attack_time: 0,
         attack_dir: Direction::Down, // matches the initial facing direction
+        swing_flash: 0,
         on_stair_delay: 0,
         hunger: MAX_HUNGER,
         stamina: MAX_STAMINA,

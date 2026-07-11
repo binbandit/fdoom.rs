@@ -16,12 +16,13 @@ use crate::entity::mob::player::{
     INTERACT_DIST, MAX_HEALTH, MAX_HUNGER, MAX_HUNGER_STAMS, MAX_HUNGER_TICKS, MAX_STAMINA,
     MAX_STAMINA_RECHARGE, MIN_STARVE_HEALTH, PLAYER_HURT_TIME, SPRITES, SUIT_SPRITES,
 };
-use crate::entity::particle::new_text_particle;
+use crate::entity::particle::{new_material_puff, new_text_particle};
 use crate::entity::projectile::{ProjectileStyle, new_arrow, new_thrown};
 use crate::entity::{Direction, Entity, EntityKind};
 use crate::gfx::{MobAnims, Point, Rectangle, Screen, color};
 use crate::item::{Item, ItemKind, PotionType, ToolType, interact as item_interact, registry};
 use crate::level;
+use crate::level::tile::TileKind;
 use crate::level::tile::dispatch as tiles;
 use crate::rng::Rng;
 
@@ -42,6 +43,12 @@ const SPEAR_RANGE_TICKS: i32 = 16;
 /// Extra melee reach (px past `ATTACK_DIST`) for a held spear.
 const SPEAR_REACH_BONUS: i32 = 8;
 const THROWING_KNIFE: &str = "Throwing Knife";
+
+// ---- Attack & interaction juice (playtest #1) ----
+/// `swing_flash` start value. It ticks down in the same block as `attack_time`
+/// (including on the attack tick itself), so renders see 3, 2, 1 — three frames of
+/// sweep arc traveling into the facing tile.
+const SWING_FLASH_START: i32 = 4;
 
 /// Java `Player.tick()`.
 pub fn tick(g: &mut Game, e: &mut Entity) {
@@ -378,6 +385,22 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             } else {
                 attack(g, e);
             }
+        } else if attack_clicked || pickup_clicked {
+            // too winded to swing (0 stamina): the input used to die silently —
+            // a soft back-beep and a small gray breath puff say "no" instead
+            g.play_sound(Sound::Back);
+            if let Some(lvl) = e.c.level {
+                let jx = g.random.next_int_bound(5) - 2;
+                // centered above the head so the player sprite (drawn later in the
+                // y-sort) doesn't cover it
+                let puff = new_material_puff(
+                    e.c.x + jx,
+                    e.c.y - 14,
+                    color::get4(-1, -1, 333, 444),
+                    &mut g.random,
+                );
+                g.level_mut(lvl).add(puff, lvl);
+            }
         }
 
         if g.input.get_key("menu").clicked && e.player().active_item.is_some() {
@@ -450,6 +473,9 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             if pd.attack_time == 0 {
                 pd.attack_item = None; // null the attackItem once we are done attacking.
             }
+        }
+        if pd.swing_flash > 0 {
+            pd.swing_flash -= 1;
         }
     }
 }
@@ -747,6 +773,7 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
     {
         // if there is no active item, OR if the item can be used to attack...
         e.player_mut().attack_time = 5;
+        e.player_mut().swing_flash = SWING_FLASH_START;
         // attacks the enemy in the appropriate direction. (post-port: a spear reaches
         // further than any other melee swing)
         let attack_dist = if matches!(
@@ -772,7 +799,13 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
         if in_bounds {
             let tile = g.tile_at(lvl, t.x, t.y);
             let dmg = g.random.next_int_bound(3) + 1;
-            used = tiles::hurt_by(g, &tile, lvl, t.x, t.y, e, dmg, attack_dir) || used;
+            let tile_hit = tiles::hurt_by(g, &tile, lvl, t.x, t.y, e, dmg, attack_dir);
+            if tile_hit {
+                // impact feedback: chips of the struck material fly off the tile
+                // (a whiff — nothing reacted — stays visually silent)
+                spawn_impact_puffs(g, lvl, t.x, t.y, &tile.kind);
+            }
+            used = tile_hit || used;
         }
 
         if used
@@ -785,6 +818,79 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
                 item.pay_durability(creative);
             }
         }
+    }
+}
+
+/// Two small puffs of the struck tile's material at the hit tile, jittered around
+/// its center — the per-hit impact feedback (the smash burst still marks the break).
+fn spawn_impact_puffs(g: &mut Game, lvl: usize, xt: i32, yt: i32, kind: &TileKind) {
+    let palette = material_puff_palette(kind);
+    for _ in 0..2 {
+        let jx = g.random.next_int_bound(11) - 5;
+        let jy = g.random.next_int_bound(7) - 3;
+        let p = new_material_puff(xt * 16 + 8 + jx, yt * 16 + 8 + jy, palette, &mut g.random);
+        g.level_mut(lvl).add(p, lvl);
+    }
+}
+
+/// What color flies off a struck tile: leaf flecks off flora, gray chips off rock,
+/// sand/snow/earth dust in their own hue, neutral dust for everything else.
+fn material_puff_palette(kind: &TileKind) -> i32 {
+    use TileKind as K;
+    match kind {
+        K::Tree
+        | K::TreeSpecies { .. }
+        | K::SnowTree
+        | K::Sapling { .. }
+        | K::TallGrass { .. }
+        | K::Grass
+        | K::Flower
+        | K::Wheat
+        | K::BerryBush
+        | K::Seaweed
+        | K::Cactus
+        | K::FruitingCactus
+        | K::Mushroom => color::get4(-1, -1, 131, 253),
+        K::Rock
+        | K::HardRock
+        | K::Ore { .. }
+        | K::Wall { .. }
+        | K::GraveStone { .. }
+        | K::Coral
+        | K::CloudCactus => color::get4(-1, -1, 333, 444),
+        K::Sand | K::QuickSand | K::DryBush => color::get4(-1, -1, 442, 553),
+        K::Snow => color::get4(-1, -1, 445, 555),
+        K::Dirt | K::Mud | K::Farm | K::Hole | K::DugPit | K::TidalFlat => {
+            color::get4(-1, -1, 321, 432)
+        }
+        K::Floor { .. } | K::Door { .. } | K::Fence | K::TimberProp => {
+            color::get4(-1, -1, 210, 431)
+        }
+        _ => color::get4(-1, -1, 322, 433),
+    }
+}
+
+/// The detached sweep arc of a melee swing: the same slash cells as the base arc,
+/// pushed `off` px further into the facing tile (see `SWING_FLASH_START`).
+fn render_swing_sweep(screen: &mut Screen, xo: i32, yo: i32, dir: Direction, off: i32) {
+    match dir {
+        Direction::Up => {
+            screen.render(xo, yo - 4 - off, 6 + 13 * 32, color::WHITE, 0);
+            screen.render(xo + 8, yo - 4 - off, 6 + 13 * 32, color::WHITE, 1);
+        }
+        Direction::Down => {
+            screen.render(xo, yo + 8 + 4 + off, 6 + 13 * 32, color::WHITE, 2);
+            screen.render(xo + 8, yo + 8 + 4 + off, 6 + 13 * 32, color::WHITE, 3);
+        }
+        Direction::Left => {
+            screen.render(xo - 4 - off, yo, 7 + 13 * 32, color::WHITE, 1);
+            screen.render(xo - 4 - off, yo + 8, 7 + 13 * 32, color::WHITE, 3);
+        }
+        Direction::Right => {
+            screen.render(xo + 8 + 4 + off, yo, 7 + 13 * 32, color::WHITE, 0);
+            screen.render(xo + 8 + 4 + off, yo + 8, 7 + 13 * 32, color::WHITE, 2);
+        }
+        Direction::None => {}
     }
 }
 
@@ -1182,6 +1288,15 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         if let Some(attack_item) = &e.player().attack_item {
             attack_item.sprite.render(screen, xo + 4, yo + 8 + 4);
         }
+    }
+
+    // melee-swing sweep: for the first frames of a swing an extra arc detaches from
+    // the base slash and travels ~6px into the facing tile — the motion smear that
+    // makes the swing read (whiffs included, so a drained bolt is never a mystery)
+    let swing_flash = e.player().swing_flash;
+    if attack_time > 0 && swing_flash > 0 {
+        let off = 2 * (SWING_FLASH_START - swing_flash);
+        render_swing_sweep(screen, xo, yo, attack_dir, off);
     }
 
     // renders the furniture if the player is holding one.
