@@ -11,9 +11,11 @@
 //!   *cracked* (darker, breaks ~40% faster) and ~10% *dense* (pale boss, slower,
 //!   better stone yield). Pure data + render/hurt modulation on the one rock tile.
 //! - **Cave-ins** — breaking mine rock that opens too wide a gallery (5x5 open-floor
-//!   count) with no Timber Prop nearby has a chance to arm a collapse: the ceiling
-//!   groans, and on the broken tile's next tick rubble (rock with the `RUBBLE_FLAG`
-//!   data bit — weak, fast to clear) falls on nearby open floor.
+//!   count) with no Timber Prop nearby has a chance to arm a collapse. Narrow
+//!   unpropped drives get a rarer corridor roll using a wider prop radius, keeping
+//!   timber supports meaningful outside big rooms too. Either path uses the same
+//!   telegraph: the ceiling groans, and on the broken tile's next tick rubble (rock
+//!   with the `RUBBLE_FLAG` data bit — weak, fast to clear) falls on nearby open floor.
 //! - **Timber Prop** — a placeable support post (`tile/timber_prop.rs`) that holds
 //!   the ceiling within `PROP_RADIUS`; break it to recover the timber.
 //!
@@ -51,6 +53,10 @@ pub const COLLAPSE_OPEN_MIN: i32 = 13;
 pub const PROP_RADIUS: i32 = 3;
 /// 1-in-N collapse odds once the geometry qualifies.
 const COLLAPSE_ODDS: i32 = 4;
+/// Timber Props within this wider Chebyshev radius hold narrow drives.
+pub const CORRIDOR_PROP_RADIUS: i32 = 6;
+/// 1-in-N collapse odds for unsupported corridor mining.
+const CORRIDOR_COLLAPSE_ODDS: i32 = 80;
 /// At most this many rubble tiles fall per collapse.
 const RUBBLE_MAX: usize = 4;
 
@@ -154,18 +160,18 @@ pub fn try_pan(
     let richness = richness_at(g.world_seed, xt, yt);
     let roll = g.random.next_double();
     let (name, note) = match pan_outcome(richness, roll) {
-        PanFind::Nothing => return true, // silt and water; the pan comes up empty
-        PanFind::Stone => ("Stone", None),
-        PanFind::Coal => ("Coal", Some("Black flecks settle in the pan.")),
-        PanFind::Iron => ("Iron Ore", Some("A rusty gleam in the gravel.")),
-        PanFind::Gold => ("Gold Ore", Some("A gold nugget winks up at you!")),
-        PanFind::Gem => ("gem", Some("A gemstone glitters in the silt!")),
+        PanFind::Nothing => (None, "Nothing but gray sand."),
+        PanFind::Stone => (Some("Stone"), "A smooth stone clacks in the pan."),
+        PanFind::Coal => (Some("Coal"), "Black flecks settle in the pan."),
+        PanFind::Iron => (Some("Iron Ore"), "A rusty gleam in the gravel."),
+        PanFind::Gold => (Some("Gold Ore"), "A gold nugget winks up at you!"),
+        PanFind::Gem => (Some("gem"), "A gemstone glitters in the silt!"),
     };
-    let find = crate::item::registry::get(g, name);
-    drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, find);
-    if let Some(note) = note {
-        g.notifications.push(note.to_string());
+    if let Some(name) = name {
+        let find = crate::item::registry::get(g, name);
+        drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, find);
     }
+    g.notifications.push(note.to_string());
     true
 }
 
@@ -192,9 +198,16 @@ fn prop_within(g: &Game, lvl: usize, x: i32, y: i32, r: i32) -> bool {
     false
 }
 
+fn arm_collapse(g: &mut Game, lvl: usize, x: i32, y: i32) {
+    g.notifications.push("The ceiling groans...".to_string());
+    g.play_sound(Sound::Fuse);
+    g.level_mut(lvl).set_data(x, y, COLLAPSE_FUSE);
+}
+
 /// Called by `rock.rs` right after a (non-rubble) rock breaks underground: if the
-/// resulting gallery is too wide and unpropped, sometimes arm a collapse — the warning
-/// sounds now, the roof comes down on the broken tile's next random tick.
+/// resulting gallery is too wide and unpropped, or the corridor is unsupported for a
+/// long stretch, sometimes arm a collapse — the warning sounds now, the roof comes
+/// down on the broken tile's next random tick.
 pub fn collapse_check(g: &mut Game, lvl: usize, x: i32, y: i32) {
     if g.level(lvl).depth >= 0 {
         return; // ceilings only exist underground
@@ -207,15 +220,24 @@ pub fn collapse_check(g: &mut Game, lvl: usize, x: i32, y: i32) {
             }
         }
     }
-    if open < COLLAPSE_OPEN_MIN
-        || prop_within(g, lvl, x, y, PROP_RADIUS)
-        || g.random.next_int_bound(COLLAPSE_ODDS) != 0
-    {
+
+    // Open-gallery path: keep the original 5x5 open-count gate, short prop radius,
+    // and 1-in-4 roll intact. A qualifying gallery does not fall back to the rarer
+    // corridor roll when this roll misses.
+    if open >= COLLAPSE_OPEN_MIN && !prop_within(g, lvl, x, y, PROP_RADIUS) {
+        if g.random.next_int_bound(COLLAPSE_ODDS) == 0 {
+            arm_collapse(g, lvl, x, y);
+        }
         return;
     }
-    g.notifications.push("The ceiling groans...".to_string());
-    g.play_sound(Sound::Fuse);
-    g.level_mut(lvl).set_data(x, y, COLLAPSE_FUSE);
+
+    // Corridor path: narrow drives rarely groan unless a timber prop is within the
+    // wider support radius. Props are a complete counter here, not a dampener.
+    if !prop_within(g, lvl, x, y, CORRIDOR_PROP_RADIUS)
+        && g.random.next_int_bound(CORRIDOR_COLLAPSE_ODDS) == 0
+    {
+        arm_collapse(g, lvl, x, y);
+    }
 }
 
 /// Dirt's random tile tick: fire an armed collapse fuse. A prop raised in the beat
