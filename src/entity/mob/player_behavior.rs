@@ -106,6 +106,24 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         pd.showpotioneffects = !pd.showpotioneffects;
     }
 
+    // First-day thread, cue 1: brand-new worlds (world.rs arms the delay) point at
+    // tall grass about a minute in — unless the player already found fibers.
+    if e.player().grass_cue_delay > 0 {
+        let due = {
+            let pd = e.player_mut();
+            pd.grass_cue_delay -= 1;
+            pd.grass_cue_delay == 0 && !pd.fiber_cue_done
+        };
+        if due
+            && e.player()
+                .inventory
+                .count(&crate::item::registry::get(g, "Grass Fibers"))
+                == 0
+        {
+            g.push_cue("The tall grass holds fibers.");
+        }
+    }
+
     let lvl = e.c.level.expect("player must be on a level");
     // gets the current tile the player is on.
     let on_tile = g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4);
@@ -1325,6 +1343,7 @@ pub fn pickup_item(g: &mut Game, player: &mut Entity, item_entity: &mut Entity) 
         return;
     };
     let item = data.item.clone();
+    let is_fibers = item.get_name() == "Grass Fibers";
     let pd = player.player_mut();
     let stacks_with_held = item.is_stackable()
         && pd
@@ -1340,6 +1359,15 @@ pub fn pickup_item(g: &mut Game, player: &mut Entity, item_entity: &mut Entity) 
         }
     } else {
         pd.inventory.add(item); // add item to inventory
+    }
+
+    // First-day thread, cue 2: the first fibers point at the craft key.
+    if is_fibers && !pd.fiber_cue_done {
+        pd.fiber_cue_done = true;
+        pd.grass_cue_delay = 0; // the tall-grass hint is moot now
+        let mapping = g.input.get_mapping("craft"); // e.g. "Z/SHIFT-E"
+        let key = mapping.split('/').next().unwrap_or("Z").to_string();
+        g.push_cue(&format!("Enough fibers could twist into cord [{key}]."));
     }
 }
 

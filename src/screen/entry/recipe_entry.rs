@@ -11,7 +11,7 @@ use crate::core::game::Game;
 use crate::gfx::{Screen, font};
 use crate::item::{Item, Recipe};
 
-use super::{COL_SLCT, COL_UNSLCT, EntryFlags, EntryHandle, ListEntry, handle};
+use super::{COL_DIM, COL_SLCT, COL_UNSLCT, EntryFlags, EntryHandle, ListEntry, handle};
 
 pub struct RecipeEntry {
     recipe: Rc<RefCell<Recipe>>,
@@ -56,12 +56,15 @@ impl ListEntry for RecipeEntry {
 
     fn tick(&mut self, _g: &mut Game) {}
 
-    fn render(&mut self, screen: &mut Screen, g: &mut Game, x: i32, y: i32, _is_selected: bool) {
+    fn render(&mut self, screen: &mut Screen, g: &mut Game, x: i32, y: i32, is_selected: bool) {
         if self.flags.visible {
-            let col = if self.recipe.borrow().get_can_craft() {
-                COL_SLCT
-            } else {
-                COL_UNSLCT
+            // Affordability reads at a glance: unaffordable rows drop one brightness
+            // tier below what selection alone would give — still readable when
+            // selected, darkest when not.
+            let col = match (self.recipe.borrow().get_can_craft(), is_selected) {
+                (true, true) => COL_SLCT,
+                (true, false) | (false, true) => COL_UNSLCT,
+                (false, false) => COL_DIM,
             };
             let text = self.to_display_string(g);
             font::draw(&text, screen, x, y, col);

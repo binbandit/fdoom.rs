@@ -172,13 +172,23 @@ impl Display for CraftingDisplay {
             if recipe.borrow().get_can_craft() {
                 // take the player out so the inventory can be borrowed alongside `g`
                 if let Some(mut player) = g.entities.take(self.player_eid) {
+                    let crafted;
                     {
                         let inventory = &mut player.player_mut().inventory;
-                        recipe.borrow().craft(g, inventory);
+                        crafted = recipe.borrow().craft(g, inventory);
 
                         self.refresh_data(g, inventory);
                         for recipe in &self.recipes {
                             recipe.borrow_mut().check_can_craft(g, inventory);
+                        }
+                    }
+                    // First-day thread, cue 3: the first cord points at the
+                    // crude-tool lashing.
+                    if crafted && recipe.borrow().product_name().eq_ignore_ascii_case("cord") {
+                        let pd = player.player_mut();
+                        if !pd.cord_cue_done {
+                            pd.cord_cue_done = true;
+                            g.push_cue("A sharp stone and a stick would make a tool.");
                         }
                     }
                     g.entities.put_back(player);

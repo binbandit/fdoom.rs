@@ -635,6 +635,12 @@ impl Game {
         self.notify_all(msg);
     }
 
+    /// Onboarding-cue notification: the ambient ticker, but lingering about twice
+    /// as long — these lines teach, so the player gets time to read them.
+    pub fn push_cue(&mut self, msg: &str) {
+        self.notify_all_tick(msg, -90);
+    }
+
     /// Warning/event-tier notification: cave-in groans, dusk/event cues, tool gates.
     /// Rendered as the centered band.
     pub fn push_warning(&mut self, msg: &str) {

@@ -555,6 +555,9 @@ pub fn init_world(g: &mut Game) {
 
         let lvl = g.current_level; // sets level to the current level (3; surface)
         let mut p = g.entities.take(g.player_id).expect("player must exist");
+        // First-day thread: brand-new worlds (never loads) get the one-time
+        // tall-grass hint about a minute in (player_behavior counts this down).
+        p.player_mut().grass_cue_delay = 60 * crate::core::updater::NORM_SPEED;
         if infinite {
             let (sx, sy) = crate::level::infinite_gen::find_surface_spawn(world_seed, &g.tiles);
             p.c.x = sx * 16 + 8;

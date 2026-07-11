@@ -32,6 +32,9 @@ pub fn handle(entry: impl ListEntry + 'static) -> EntryHandle {
 
 pub const COL_UNSLCT: i32 = color::GRAY;
 pub const COL_SLCT: i32 = color::WHITE;
+/// Extra-dim tier for rows that are visible but not actionable (e.g. recipes the
+/// player can't afford) — readable on the panel, clearly quieter than `COL_UNSLCT`.
+pub const COL_DIM: i32 = color::DARK_GRAY;
 
 /// Java `ListEntry.getHeight()` (static).
 pub fn entry_height() -> i32 {

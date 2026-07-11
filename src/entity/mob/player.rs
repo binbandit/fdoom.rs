@@ -100,6 +100,13 @@ pub struct PlayerData {
     pub regentick: i32,
 
     pub shirt_color: i32,
+
+    /// First-day onboarding cues (session-only, never saved). `grass_cue_delay`
+    /// counts down to the tall-grass hint — armed only for brand-new worlds
+    /// (world.rs), 0 = disarmed. The flags one-shot the fiber and cord hints.
+    pub grass_cue_delay: i32,
+    pub fiber_cue_done: bool,
+    pub cord_cue_done: bool,
 }
 
 impl PlayerData {
@@ -204,6 +211,9 @@ pub fn new(g: &Game, previous: Option<&PlayerData>) -> Entity {
         cooldowninfo: 0,
         regentick: 0,
         shirt_color: 110,
+        grass_cue_delay: 0,
+        fiber_cue_done: false,
+        cord_cue_done: false,
     };
 
     if let Some(prev) = previous {
