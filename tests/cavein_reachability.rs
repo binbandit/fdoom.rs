@@ -67,8 +67,8 @@ fn dig_corridor(seed: i64, propped: bool) -> bool {
         );
         if tw.level(mine).get_data(x, 0) == COLLAPSE_FUSE {
             assert!(
-                tw.notifications.iter().any(|n| n.contains("groans")),
-                "armed corridor collapse without the groan notification"
+                tw.warnings.iter().any(|n| n.contains("groans")),
+                "armed corridor collapse without the groan warning"
             );
             return true;
         }
