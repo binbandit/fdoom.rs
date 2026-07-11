@@ -80,7 +80,7 @@ impl App {
             self.unprocessed -= 1.0;
         }
 
-        // JAVA: Thread.sleep(2) — makes a small pause
+        // brief pause so the loop yields the CPU between tick batches
         std::thread::sleep(Duration::from_millis(2));
 
         if now.duration_since(self.last_render).as_secs_f64() > 1.0 / self.game.max_fps as f64 {

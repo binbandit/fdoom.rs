@@ -284,7 +284,7 @@ impl ListEntry for ArrayEntry {
                 });
                 str
             }
-            // JAVA: BooleanEntry does not localize its label
+            // boolean labels are shown verbatim; only the On/Off value is localized
             Flavor::Boolean => format!(
                 "{}: {}",
                 self.label,

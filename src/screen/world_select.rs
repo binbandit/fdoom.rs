@@ -68,7 +68,7 @@ pub fn get_world_names(g: &Game) -> Vec<String> {
 /// The find-worlds init step of Java `getWorldNames(recalc)` — scans `gameDir/saves/`.
 fn scan_worlds(g: &Game) -> Vec<(String, Version)> {
     let worlds_dir = g.game_dir.join("saves");
-    let _ = std::fs::create_dir_all(&worlds_dir); // JAVA: folder.mkdirs()
+    let _ = std::fs::create_dir_all(&worlds_dir);
 
     let mut out = Vec::new();
     let Ok(read_dir) = std::fs::read_dir(&worlds_dir) else {
@@ -76,7 +76,7 @@ fn scan_worlds(g: &Game) -> Vec<(String, Version)> {
         return out;
     };
 
-    // JAVA: File.listFiles() order is filesystem-dependent; sort for determinism.
+    // directory-listing order is filesystem-dependent; sort so the menu is stable
     let mut paths: Vec<std::path::PathBuf> = read_dir.flatten().map(|e| e.path()).collect();
     paths.sort();
 
@@ -90,7 +90,8 @@ fn scan_worlds(g: &Game) -> Vec<(String, Version)> {
                 })
                 .unwrap_or_default();
             files.sort();
-            // JAVA: only the first file's extension is checked.
+            // a folder counts as a world if its first (sorted) file carries the save
+            // extension — cheap, and save folders always lead with Game<ext>
             if files
                 .first()
                 .map(|f| f.ends_with(SAVE_EXTENSION))
@@ -116,7 +117,8 @@ fn scan_worlds(g: &Game) -> Vec<(String, Version)> {
 fn load_world_version(world_dir: &Path) -> Version {
     let content = std::fs::read_to_string(world_dir.join(format!("Game{SAVE_EXTENSION}")))
         .unwrap_or_default();
-    // JAVA: Load concatenates the file's lines with no separator, then splits on ",".
+    // the save format tolerates line breaks anywhere: join all lines with no
+    // separator, then split the whole thing on ","
     let content: String = content.lines().collect();
     let first = content.split(',').next().unwrap_or("");
     if first.contains('.') {
@@ -234,8 +236,7 @@ impl Display for WorldSelectDisplay {
     }
 
     fn init(&mut self, g: &mut Game) {
-        // JAVA: super.init(parent instanceof TitleDisplay ? parent : new TitleDisplay());
-        // with the explicit display stack, exiting returns to whatever opened this screen.
+        // exiting returns to whatever opened this screen via the display stack
         g.world_name = String::new();
         g.loaded_world = true;
 

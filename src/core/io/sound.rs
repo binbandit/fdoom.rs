@@ -16,8 +16,6 @@ pub enum Sound {
     PlayerHurt,
     PlayerDeath,
     MonsterHurt,
-    // JAVA: BossDeath existed for the AirWizard; removed with that mob
-    // (assets/bossdeath.wav deleted too).
     Fuse,
     Explode,
     Pickup,
@@ -50,7 +48,7 @@ impl Sound {
             Sound::Explode => assets::SOUND_EXPLODE,
             Sound::Pickup => assets::SOUND_PICKUP,
             Sound::Craft => assets::SOUND_CRAFT,
-            Sound::Back => assets::SOUND_CRAFT, // JAVA: back reuses craft.wav
+            Sound::Back => assets::SOUND_CRAFT, // Back has no clip of its own
             Sound::Select => assets::SOUND_SELECT,
             Sound::Confirm => assets::SOUND_CONFIRM,
         }
@@ -117,7 +115,7 @@ impl SoundPlayer {
         }
         if let Some((_, channels)) = &self.output {
             let ch = &channels[sound.index()];
-            // JAVA: if the clip is running, stop and restart from the beginning.
+            // if the clip is already playing, restart it from the beginning
             ch.sink.stop();
             ch.sink.append(ch.samples.clone());
             ch.sink.play();

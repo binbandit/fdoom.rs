@@ -24,7 +24,8 @@ struct Key {
     down: bool,
     clicked: bool,
     sticky: bool,
-    /// JAVA: `stayDown` existed but was only ever set, never read.
+    /// Set for modifier keys (SHIFT/CTRL/ALT) but never read; kept so the intent
+    /// ("this key should not auto-release") stays visible at the construction sites.
     #[allow(dead_code)]
     stay_down: bool,
 }
@@ -114,7 +115,7 @@ impl InputHandler {
             key_to_change: None,
             key_changed: None,
             overwrite: false,
-            debug: true, // JAVA: Game.debug defaults to true until parseArgs runs
+            debug: true, // stays true until the CLI args are parsed at startup
         };
         input.init_key_map();
         input.keyboard.insert("SHIFT".into(), Key::new(true));
@@ -364,9 +365,9 @@ impl InputHandler {
         if let Some(key) = self.keyboard.get_mut(&keytext) {
             key.toggle(pressed);
         } else {
-            // JAVA: getPhysKey returns a dummy for unknown keys during event toggling, so
-            // unseen keys are created by get_key queries, not by events. But since our
-            // event source can't pre-create keys the way AWT did, register on first press.
+            // Keys are normally created lazily by get_key queries, but events can arrive
+            // for keys nothing has queried yet — register those on first press so the
+            // press isn't lost.
             let mut key = Key::default();
             key.toggle(pressed);
             self.keyboard.insert(keytext, key);

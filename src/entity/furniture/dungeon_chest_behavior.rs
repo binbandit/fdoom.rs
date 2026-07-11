@@ -102,10 +102,8 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
 /// Java `DungeonChest.touchedBy(entity)` — can only be pushed if unlocked.
 pub fn touched_by(g: &mut Game, e: &mut Entity, by: &mut Entity) {
     let is_locked = matches!(&e.kind, EntityKind::DungeonChest(d) if d.is_locked);
-    if !is_locked {
-        if by.is_player() {
-            super::behavior::try_push(g, e, by);
-        }
+    if !is_locked && by.is_player() {
+        super::behavior::try_push(g, e, by);
     }
 }
 

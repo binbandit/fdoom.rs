@@ -36,7 +36,7 @@ pub fn determine_game_dir(save_dir: &str, debug: bool) -> PathBuf {
 
     let _ = std::fs::create_dir_all(&game_dir);
 
-    // JAVA: migrate saves from the old "/.fdoom" folder if present.
+    // migrate saves from the legacy "/.fdoom" folder if one is present
     let old_folder = PathBuf::from(format!("{save_dir}/.fdoom"));
     if old_folder.exists() && old_folder != game_dir {
         if let Err(e) = copy_folder_contents(&old_folder, &game_dir, RENAME_COPY, true, debug) {
@@ -89,7 +89,8 @@ fn copy_dir_recursive(
                 if if_existing == SKIP {
                     continue;
                 } else if if_existing == RENAME_COPY {
-                    // JAVA: strip the extension, append "(Old)" until unique, re-add ext.
+                    // keep the existing file: rename the incoming copy by appending
+                    // "(Old)" to its stem until the name is unique
                     let stem = new_filename.with_extension("");
                     let mut candidate = stem.as_os_str().to_string_lossy().to_string();
                     loop {

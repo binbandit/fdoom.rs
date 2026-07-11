@@ -27,8 +27,8 @@ struct Flyover {
 pub struct Renderer {
     flyover: Option<Flyover>,
     pub screen: Screen,
-    /// The light buffer (raw 0-255 brightness). JAVA: the fork's `overlay` call stays
-    /// commented out; post-port, `gfx::lighting` stamps emitters here each frame.
+    /// The light buffer (raw 0-255 brightness); `gfx::lighting` clears it and stamps
+    /// emitters into it each frame before the atmosphere pass reads it.
     pub light_screen: Screen,
 }
 
@@ -200,9 +200,8 @@ impl Renderer {
         crate::gfx::ambience::contact_shadows(&mut self.screen, g, lvl, x_scroll, y_scroll);
         crate::level::render_sprites(g, &mut self.screen, lvl, x_scroll, y_scroll);
 
-        // JAVA: the fork's cave-darkness light overlay stays disabled (see Renderer.java
-        // renderLevel); the post-port lighting/atmosphere pass below replaces it. It runs
-        // here — after the world, before render_gui and menus — so UI text stays crisp.
+        // The lighting/atmosphere pass runs here — after the world, before render_gui
+        // and menus — so darkness and color grading never touch UI text.
         crate::gfx::lighting::render_pass(
             &mut self.screen,
             &mut self.light_screen,

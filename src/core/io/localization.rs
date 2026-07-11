@@ -76,7 +76,9 @@ impl Localization {
             .map(|(_, text)| *text)
             .unwrap_or("");
 
-        // JAVA: entries accumulate across language switches (the map is never cleared).
+        // The map is deliberately never cleared: switching languages layers the new
+        // entries over the old, so keys missing from the new language keep their
+        // previous translation instead of showing raw keys.
         let mut current_key = String::new();
         for line in file_text.lines() {
             // # at the start of a line means the line is a comment

@@ -47,18 +47,17 @@ impl ListEntry for ItemEntry {
     fn tick(&mut self, _g: &mut Game) {}
 
     fn render(&mut self, screen: &mut Screen, g: &mut Game, x: i32, y: i32, _is_selected: bool) {
-        // JAVA: super.render(screen, x, y, true) — always drawn in the selected color.
+        // item text always uses the selected color so inventories read as one bright list
         if self.flags.visible {
             let text = self.to_display_string(g);
             font::draw(&text, screen, x, y, self.get_color(true));
         }
-        // JAVA: the sprite renders outside the visibility check.
+        // the item sprite draws even when the text is hidden
         self.item.sprite.render(screen, x, y);
     }
 
-    // JAVA: "if you add to the length of the string, and therefore the width of the
-    // entry, then it will actually move the entry RIGHT in the inventory, instead of the
-    // intended left, because it is auto-positioned to the left side."
+    // Caution: menus auto-position entries from the left edge, so lengthening this
+    // string shifts the whole entry RIGHT in the inventory — keep names unadorned.
     fn to_display_string(&self, g: &Game) -> String {
         self.item.get_display_name(g)
     }

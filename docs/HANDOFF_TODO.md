@@ -18,7 +18,12 @@ Every item states WHAT, HOW (method + files), and DONE-WHEN (acceptance criteria
 
 ## 1. IN-FLIGHT LANES (uncommitted edits exist — finish, verify, commit)
 
-### 1a. JAVA-comment sweep + tile tool-use dedup
+### 1a. JAVA-comment sweep + tile tool-use dedup — DONE
+Landed across 802a352 (level/entity/item/saveload + tool_use dedup) and the follow-up
+sweep commit (screen/core/platform/renderer — 2c folded in). `grep -rn "JAVA:" src/`
+is 0 repo-wide. Note: ~720 `Java \`X\`` API-mapping doc-comments remain by design
+(they map fns to their v0.1.0 origins); revisit only if the user asks.
+Original spec (for reference):
 Scope files: src/{level,entity,item,saveload,screen}/**, src/core/** EXCEPT renderer.rs.
 Method:
   1. `grep -rn "JAVA:" <scope>` — for each site: DELETE if it only cites Java origin;
@@ -148,7 +153,7 @@ Done-when: all 9 shipped, round-trip tests extended (canvas-mode edit spanning t
   clock, fps; commands: give <item> <n>, tp <x> <y>, time <morning|noon|dusk|night>,
   heal. Method: small module + renderer hook + input capture in debug only.
   Done-when: demoable via --debug run; documented in DEV_GUIDE.
-### 2c. gfx/renderer JAVA comments (the ~handful excluded from 1a) — same rules.
+### 2c. gfx/renderer JAVA comments — DONE (folded into the 1a completion commit).
 ### 2d. Art follow-ups on the split files (after 1b; edit PNGs via studio or scripts):
   tiny mushrooms (3-4px buttons, several per tile — user asked twice), flower variety
   (2-3 species/colors — either data-variant render or separate tiles), dedicated

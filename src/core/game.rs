@@ -35,7 +35,8 @@ pub struct Game {
     // Java `Game` statics
     pub debug: bool,
     pub has_gui: bool,
-    /// JAVA: `continous` (sic) — disables the focus nagger.
+    /// Disables the "Click to focus!" nagger when the window loses focus.
+    /// (The misspelled name is historical; renaming would churn the prefs plumbing.)
     pub continous: bool,
     pub input: InputHandler,
     pub game_dir: PathBuf,

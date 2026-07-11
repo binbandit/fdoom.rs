@@ -25,7 +25,6 @@ pub fn reset_game(g: &mut Game, keep_player: bool) {
     new_player.c.eid = g.player_id;
     g.entities.delete(g.player_id);
     g.entities.put_back(new_player);
-    // JAVA: the Player constructor fills the creative inventory in creative mode
     crate::entity::mob::player_behavior::maybe_fill_creative_inv(g);
 
     if g.levels[g.current_level].is_none() {
@@ -200,7 +199,10 @@ pub fn check_chest_count(g: &mut Game, lvl: usize, check: bool) {
                     s += 1;
                 }
             } else {
-                // JAVA: `for (s = y2; s < y2 - s; s++)` — usually a no-op; preserved
+                // Inherited quirk kept for old-save parity: with s starting at y2, the
+                // condition `s < y2 - s` is false whenever y2 >= 0, so this vertical
+                // scan effectively never runs and the fallback
+                // placement below wins instead. Do not "fix" without a save-compat plan.
                 let mut s = y2;
                 while s < y2 - s {
                     if g.tile_at(lvl, x2, s).id == obsidian_wall_id {
@@ -269,7 +271,8 @@ pub fn generate_spawner_structures(g: &mut Game, lvl: usize) {
                 s2 += 1;
             }
         } else {
-            // JAVA: `for (s2 = y3; s2 < y3 - s2; s2++)` — usually a no-op; preserved
+            // Same inherited quirk as the dungeon-door scan above: `s2 < y3 - s2` is
+            // false whenever y3 >= 0, so the fallback placement below effectively decides.
             let mut s2 = y3;
             while s2 < y3 - s2 {
                 if g.tile_at(lvl, x3, s2).id == rock_id {
@@ -428,7 +431,7 @@ pub fn init_world(g: &mut Game) {
 
     g.should_respawn = false;
     reset_game(g, true);
-    // JAVA: player = new Player(null, input) — a fresh player replaces the reset one
+    // a brand-new player (fresh stats and inventory) replaces the respawn-reset one
     reset_game_fresh_player(g);
     crate::entity::furniture::bed_behavior::remove_players(g);
     g.game_time = 0;

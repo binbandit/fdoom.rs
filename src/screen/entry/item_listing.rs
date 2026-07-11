@@ -21,7 +21,7 @@ impl ItemListing {
             item,
             info: text.to_string(),
             flags: EntryFlags {
-                selectable: false, // JAVA: setSelectable(false)
+                selectable: false, // listings are informational, never a cursor target
                 ..EntryFlags::default()
             },
         }
@@ -45,8 +45,8 @@ impl ListEntry for ItemListing {
     fn tick(&mut self, _g: &mut Game) {}
 
     fn render(&mut self, screen: &mut Screen, g: &mut Game, x: i32, y: i32, _is_selected: bool) {
-        // JAVA: inherited ItemEntry.render — text always in the selected color, sprite
-        // outside the visibility check.
+        // mirrors ItemEntry::render: text always in the selected color, and the sprite
+        // draws even when the text is hidden
         if self.flags.visible {
             let text = self.to_display_string(g);
             font::draw(&text, screen, x, y, self.get_color(true));
