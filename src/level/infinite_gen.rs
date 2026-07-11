@@ -231,9 +231,24 @@ pub enum Biome {
     Plains,
 }
 
+/// Continental climate — the smooth backbone of the temperature field: octave 0
+/// (period 512) of the same salt-6 noise the old two-octave `temperature` read, so
+/// climate zones sit where they always did, minus the fine-octave wobble. The
+/// extreme-climate gates in `biome_at` threshold THIS field because single-octave
+/// value noise has a hard gradient bound (~1.5/512 per tile per axis): the cold gate
+/// (`< 0.30`) and the hot gate (`> 0.70`) can never come closer than ~100 tiles, and
+/// the warm-dry Savanna gate (`> 0.42`) stays ~30+ tiles from the cold gate — so snow
+/// never touches sand, even after `biome_at_blended`'s ±4-tile jitter. (Thresholds
+/// are retuned vs the old two-octave 0.35/0.68 pair because the single-octave
+/// marginal distribution has fatter tails; these keep tundra ~18% and desert ~5% of
+/// climate-classified land, matching the old frequencies.)
+fn climate_at(seed: i64, x: i32, y: i32) -> f64 {
+    fractal(seed, 6, x, y, 512, 1)
+}
+
 pub fn biome_at(seed: i64, x: i32, y: i32) -> Biome {
     // continental fields: several-hundred-tile features so biomes feel expansive
-    let temperature = fractal(seed, 6, x, y, 512, 2);
+    let climate = climate_at(seed, x, y);
     let moisture = fractal(seed, 2, x, y, 448, 2);
     // land = continent + local ruggedness (irregular coastlines); rough also
     // refines the mountain belt below
@@ -253,15 +268,17 @@ pub fn biome_at(seed: i64, x: i32, y: i32) -> Biome {
         return Biome::Mountains;
     }
 
-    if temperature < 0.35 {
+    if climate < 0.30 {
         Biome::Tundra
-    } else if temperature > 0.68 && moisture < 0.42 {
+    } else if climate > 0.70 && moisture < 0.42 {
         Biome::Desert
     } else if moisture > 0.74 {
         Biome::Marsh
     } else if moisture > 0.48 {
         Biome::Forest
-    } else if moisture < 0.34 {
+    } else if moisture < 0.34 && climate > 0.42 {
+        // warm-dry only: cold-dry country stays Plains, so the sandy Savanna look
+        // never runs up against Tundra snow (see `climate_at`)
         Biome::Savanna
     } else {
         Biome::Plains
@@ -390,12 +407,11 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
         }
         Biome::Forest => {
             // dense canopy with clearings; the cold fringe toward tundra turns to
-            // pines (same temperature field as biome_at, salt 6)
+            // pines (same climate field as biome_at's Tundra gate)
             let clearing = fractal(seed, 8, x, y, 24, 2);
             let trees = if clearing > 0.65 { 0.04 } else { 0.30 };
             if detail < trees {
-                let temperature = fractal(seed, 6, x, y, 512, 2);
-                if temperature < 0.42 {
+                if climate_at(seed, x, y) < 0.42 {
                     ids.pine
                 } else {
                     ids.tree
@@ -796,6 +812,60 @@ mod tests {
                 }
             }
             assert!(n > 40, "depth {depth}: only {n} ore tiles in 256x256");
+        }
+    }
+
+    #[test]
+    fn tundra_never_borders_desert_or_savanna() {
+        // Climate coherence: the cold extreme and the hot/dry "sandy" biomes must
+        // always be separated by a visibly wide temperate buffer — snow next to sand
+        // reads as a worldgen bug (user report). The extreme gates threshold the
+        // smooth single-octave climate field (`climate_at`), whose gradient bound
+        // keeps Tundra ~80+ tiles from Desert and 30+ from Savanna by construction;
+        // this scan guards the property against regressions. Uses `biome_at_blended`
+        // (the render-facing lookup) so the ±4-tile domain-warp jitter is included.
+        const STEP: i32 = 4;
+        const HALF: i32 = 2048;
+        const MIN_GAP: i32 = 12; // tiles; > 2x the blend jitter
+        let n = (2 * HALF / STEP) as usize;
+        let r = MIN_GAP / STEP; // lattice steps to cover MIN_GAP tiles
+
+        for seed in [1i64, 424242, 20260707, -987654321] {
+            // classify the lattice once, then check tundra cells' neighborhoods
+            let mut grid = vec![0u8; n * n];
+            for gy in 0..n {
+                for gx in 0..n {
+                    let (x, y) = (-HALF + gx as i32 * STEP, -HALF + gy as i32 * STEP);
+                    grid[gx + gy * n] = match biome_at_blended(seed, x, y) {
+                        Biome::Tundra => 1,
+                        Biome::Desert | Biome::Savanna => 2,
+                        _ => 0,
+                    };
+                }
+            }
+            for gy in 0..n as i32 {
+                for gx in 0..n as i32 {
+                    if grid[gx as usize + gy as usize * n] != 1 {
+                        continue;
+                    }
+                    for dy in -r..=r {
+                        for dx in -r..=r {
+                            let (nx, ny) = (gx + dx, gy + dy);
+                            if nx < 0 || ny < 0 || nx >= n as i32 || ny >= n as i32 {
+                                continue;
+                            }
+                            assert_ne!(
+                                grid[nx as usize + ny as usize * n],
+                                2,
+                                "seed {seed}: Desert/Savanna within {MIN_GAP} tiles \
+                                 of Tundra at tile ({}, {})",
+                                -HALF + nx * STEP,
+                                -HALF + ny * STEP,
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 }

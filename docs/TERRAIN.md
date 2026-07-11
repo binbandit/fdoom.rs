@@ -156,7 +156,7 @@ temperature field and the moisture field are decorrelated even though they share
 | Salt | Field | Function | Period | Octaves | Notes |
 |---|---|---|---|---|---|
 | `1` | continent | `biome_at` | 384 | 3 | land/ocean base signal |
-| `6` | temperature | `biome_at` | 512 | 2 | drives Tundra/Desert |
+| `6` | climate / temperature | `biome_at` / `surface_tile` | 512 | 1 / 2 | one field, two reads: the 1-octave `climate_at` drives the Tundra/Desert/Savanna gates (smooth ⇒ wide temperate buffers, §3.2); the 2-octave `temperature` variant survives only in the Mountains snow-cap arm |
 | `2` | moisture | `biome_at` | 448 | 2 | drives Marsh/Forest/Savanna/Plains |
 | `5` | rough (ruggedness) | `biome_at` | 48 | 4 | perturbs coastline + gates Mountains |
 | `9` | belt | `biome_at` | 320 | 2 | mountain range mask |
@@ -194,13 +194,21 @@ land = continent + (rough - 0.5) * 0.08
   land < 0.42                          -> Ocean
   land < 0.445                         -> Beach
   belt > 0.70 && rough > 0.55          -> Mountains    (belt is its own fractal field, salt 9)
-  temperature < 0.35                   -> Tundra
-  temperature > 0.68 && moisture < 0.42 -> Desert
+  climate < 0.30                       -> Tundra
+  climate > 0.70 && moisture < 0.42    -> Desert
   moisture > 0.74                      -> Marsh
-  moisture > 0.52                      -> Forest
-  moisture < 0.34                      -> Savanna
+  moisture > 0.48                      -> Forest
+  moisture < 0.34 && climate > 0.42    -> Savanna    (warm-dry only)
   else                                 -> Plains
 ```
+
+`climate` is `climate_at` — the **single-octave** (period-512) backbone of the salt-6
+field. The extreme-climate gates deliberately read this smooth variant rather than a
+multi-octave fractal: single-octave value noise has a hard gradient bound (~1.5/512
+per tile per axis), so the `0.30..0.70` strip between the cold and hot gates is always
+~100+ tiles wide, and the `0.30..0.42` strip below the Savanna gate ~30+ tiles — snow
+can never sit next to sand, even after `biome_at_blended`'s ±4-tile jitter. The
+`tundra_never_borders_desert_or_savanna` test guards this property across seeds.
 
 Thresholds are chosen empirically to keep regions "expansive" (hundreds of tiles) per the
 `biomes_are_large_and_all_present` test, which asserts fewer than 40 biome changes over a
@@ -227,14 +235,14 @@ piecewise thresholds:
 | Tundra | `detail<0.030` pine · `<0.055` snow tree · `<0.062` rock · else snow |
 | Desert | `detail<0.004` fruiting cactus · `<0.014` cactus · `<0.018` dead tree · `<0.026` dry bush · `<0.032` rock · else sand |
 | Marsh | `pool(salt7,period14)>0.66` water (blobby, so no lone 1-tile ponds) · `>0.60` mud · `>0.54` wet fringe (`detail<0.05` willow · `<0.50` reeds) · else `detail<0.16` tuft · `<0.175` flower · else grass |
-| Forest | `clearing(salt8,period24)>0.62` lowers tree odds to 0.03 (else 0.16); below that threshold tree — pine instead when `temperature(salt6)<0.42` (cold fringe) — then +0.008 berry bush, +0.016 mushroom, +0.066 tuft, else grass |
+| Forest | `clearing(salt8,period24)>0.62` lowers tree odds to 0.03 (else 0.16); below that threshold tree — pine instead when `climate(salt6, 1 octave)<0.42` (cold fringe, same field as the Tundra gate) — then +0.008 berry bush, +0.016 mushroom, +0.066 tuft, else grass |
 | Savanna | `parched(salt10,period18)>0.74` sand · else `detail<0.008` flat-crown tree · `<0.016` dry bush · `<0.10` tuft · else grass |
 | Plains | ponds (`pond(salt12,period40)`) + meadows (`meadow(salt11,period96)`) first · `detail<0.015` tree · `<0.020` berry bush · `<0.060` flower · `<0.105` tuft · else grass |
 
 "tuft" = `ids.tall_grass[hash(seed, 4, x, y) % 3]`, i.e. one of Small/Medium/Tall Grass
 chosen uniformly per tile. The flora arms deliberately add **no new noise salts**: the
 Ocean shallows recompute the continent/rough fields (salts 1/5) and the Mountains
-snow-cap + Forest cold fringe re-sample the temperature/belt fields (salts 6/9) — the
+snow-cap + Forest cold fringe re-sample the salt-6 climate/temperature and salt-9 belt fields — the
 same logical fields `biome_at` reads, so the reuse is correct (they *must* correlate
 with the biome boundaries; only genuinely new fields need fresh salts).
 
