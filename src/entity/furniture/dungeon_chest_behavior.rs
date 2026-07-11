@@ -67,7 +67,7 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
                     for _ in 0..5 {
                         crate::level::drop_item(g, lvl, e.c.x, e.c.y, gold_apple.clone());
                     }
-                    g.notify_all_tick("The dungeon lies plundered!", -100);
+                    g.push_warning_tick("The dungeon lies plundered!", -100);
                 }
             }
 

@@ -72,7 +72,7 @@ fn notifications_get_a_backing_band() {
     let x = screen::W / 2 - 44;
     let before = tw.render()[(y * screen::W + x) as usize];
 
-    tw.notify_all("World Saved!");
+    tw.push_warning("The ceiling groans...");
     let pixels = tw.render();
     tw.screenshot("hud_notification.png");
     let after = pixels[(y * screen::W + x) as usize];

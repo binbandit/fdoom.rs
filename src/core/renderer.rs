@@ -256,9 +256,6 @@ impl Renderer {
         );
 
         let mut perm_status: Vec<String> = Vec::new();
-        if g.saving {
-            perm_status.push(format!("Saving... {}%", g.loading_percentage.round()));
-        }
         if bed_behavior::sleeping(g) {
             perm_status.push("Sleeping...".to_string());
         } else if g.bed_state.players_awake > 0 && bed_behavior::in_bed(g, g.player_id) {
@@ -276,27 +273,33 @@ impl Renderer {
             font::draw_paragraph(&perm_status, screen, &mut style, 1);
         }
 
-        // NOTIFICATIONS
-        if perm_status.is_empty() && !g.notifications.is_empty() {
+        // NOTIFICATIONS (playtest #2). Two tiers: warnings/event cues keep the centered
+        // band; ambient chatter docks top-left under the HUD as a compact ticker. Both
+        // are held — neither drawn nor aged — while a menu Display is open, so they
+        // never bleed through the smoked-glass panels and resume after close.
+        let menu_open = g.display.menu_active();
+
+        // WARNING / EVENT band — centered, loud on purpose.
+        if perm_status.is_empty() && !menu_open && !g.warnings.is_empty() {
             g.note_tick += 1;
-            if g.notifications.len() > 3 {
-                // only show 3 notifs max at one time; erase old notifs
-                let start = g.notifications.len() - 3;
-                g.notifications = g.notifications[start..].to_vec();
+            if g.warnings.len() > 3 {
+                // only show 3 warnings max at one time; erase old ones
+                let start = g.warnings.len() - 3;
+                g.warnings = g.warnings[start..].to_vec();
             }
 
             if g.note_tick > 120 {
-                // display time per notification
-                g.notifications.remove(0);
+                // display time per warning
+                g.warnings.remove(0);
                 g.note_tick = 0;
             }
 
-            // draw each current notification, with shadow text effect
+            // draw each current warning, with shadow text effect
             let mut style = FontStyle::new(color::WHITE)
                 .set_shadow_type(color::DARK_GRAY, false)
                 .set_y_pos(screen::H * 2 / 5)
                 .set_rel_text_pos_both(RelPos::Top, false);
-            let notes = g.notifications.clone();
+            let notes = g.warnings.clone();
             // smoked-glass backing band (same primitive as the menu panels) so the text
             // reads over any terrain; mirrors the geometry FontStyle computes above
             let size = Dimension::new(
@@ -313,6 +316,66 @@ impl Renderer {
                 185,
             );
             font::draw_paragraph(&notes, screen, &mut style, 0);
+        }
+
+        // AMBIENT ticker — top-left under the HUD frames, newest line on top, ~90
+        // ticks each, max 3 lines. Small presence: the font is caps-only (the CHARS
+        // lowercase range maps past the stitched glyphs), so quiet placement and a
+        // faint backing do the de-emphasis instead of sentence case.
+        g.sync_note_ages();
+        if !menu_open && !g.notifications.is_empty() {
+            for age in &mut g.note_ages {
+                *age += 1;
+            }
+            let mut i = 0;
+            while i < g.notifications.len() {
+                if g.note_ages[i] > 90 {
+                    g.notifications.remove(i);
+                    g.note_ages.remove(i);
+                } else {
+                    i += 1;
+                }
+            }
+            while g.notifications.len() > 3 {
+                g.notifications.remove(0);
+                g.note_ages.remove(0);
+            }
+
+            const TICKER_X: i32 = 4;
+            const TICKER_Y: i32 = 42; // just under the health/item HUD frames
+            for (row, idx) in (0..g.notifications.len()).rev().enumerate() {
+                let line = &g.notifications[idx];
+                let y = TICKER_Y + row as i32 * 9;
+                let w = font::text_width(line);
+                screen.darken_rect_screen(TICKER_X - 2, y - 1, w + 4, 9, 150);
+                // newest line bright, older lines receding
+                let col = if row == 0 {
+                    color::get(-1, 555)
+                } else {
+                    color::get(-1, 333)
+                };
+                font::draw(line, screen, TICKER_X, y, col);
+            }
+        }
+
+        // SAVE TOAST — bottom-right, small: live progress while saving, then the
+        // "World Saved!" toast pushed by the save path.
+        if !g.saving && g.toast.is_some() {
+            g.toast_tick += 1;
+            if g.toast_tick > 90 {
+                g.toast = None;
+            }
+        }
+        let toast_line = if g.saving {
+            Some(format!("Saving... {}%", g.loading_percentage.round()))
+        } else {
+            g.toast.clone()
+        };
+        if let Some(line) = toast_line {
+            let w = font::text_width(&line);
+            let (tx, ty) = (screen::W - w - 4, screen::H - 12);
+            screen.darken_rect_screen(tx - 2, ty - 1, w + 4, 10, 185);
+            font::draw(&line, screen, tx, ty, color::get(-1, 555));
         }
 
         // TOOL DURABILITY STATUS
@@ -422,11 +485,23 @@ impl Renderer {
             }
         }
 
-        // CURRENT ITEM
+        // CURRENT ITEM — name clipped to the held-item frame (tiles 11..=25, inner
+        // pixels end at 200) so long names never bleed into the arrow/durability box
+        // (playtest #9 / bug #3).
+        const ITEM_SPRITE_X: i32 = 12 * 7 + 10; // 94, inside the frame's left border
+        const ITEM_TEXT_X: i32 = ITEM_SPRITE_X + 8;
+        const ITEM_NAME_CHARS: usize = ((200 - ITEM_TEXT_X) / 8) as usize; // 12
         let active = g.player().player().active_item.clone();
         if let Some(item) = active {
-            // shows active item sprite and name in bottom toolbar
-            item.render_inventory(&mut self.screen, g, 12 * 7 + 10, 8, false);
+            // shows active item sprite and clipped name in the top toolbar
+            item.sprite.render(&mut self.screen, ITEM_SPRITE_X, 8);
+            let name = item.get_display_name(g);
+            let name = if name.chars().count() > ITEM_NAME_CHARS {
+                name.chars().take(ITEM_NAME_CHARS - 2).collect::<String>() + ".."
+            } else {
+                name
+            };
+            font::draw(&name, &mut self.screen, ITEM_TEXT_X, 8, color::get(-1, 555));
 
             // HELD-TOOL DURABILITY BAR: a thin gauge under the toolbar item display,
             // green -> yellow -> red as the remaining durability fraction drops.
@@ -449,6 +524,10 @@ impl Renderer {
                 let fw = ((bw as f32 * frac).round() as i32).clamp(0, bw);
                 fill_rect_screen(screen, bx, by, fw, 2, fill);
             }
+        } else if !g.is_mode("creative") {
+            // empty hands: a small dim dash centered in the box, so it reads
+            // "nothing held" rather than a broken blank panel
+            font::draw("-", &mut self.screen, 144, 8, color::get(-1, 222));
         }
     }
 

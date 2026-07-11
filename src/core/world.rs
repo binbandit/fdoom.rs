@@ -13,7 +13,7 @@ pub fn reset_game(g: &mut Game, keep_player: bool) {
     g.player_dead_time = 0;
     g.current_level = 3;
     g.as_tick = 0;
-    g.notifications.clear();
+    g.clear_notifications();
 
     // adds a new player (isValidServer is always false here)
     let prev_data = if keep_player {

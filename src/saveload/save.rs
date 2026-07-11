@@ -243,7 +243,7 @@ pub fn save_world_named(g: &mut Game, world_name: &str) {
     // (no world-list refresh needed: the world-select display re-reads the saves
     // directory every time it opens)
 
-    g.notify_all("World Saved!");
+    g.push_toast("World Saved!");
     g.as_tick = 0;
     g.saving = false;
 }

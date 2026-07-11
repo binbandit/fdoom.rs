@@ -322,7 +322,7 @@ pub fn tick(g: &mut Game) {
             ember_impact(g);
         }
         if whisper_fog_active(g) && g.tick_count % WHISPER_PERIOD == 0 {
-            g.notify_all("You hear whispers in the fog...");
+            g.push_warning("You hear whispers in the fog...");
         }
         if caravan_active(g) && g.tick_count % CARAVAN_DROP_PERIOD == 0 {
             caravan_drop(g);
@@ -343,40 +343,42 @@ pub fn tick(g: &mut Game) {
     match time {
         Time::Evening => {
             if g.events.season == Season::Halloween {
-                g.notify_all("The veil is thin tonight...");
+                g.push_warning("The veil is thin tonight...");
             }
             match current_event(g) {
                 Some(WorldEvent::HollowNight) => {
-                    g.notify_all("The evening is unnaturally still...")
+                    g.push_warning("The evening is unnaturally still...")
                 }
-                Some(WorldEvent::Aurora) => g.notify_all("Pale lights shimmer at the horizon..."),
-                Some(WorldEvent::EmberRain) => g.notify_all("The sky glows warm..."),
+                Some(WorldEvent::Aurora) => g.push_warning("Pale lights shimmer at the horizon..."),
+                Some(WorldEvent::EmberRain) => g.push_warning("The sky glows warm..."),
                 Some(WorldEvent::WhisperFog) => {
-                    g.notify_all("A pale fog gathers over the marshes...")
+                    g.push_warning("A pale fog gathers over the marshes...")
                 }
                 Some(WorldEvent::Caravan) | None => {}
             }
         }
         Time::Night => match current_event(g) {
-            Some(WorldEvent::Aurora) => g.notify_all("An aurora ripples across the sky."),
-            Some(WorldEvent::EmberRain) => g.notify_all("Embers streak down from the sky!"),
+            Some(WorldEvent::Aurora) => g.push_warning("An aurora ripples across the sky."),
+            Some(WorldEvent::EmberRain) => g.push_warning("Embers streak down from the sky!"),
             _ => {}
         },
         Time::Morning => {
             if g.events.season == Season::Christmas {
-                g.notify_all("The air feels festive.");
+                g.push_warning("The air feels festive.");
             }
             match event_for_day_in_season(g.world_seed, g.events.day_number - 1, g.events.season) {
-                Some(WorldEvent::HollowNight) => g.notify_all("Dawn breaks. The graves lie quiet."),
-                Some(WorldEvent::Aurora) => g.notify_all("The aurora fades with the dawn."),
-                Some(WorldEvent::EmberRain) => {
-                    g.notify_all("The fallen embers have cooled to stone.")
+                Some(WorldEvent::HollowNight) => {
+                    g.push_warning("Dawn breaks. The graves lie quiet.")
                 }
-                Some(WorldEvent::WhisperFog) => g.notify_all("The fog lifts with the sun."),
+                Some(WorldEvent::Aurora) => g.push_warning("The aurora fades with the dawn."),
+                Some(WorldEvent::EmberRain) => {
+                    g.push_warning("The fallen embers have cooled to stone.")
+                }
+                Some(WorldEvent::WhisperFog) => g.push_warning("The fog lifts with the sun."),
                 Some(WorldEvent::Caravan) | None => {}
             }
             if current_event(g) == Some(WorldEvent::Caravan) {
-                g.notify_all("Fresh wheel-ruts mark the old trails...");
+                g.push_warning("Fresh wheel-ruts mark the old trails...");
             }
         }
         Time::Day => {}

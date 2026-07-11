@@ -96,7 +96,7 @@ impl Display for LoadingDisplay {
             g.loading_message = "World".to_string();
             let world_name = super::world_select::get_world_name(g);
             crate::saveload::save::save_world_named(g, &world_name);
-            g.notifications.clear();
+            g.clear_notifications();
         }
     }
 

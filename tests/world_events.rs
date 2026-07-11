@@ -133,24 +133,24 @@ fn day_counter_wraps_and_dusk_cue_fires() {
     assert_eq!(g.events.day_number, 1, "midnight wrap must advance the day");
 
     // Jump the counter to a Hollow Night day and cross into evening: the dusk cue lands
-    // in g.notifications.
+    // in g.warnings (event cues are warning-tier, rendered as the centered band).
     g.events.day_number = find_event_day(seed, 1, Some(WorldEvent::HollowNight));
-    g.notifications.clear();
+    g.clear_notifications();
     g.change_time_of_day(Time::Evening);
     events::tick(&mut g);
     assert_eq!(
-        g.notifications,
+        g.warnings,
         vec!["The evening is unnaturally still...".to_string()],
         "Hollow Night dusk cue missing"
     );
 
     // The dawn after: the clock dropping back to morning-0 is itself the day boundary
     // (events::tick counts it), and the quiet-week notification fires.
-    g.notifications.clear();
+    g.clear_notifications();
     g.change_time_of_day(Time::Morning);
     events::tick(&mut g);
     assert_eq!(
-        g.notifications,
+        g.warnings,
         vec!["Dawn breaks. The graves lie quiet.".to_string()],
         "Hollow Night dawn cue missing"
     );
@@ -316,11 +316,11 @@ fn mocked_date_drives_season_and_veil_cue() {
         .find(|&d| events::event_for_day_in_season(seed, d, Season::Halloween).is_none())
         .unwrap();
     g.events.day_number = calm;
-    g.notifications.clear();
+    g.clear_notifications();
     g.change_time_of_day(Time::Evening);
     events::tick(&mut g);
     assert_eq!(
-        g.notifications,
+        g.warnings,
         vec!["The veil is thin tonight...".to_string()],
         "Halloween dusk cue missing"
     );
@@ -328,15 +328,14 @@ fn mocked_date_drives_season_and_veil_cue() {
     // Christmas greets the dawn.
     g.events.season = Season::Christmas;
     g.events.date_override = Some((12, 25));
-    g.notifications.clear();
+    g.clear_notifications();
     g.change_time_of_day(Time::Morning); // wraps the clock back: a new day begins
     events::tick(&mut g);
     assert_eq!(g.events.season, Season::Christmas, "wrap re-reads the date");
     assert!(
-        g.notifications
-            .contains(&"The air feels festive.".to_string()),
+        g.warnings.contains(&"The air feels festive.".to_string()),
         "Christmas dawn cue missing: {:?}",
-        g.notifications
+        g.warnings
     );
 }
 
@@ -484,7 +483,7 @@ fn caravan_drops_supplies_near_a_trail() {
     }
 
     let before = queued_item_drops(&g, lvl);
-    g.notifications.clear();
+    g.clear_notifications();
     let day0 = Time::Day.tick_time();
     for i in 1..=1000 {
         g.set_time(day0 + i);
@@ -515,7 +514,7 @@ fn caravan_drops_supplies_near_a_trail() {
     // Control: same trail, same hours, but a calm day — nothing drops.
     g.events.day_number = find_event_day(seed, 1, None);
     assert!(!events::caravan_active(&g));
-    g.notifications.clear();
+    g.clear_notifications();
     let before = queued_item_drops(&g, lvl);
     let from = g.tick_count;
     for i in 1..=1000 {
@@ -566,17 +565,17 @@ fn whisper_fog_doubles_marsh_spawn_pressure() {
 
     // And the whispers reach the player through the night.
     g.events.day_number = find_event_day(seed, 1, Some(WorldEvent::WhisperFog));
-    g.notifications.clear();
+    g.clear_notifications();
     let night0 = Time::Night.tick_time();
     for i in 1..=2100 {
         g.set_time(night0 + i);
         events::tick(&mut g);
     }
     assert!(
-        g.notifications
+        g.warnings
             .contains(&"You hear whispers in the fog...".to_string()),
         "no whisper in {} fog-night ticks: {:?}",
         2100,
-        g.notifications
+        g.warnings
     );
 }

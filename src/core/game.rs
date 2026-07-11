@@ -40,7 +40,19 @@ pub struct Game {
     pub continous: bool,
     pub input: InputHandler,
     pub game_dir: PathBuf,
+    /// Ambient-tier notifications (pickups, craft results, minor status): the compact
+    /// top-left ticker. Stays `Vec<String>` because tile/entity code pushes into it
+    /// directly; per-line ages live in `note_ages` (see [`Game::sync_note_ages`]).
     pub notifications: Vec<String>,
+    /// Age (in render frames) of each `notifications` line, kept in lockstep by
+    /// [`Game::sync_note_ages`]. A line expires at ~90; negative = show longer.
+    pub note_ages: Vec<i32>,
+    /// Warning/event-tier notifications (cave-in groans, dusk/event cues, depth
+    /// gates): the centered band. `note_tick` is this queue's head timer.
+    pub warnings: Vec<String>,
+    /// Save-feedback toast ("World Saved!"): small, bottom-right. `toast_tick` ages it.
+    pub toast: Option<String>,
+    pub toast_tick: i32,
     pub max_fps: i32,
     pub display: DisplayManager,
     pub game_over: bool,
@@ -142,6 +154,10 @@ impl Game {
             input,
             game_dir,
             notifications: Vec::new(),
+            note_ages: Vec::new(),
+            warnings: Vec::new(),
+            toast: None,
+            toast_tick: 0,
             max_fps,
             display: DisplayManager::default(),
             game_over: false,
@@ -599,15 +615,66 @@ impl Game {
         Time::VALUES[self.time as usize]
     }
 
-    /// Java `Updater.notifyAll(msg)`.
+    /// Java `Updater.notifyAll(msg)` — ambient tier (top-left ticker).
     pub fn notify_all(&mut self, msg: &str) {
         self.notify_all_tick(msg, 0);
     }
 
-    /// Java `Updater.notifyAll(msg, notetick)`.
-    pub fn notify_all_tick(&mut self, msg: &str, note_tick: i32) {
+    /// Java `Updater.notifyAll(msg, notetick)` — ambient tier with an initial age
+    /// (negative = show longer than the standard ~90 ticks).
+    pub fn notify_all_tick(&mut self, msg: &str, age: i32) {
         let msg = self.localization.get_localized(msg);
+        self.sync_note_ages();
         self.notifications.push(msg);
+        self.note_ages.push(age);
+    }
+
+    /// Ambient-tier notification: pickups, "gave X", craft results, minor status.
+    /// Docked top-left as a compact ticker.
+    pub fn push_ambient(&mut self, msg: &str) {
+        self.notify_all(msg);
+    }
+
+    /// Warning/event-tier notification: cave-in groans, dusk/event cues, tool gates.
+    /// Rendered as the centered band.
+    pub fn push_warning(&mut self, msg: &str) {
+        self.push_warning_tick(msg, 0);
+    }
+
+    /// Warning tier with an initial head-timer value (negative = show longer).
+    pub fn push_warning_tick(&mut self, msg: &str, note_tick: i32) {
+        let msg = self.localization.get_localized(msg);
+        self.warnings.push(msg);
         self.note_tick = note_tick;
+    }
+
+    /// Toast tier: small bottom-right corner text (save feedback).
+    pub fn push_toast(&mut self, msg: &str) {
+        self.toast = Some(self.localization.get_localized(msg));
+        self.toast_tick = 0;
+    }
+
+    /// Realign `note_ages` with `notifications`: tiles and entity code push into
+    /// `notifications` directly (its `Vec<String>` type is load-bearing), and a few
+    /// sites clear it wholesale. New unpaired tail entries get age 0; when lines were
+    /// removed externally, the oldest ages are dropped (removal is always front-first).
+    pub fn sync_note_ages(&mut self) {
+        let (n, a) = (self.notifications.len(), self.note_ages.len());
+        if a > n {
+            self.note_ages.drain(..a - n);
+        }
+        while self.note_ages.len() < self.notifications.len() {
+            self.note_ages.push(0);
+        }
+    }
+
+    /// Clear every notification channel (world init/unload).
+    pub fn clear_notifications(&mut self) {
+        self.notifications.clear();
+        self.note_ages.clear();
+        self.warnings.clear();
+        self.note_tick = 0;
+        self.toast = None;
+        self.toast_tick = 0;
     }
 }
