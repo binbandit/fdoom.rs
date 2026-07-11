@@ -222,7 +222,7 @@ fn collapse_triggers_without_prop_not_with() {
     }
     assert!(fused, "collapse never armed in 200 unpropped breaks");
     assert!(
-        tw.notifications.iter().any(|n| n.contains("groans")),
+        tw.warnings.iter().any(|n| n.contains("groans")),
         "no ceiling-groan warning before the fall"
     );
 

@@ -71,7 +71,7 @@ pub fn interact(
                 return true;
             }
         } else {
-            g.notifications.push("Gem Pickaxe Required.".to_string());
+            g.push_warning("Gem Pickaxe Required.");
         }
     }
     g.is_mode("creative")

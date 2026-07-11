@@ -199,7 +199,7 @@ fn prop_within(g: &Game, lvl: usize, x: i32, y: i32, r: i32) -> bool {
 }
 
 fn arm_collapse(g: &mut Game, lvl: usize, x: i32, y: i32) {
-    g.notifications.push("The ceiling groans...".to_string());
+    g.push_warning("The ceiling groans...");
     g.play_sound(Sound::Fuse);
     g.level_mut(lvl).set_data(x, y, COLLAPSE_FUSE);
 }
@@ -275,7 +275,7 @@ pub fn fuse_tick(g: &mut Game, lvl: usize, x: i32, y: i32) {
         fell += 1;
     }
     if fell > 0 {
-        g.notifications.push("The ceiling comes down!".to_string());
+        g.push_warning("The ceiling comes down!");
         g.play_sound(Sound::Explode);
     }
 }

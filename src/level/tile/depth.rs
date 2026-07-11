@@ -109,7 +109,7 @@ pub fn dug_pit_interact(
             let dirt = crate::item::registry::get(g, "dirt");
             drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
             if stage + 1 == MAX_STAGE {
-                g.notifications.push("The pit hits solid rock.".to_string());
+                g.push_warning("The pit hits solid rock.");
             }
             g.play_sound(Sound::MonsterHurt);
             return true;
@@ -117,8 +117,7 @@ pub fn dug_pit_interact(
         return false;
     }
     if ttype == ToolType::Shovel && stage >= MAX_STAGE {
-        g.notifications
-            .push("Too rocky - a pickaxe could break through.".to_string());
+        g.push_warning("Too rocky - a pickaxe could break through.");
         return false;
     }
     if ttype == ToolType::Pickaxe
