@@ -30,9 +30,10 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
+use fdoom::gfx::biome_palette::{BIOME_LEGEND, biome_color};
 use fdoom::gfx::{Screen, color, font};
 use fdoom::level::chunk::{CHUNK_SIZE, chunk_coord};
-use fdoom::level::infinite_gen::{Biome, biome_at, gates_in_rect, generate_chunk};
+use fdoom::level::infinite_gen::{biome_at, gates_in_rect, generate_chunk};
 use fdoom::level::structures_gen::{
     MAX_RADIUS, StructureKind, placements_in_rect, trail_writes, trails_in_rect,
 };
@@ -63,34 +64,6 @@ impl Mode {
 }
 
 /* ----------------------------------- color tables ----------------------------------- */
-
-fn biome_color(b: Biome) -> u32 {
-    match b {
-        Biome::DeepOcean => 0x0B2E6B,
-        Biome::Ocean => 0x1E5AC8,
-        Biome::Beach => 0xE6D793,
-        Biome::Mountains => 0x8C8C98,
-        Biome::Tundra => 0xE9F1F7,
-        Biome::Desert => 0xE4C468,
-        Biome::Marsh => 0x4E8A66,
-        Biome::Forest => 0x1F7A33,
-        Biome::Savanna => 0xC9B457,
-        Biome::Plains => 0x7CC353,
-    }
-}
-
-const BIOME_LEGEND: [(Biome, &str); 10] = [
-    (Biome::DeepOcean, "DEEP OCEAN"),
-    (Biome::Ocean, "OCEAN"),
-    (Biome::Beach, "BEACH"),
-    (Biome::Plains, "PLAINS"),
-    (Biome::Forest, "FOREST"),
-    (Biome::Savanna, "SAVANNA"),
-    (Biome::Marsh, "MARSH"),
-    (Biome::Tundra, "TUNDRA"),
-    (Biome::Desert, "DESERT"),
-    (Biome::Mountains, "MOUNTAINS"),
-];
 
 fn structure_color(kind: StructureKind) -> u32 {
     match kind {

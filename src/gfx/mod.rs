@@ -5,6 +5,7 @@
 //! (`make_sprite`) is here in `sprite.rs`.
 
 pub mod ambience;
+pub mod biome_palette;
 pub mod color;
 pub mod dimension;
 pub mod ellipsis;

@@ -1,13 +1,35 @@
-//! Port of `fdoom.screen.MapMenu` — the M-key world map, drawn as one colored pixel per
-//! tile.
+//! The M-key world map.
+//!
+//! Surface: a biome-colored chart (shared palette with `worldview`) revealed chunk by
+//! chunk as the player explores — a chunk counts as explored once the player has caused
+//! it to stream in, whether it is loaded right now or was persisted to the save's
+//! `chunks/` directory when it streamed back out. Structure pips mark placements whose
+//! origin chunk has been explored, and an arrow marks the player.
+//!
+//! Mines and finite set-piece levels keep the classic per-tile map with visibility fog.
+
+use std::collections::HashSet;
 
 use crate::core::game::Game;
+use crate::gfx::biome_palette::biome_color;
 use crate::gfx::{Screen, color, font, screen, sprite_sheet};
+use crate::level::chunk::{CHUNK_SIZE, chunk_coord};
+use crate::level::infinite_gen::biome_at;
+use crate::level::structures_gen::placements_in_rect;
 
 use super::display::{Display, DisplayBase, display_tick_default};
 
-/// Java `MapMenu.textColor` (unused by the Java render code; kept for fidelity).
-pub const TEXT_COLOR: i32 = color::get4(5, 5, 5, 550);
+/// Surface chart: pixels per chunk, so one map pixel covers `CHUNK_SIZE / PX_PER_CHUNK`
+/// (= 16) tiles and the radius-2 streaming halo shows as a readable blot, not a speck.
+const PX_PER_CHUNK: i32 = 4;
+const TILES_PER_PX: i32 = CHUNK_SIZE / PX_PER_CHUNK;
+/// Surface chart size in pixels — 36x36 chunks (2304 tiles) around the player.
+/// Multiple of both `PX_PER_CHUNK` and the 8px UI grid.
+const SURFACE_MAP: i32 = 144;
+
+const UNEXPLORED: i32 = 0x11_1318;
+const PIP_COLOR: i32 = 0xFF8C1A;
+const ARROW_COLOR: i32 = 0xFF2A2A;
 
 pub struct MapMenu {
     base: DisplayBase,
@@ -16,7 +38,6 @@ pub struct MapMenu {
 }
 
 impl MapMenu {
-    /// Java `new MapMenu()` — the fields are (re)set in `init`, as in Java.
     pub fn new(g: &Game) -> MapMenu {
         MapMenu {
             base: DisplayBase::default(),
@@ -25,28 +46,153 @@ impl MapMenu {
         }
     }
 
-    /// Map image dimensions and tile origin: whole level for finite maps, a fixed
-    /// window centered on the player for infinite layers.
+    /// The surface of an infinite world gets the biome chart; everything else (mines,
+    /// finite set-piece levels) keeps the per-tile map.
+    fn is_surface_chart(g: &Game, maplevel: usize) -> bool {
+        let level = g.level(maplevel);
+        level.is_infinite() && level.depth == 0
+    }
+
+    fn player_tile(g: &Game) -> (i32, i32) {
+        g.try_player()
+            .map(|p| {
+                (
+                    p.c.x / sprite_sheet::TILE_SIZE,
+                    p.c.y / sprite_sheet::TILE_SIZE,
+                )
+            })
+            .unwrap_or((0, 0))
+    }
+
+    /// Top-left chunk of the surface chart window (player chunk centered).
+    fn surface_origin(g: &Game) -> (i32, i32) {
+        let (ptx, pty) = Self::player_tile(g);
+        let half = SURFACE_MAP / PX_PER_CHUNK / 2;
+        (chunk_coord(ptx) - half, chunk_coord(pty) - half)
+    }
+
+    /// Map image dimensions and tile origin: biome chart window for the infinite
+    /// surface, a fixed tile window centered on the player for infinite mines, the
+    /// whole level for finite maps.
     pub fn map_window(g: &Game, maplevel: usize) -> (i32, i32, i32, i32) {
         let level = g.level(maplevel);
-        if level.is_infinite() {
-            let (px, py) = g
-                .try_player()
-                .map(|p| {
-                    (
-                        p.c.x / sprite_sheet::TILE_SIZE,
-                        p.c.y / sprite_sheet::TILE_SIZE,
-                    )
-                })
-                .unwrap_or((0, 0));
+        if Self::is_surface_chart(g, maplevel) {
+            let (c0x, c0y) = Self::surface_origin(g);
+            (SURFACE_MAP, SURFACE_MAP, c0x * CHUNK_SIZE, c0y * CHUNK_SIZE)
+        } else if level.is_infinite() {
+            let (px, py) = Self::player_tile(g);
             (128, 128, px - 64, py - 64)
         } else {
             (level.w, level.h, 0, 0)
         }
     }
 
-    /// Java `MapMenu.getMapImage(maplevel)`.
+    /// Chunks the player has caused to exist on this level: loaded right now, or
+    /// persisted to the save's chunk directory when they streamed back out.
+    ///
+    /// The path mirrors `saveload::save::chunk_dir` (kept private there); the map only
+    /// needs file names, never contents.
+    pub fn revealed_chunks(g: &Game, maplevel: usize) -> HashSet<(i32, i32)> {
+        let level = g.level(maplevel);
+        let mut out: HashSet<(i32, i32)> = level
+            .chunks
+            .as_ref()
+            .map(|c| c.loaded_coords().into_iter().collect())
+            .unwrap_or_default();
+        let dir = g
+            .game_dir
+            .join("saves")
+            .join(g.world_name.to_lowercase())
+            .join("chunks")
+            .join(level.depth.to_string());
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for e in entries.flatten() {
+                let name = e.file_name();
+                let Some(stem) = name.to_str().and_then(|n| n.strip_suffix(".bin")) else {
+                    continue;
+                };
+                let Some((cx, cy)) = stem.split_once('_') else {
+                    continue;
+                };
+                if let (Ok(cx), Ok(cy)) = (cx.parse(), cy.parse()) {
+                    out.insert((cx, cy));
+                }
+            }
+        }
+        out
+    }
+
+    /// Java `MapMenu.getMapImage(maplevel)`, dispatched by level kind.
     pub fn get_map_image(g: &Game, maplevel: usize) -> Vec<i32> {
+        if Self::is_surface_chart(g, maplevel) {
+            Self::surface_map_image(g, maplevel)
+        } else {
+            Self::tile_map_image(g, maplevel)
+        }
+    }
+
+    /// The biome chart: explored chunks in biome colors, the rest dark.
+    fn surface_map_image(g: &Game, maplevel: usize) -> Vec<i32> {
+        let seed = g.world_seed;
+        let revealed = Self::revealed_chunks(g, maplevel);
+        let all = g.is_mode("Creative");
+        let (c0x, c0y) = Self::surface_origin(g);
+        let mw = SURFACE_MAP;
+        let mut pixels = vec![UNEXPLORED; (mw * mw) as usize];
+
+        for py in 0..mw {
+            let ccy = c0y + py / PX_PER_CHUNK;
+            let ty = ccy * CHUNK_SIZE + (py % PX_PER_CHUNK) * TILES_PER_PX + TILES_PER_PX / 2;
+            for px in 0..mw {
+                let ccx = c0x + px / PX_PER_CHUNK;
+                if all || revealed.contains(&(ccx, ccy)) {
+                    let tx =
+                        ccx * CHUNK_SIZE + (px % PX_PER_CHUNK) * TILES_PER_PX + TILES_PER_PX / 2;
+                    pixels[(px + py * mw) as usize] = biome_color(biome_at(seed, tx, ty)) as i32;
+                }
+            }
+        }
+
+        // structure pips — placement origins are pure gen, so "discovered" simply means
+        // the origin chunk has been explored (no separate tracking needed)
+        let (tx0, ty0) = (c0x * CHUNK_SIZE, c0y * CHUNK_SIZE);
+        let span = mw * TILES_PER_PX;
+        for p in placements_in_rect(seed, tx0, ty0, tx0 + span - 1, ty0 + span - 1) {
+            if all || revealed.contains(&(chunk_coord(p.x), chunk_coord(p.y))) {
+                let (mx, my) = ((p.x - tx0) / TILES_PER_PX, (p.y - ty0) / TILES_PER_PX);
+                Self::stamp(&mut pixels, mw, mx, my, &PIP_SHAPE, PIP_COLOR);
+            }
+        }
+
+        // the player arrow (points up; the chart is north-up)
+        let (ptx, pty) = Self::player_tile(g);
+        let (mx, my) = ((ptx - tx0) / TILES_PER_PX, (pty - ty0) / TILES_PER_PX);
+        Self::stamp(&mut pixels, mw, mx, my, &ARROW_SHAPE, ARROW_COLOR);
+
+        pixels
+    }
+
+    /// Stamp a small shape with a 1px black outline (so markers read on any biome).
+    fn stamp(pixels: &mut [i32], mw: i32, cx: i32, cy: i32, shape: &[(i32, i32)], col: i32) {
+        let mut set = |x: i32, y: i32, c: i32| {
+            if x >= 0 && y >= 0 && x < mw && y < mw {
+                pixels[(x + y * mw) as usize] = c;
+            }
+        };
+        for &(dx, dy) in shape {
+            for ny in -1..=1 {
+                for nx in -1..=1 {
+                    set(cx + dx + nx, cy + dy + ny, 0x000000);
+                }
+            }
+        }
+        for &(dx, dy) in shape {
+            set(cx + dx, cy + dy, col);
+        }
+    }
+
+    /// The classic per-tile map with visibility fog (mines + finite levels).
+    fn tile_map_image(g: &Game, maplevel: usize) -> Vec<i32> {
         let level = g.level(maplevel);
         let (mw, mh, ox, oy) = Self::map_window(g, maplevel);
         let mut pixels = vec![0i32; (mw * mh) as usize];
@@ -242,12 +388,38 @@ impl MapMenu {
         pixels
     }
 
-    /// Java `renderMap(screen, x, y)`.
-    pub fn render_map(&self, s: &mut Screen, g: &Game, x: i32, y: i32) {
-        if let Some(pixels) = &self.img_pixels[self.current_level] {
-            let (mw, mh, _, _) = Self::map_window(g, self.current_level);
-            s.render_pixel_array(x, y, mw, mh, pixels);
+    /// Smoked-glass panel with the standard slate border sprites (the Menu look,
+    /// without needing a Menu). `w`/`h` in pixels, multiples of 8.
+    fn glass_frame(s: &mut Screen, title: &str, x0: i32, y0: i32, w: i32, h: i32) {
+        s.darken_rect_screen(x0, y0, w, h, 185);
+        // dark slate edges, matching MenuBuilder's defaults (stroke 0 / fill 111 / 333)
+        let edge = color::get4(-1, 0, 111, 333);
+        let right = x0 + w - sprite_sheet::BOX_WIDTH;
+        let bottom = y0 + h - sprite_sheet::BOX_WIDTH;
+        let mut y = y0;
+        while y <= bottom {
+            let mut x = x0;
+            while x <= right {
+                let xend = x == x0 || x == right;
+                let yend = y == y0 || y == bottom;
+                if xend || yend {
+                    let spriteoffset = if xend && yend {
+                        0
+                    } else if yend {
+                        1
+                    } else {
+                        2
+                    };
+                    let mirrors =
+                        (if x == right { 1 } else { 0 }) + (if y == bottom { 2 } else { 0 });
+                    s.render(x, y, spriteoffset + 13 * 32, edge, mirrors);
+                }
+                x += sprite_sheet::BOX_WIDTH;
+            }
+            y += sprite_sheet::BOX_WIDTH;
         }
+        let tx = x0 + (w - title.chars().count() as i32 * 8) / 2;
+        font::draw(title, s, tx, y0, font::default_title_color());
     }
 }
 
@@ -278,22 +450,59 @@ impl Display for MapMenu {
     }
 
     fn render(&mut self, s: &mut Screen, g: &mut Game) {
-        if self.img_pixels[self.current_level].is_some() {
-            let (w, h, _, _) = Self::map_window(g, self.current_level);
-            let mut x = (screen::W - w) / 2;
-            let mut y = (screen::H - h) / 2;
-            // snap to the 8px sprite grid
-            x -= x % sprite_sheet::BOX_WIDTH;
-            y -= y % sprite_sheet::BOX_WIDTH;
-            font::render_frame(
-                s,
-                "Map",
-                x / sprite_sheet::BOX_WIDTH - 1,
-                y / sprite_sheet::BOX_WIDTH - 1,
-                (x + w) / sprite_sheet::BOX_WIDTH,
-                (y + h) / sprite_sheet::BOX_WIDTH + 1,
-            );
-            self.render_map(s, g, x, y);
-        }
+        let Some(pixels) = &self.img_pixels[self.current_level] else {
+            return;
+        };
+        let level = g.level(self.current_level);
+        let depth = level.depth;
+        let (mw, mh, _, _) = Self::map_window(g, self.current_level);
+
+        // panel: 8px border ring + map area + two text lines, on the 8px UI grid
+        let inner_w = (mw.max(SURFACE_MAP) + 7) / 8 * 8;
+        let inner_h = (mh + 20 + 7) / 8 * 8;
+        let (pw, ph) = (inner_w + 16, inner_h + 16);
+        let px0 = (screen::W - pw) / 2 / 8 * 8;
+        let py0 = (screen::H - ph) / 2 / 8 * 8;
+        Self::glass_frame(s, "Map", px0, py0, pw, ph);
+
+        let map_x = px0 + 8 + (inner_w - mw) / 2;
+        let map_y = py0 + 8;
+        s.render_pixel_array(map_x, map_y, mw, mh, pixels);
+
+        // coordinates + seed, under the map
+        let (ptx, pty) = Self::player_tile(g);
+        let line1 = if depth == 0 {
+            format!("X {ptx} Y {pty}")
+        } else {
+            format!("X {ptx} Y {pty} DEPTH {depth}")
+        };
+        let line2 = format!("SEED {}", g.world_seed);
+        let text_y = map_y + mh + 4;
+        font::draw(&line1, s, px0 + 8, text_y, font::default_text_color());
+        font::draw(
+            &line2,
+            s,
+            px0 + 8,
+            text_y + 9,
+            color::get4(-1, 333, 333, 333),
+        );
     }
 }
+
+/// Player marker: an up arrow (map is north-up).
+const ARROW_SHAPE: [(i32, i32); 11] = [
+    (0, -2),
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (-2, 0),
+    (-1, 0),
+    (0, 0),
+    (1, 0),
+    (2, 0),
+    (0, 1),
+    (0, 2),
+];
+
+/// Structure pip: a 2x2 dot.
+const PIP_SHAPE: [(i32, i32); 4] = [(0, 0), (1, 0), (0, 1), (1, 1)];
