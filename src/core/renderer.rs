@@ -219,6 +219,10 @@ impl Renderer {
         // This is the box for the arrows and durability
         font::render_frame(screen, "", 26, 0, 35, 2);
 
+        if g.debug && g.dev_overlay {
+            crate::screen::dev_console::render_overlay(screen, g);
+        }
+
         self.render_debug_info(g);
         let screen = &mut self.screen;
 

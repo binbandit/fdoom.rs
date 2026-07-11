@@ -274,6 +274,29 @@ Then the hardcoded cheats in the debug block of `Game::tick`
 
 `F3` (debug info overlay: FPS, position, time, mob count) works **without** `--debug`.
 
+## Dev console (`--debug` only)
+
+`src/screen/dev_console.rs` — an info overlay plus a command line, both gated behind
+`--debug` (wired in the debug block of `Game::tick`):
+
+| Key | Effect |
+|---|---|
+| `F4` | toggle the info overlay: FPS, world seed, day + clock + time of day, level name/depth, biome (surface), player tile coords, tile name + data under the player |
+| `/` | open the command line (a display on the menu stack, so game input is swallowed while typing; `ENTER` runs, `ESC` cancels) |
+
+Commands (each confirms — or complains — via the notification system):
+
+| Command | Effect |
+|---|---|
+| `give <item> [n]` | add `n` (default 1) of a registry item to the inventory; names are case-insensitive and may contain spaces: `give crude axe 2` |
+| `tp <x> <y>` | teleport to tile coordinates on the current level |
+| `time <morning\|noon\|dusk\|night>` | set the time of day (`day`/`evening` accepted as aliases) |
+| `heal` | full health, hunger, and stamina |
+
+The parser is a plain `&mut Game` function (`dev_console::run_command`), tested
+headlessly in `tests/dev_console.rs`. Scripted-run example:
+`...;key:F4;key:SLASH;type:h;type:e;type:a;type:l;key:ENTER;...`
+
 ## Save locations
 
 From `src/core/file_handler.rs`:

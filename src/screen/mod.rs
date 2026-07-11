@@ -4,6 +4,7 @@ pub mod book_data;
 pub mod book_display;
 pub mod container_display;
 pub mod crafting_display;
+pub mod dev_console;
 pub mod display;
 pub mod entry;
 pub mod info_display;

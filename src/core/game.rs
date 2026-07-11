@@ -83,6 +83,8 @@ pub struct Game {
     // Java `Renderer`/`Initializer` statics
     pub ready_to_render_gameplay: bool,
     pub show_info: bool,
+    /// The `--debug` dev-console overlay (F4; see `screen::dev_console`).
+    pub dev_overlay: bool,
     /// Whether the window has focus (Java polled `canvas.hasFocus()`).
     pub has_focus: bool,
     /// Frames/ticks in the previous second (Java `Initializer.fra`/`tik`).
@@ -170,6 +172,7 @@ impl Game {
             current_level: 3,
             ready_to_render_gameplay: false,
             show_info: false,
+            dev_overlay: false,
             has_focus: true,
             fra: 0,
             tik: 0,
@@ -400,6 +403,14 @@ impl Game {
 
                 // for debugging only
                 if self.debug && self.has_gui {
+                    // dev console (screen::dev_console): F4 info overlay, "/" commands
+                    if self.input.get_key("F4").clicked {
+                        self.dev_overlay = !self.dev_overlay;
+                    }
+                    if self.input.get_key("SLASH").clicked {
+                        crate::screen::dev_console::open(self);
+                    }
+
                     if self.input.get_key("ctrl-p").clicked {
                         // print all players on all levels, and their coordinates
                         println!("printing players on all levels");
