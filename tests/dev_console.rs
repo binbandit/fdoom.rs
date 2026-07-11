@@ -50,6 +50,30 @@ fn tp_moves_to_tile_coords() {
     assert_eq!(tw.player_tile(), (100, -42), "bad args must not move");
 }
 
+/// PLAYTEST suspected bug 5: "tp no-ops while swimming". Verify against the finished
+/// console — a submerged player must still teleport (and keep moving after ticks).
+#[test]
+fn tp_works_while_swimming() {
+    let mut tw = TestWorld::infinite().seed(42).debug().build();
+    let (wx, wy) = tw.goto_biome(fdoom::level::infinite_gen::Biome::Ocean);
+    let swimming = {
+        let e = tw.g.entities.get(tw.g.player_id).unwrap();
+        fdoom::entity::behavior::is_swimming(&tw.g, e)
+    };
+    assert!(
+        swimming,
+        "ocean teleport should leave the player swimming at ({wx}, {wy})"
+    );
+
+    run_command(&mut tw.g, "tp 7 9");
+    tw.tick_n(3);
+    let (tx, ty) = tw.player_tile();
+    assert!(
+        (tx - 7).abs() <= 1 && (ty - 9).abs() <= 1,
+        "tp while swimming should move the player, got ({tx}, {ty})"
+    );
+}
+
 #[test]
 fn time_sets_time_of_day() {
     let mut tw = TestWorld::infinite().seed(42).debug().build();

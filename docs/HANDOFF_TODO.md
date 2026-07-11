@@ -142,11 +142,14 @@ Landed: #1 combat juice + #3 night eyes (e1427d4), #2 notifications + #9 HUD cli
 + save toast (4dacdd9, warning retier 9a05e5d), #5 held-item save/load (0a460f3),
 #6 cave-ins reachable + pan feedback (3e38de0), #7 map rebuild (e525614),
 #8 village light + #10 flora grounding (94bae2d). Audit debt closed (f0193f0:
-natural spawns + continuous bare-hands chain). #4 first-day thread: last lane,
-in flight at handoff. Remaining from the report: near-misses (fishing cast/bobber
+natural spawns + continuous bare-hands chain). #4 first-day thread (660f09f) —
+TOP-10 FULLY LANDED. Remaining from the report: near-misses (fishing cast/bobber
 feedback, dawn-darkness at spawn, mountains ground identity, marsh
-distinctiveness) + suspected bugs 4 (durability on null uses) and 5 (/tp while
-swimming) need verification — good next wave.
+distinctiveness). Suspected bugs verified: #4 NOT a bug — every tool pays 1
+durability on a tile hit (Java parity); the rod-at-rock confusion is a feedback
+gap, folded into the fishing-cast near-miss. #5 REFUTED — tp moves a swimming
+player (test tp_works_while_swimming); the playtest observed a half-built
+console from a concurrent lane.
 Original spec (for reference):
   Method: scripted play-sessions (FDOOM_DEMO) across: fresh spawn day + night, each
   biome, mining trip incl. cave-in + props, rainy night at a campfire, Hollow Night
