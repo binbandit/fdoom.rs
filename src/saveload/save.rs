@@ -342,12 +342,17 @@ pub fn write_player(g: &Game, player: &Entity, data: &mut Vec<String>) {
     data.push(pd.skinon.to_string());
 }
 
+/// Marks the held item's entry in the Inventory file so loading can re-equip it.
+/// Saves from before the marker load fine (their first entry just stays in the
+/// inventory, the historical behavior); no item name can collide with the prefix.
+pub const HELD_MARKER: &str = "Held:";
+
 /// Java static `Save.writeInventory(player, data)`.
 pub fn write_inventory(player: &Entity, data: &mut Vec<String>) {
     let pd = player.player();
     data.clear();
     if let Some(active_item) = &pd.active_item {
-        data.push(active_item.get_data());
+        data.push(format!("{HELD_MARKER}{}", active_item.get_data()));
     }
 
     let inventory = &pd.inventory;

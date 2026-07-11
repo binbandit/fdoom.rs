@@ -730,8 +730,20 @@ impl Load {
         let data = self.data.clone();
 
         let mut player = g.entities.take(g.player_id).expect("player entity missing");
+
+        // Re-equip the held item if the save marked one (see save::HELD_MARKER).
+        // Unmarked saves keep the historical behavior: everything into the inventory.
+        let mut data = data.as_slice();
+        if let Some(held) = data
+            .first()
+            .and_then(|d| d.strip_prefix(crate::saveload::save::HELD_MARKER))
+        {
+            player.player_mut().active_item = Some(crate::item::registry::get(g, held));
+            data = &data[1..];
+        }
+
         let mut inventory = std::mem::take(&mut player.player_mut().inventory);
-        self.load_inventory(g, &mut inventory, &data);
+        self.load_inventory(g, &mut inventory, data);
         player.player_mut().inventory = inventory;
         g.entities.put_back(player);
     }

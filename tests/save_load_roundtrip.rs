@@ -227,11 +227,13 @@ fn world_roundtrip() {
     assert!(pd.skinon);
     assert_eq!(pd.potioneffects.get(&PotionType::Regen), Some(&100));
 
-    // inventory: Java loads the saved active item as the first inventory slot
-    assert!(pd.active_item.is_none());
-    assert_eq!(pd.inventory.get(0).get_name(), "Wood Pickaxe");
-    assert_eq!(pd.inventory.get(1).get_name(), "Wood");
-    assert_eq!(pd.inventory.get(1).count(), 10);
+    // the held item comes back in hand (Held: marker), not dumped into the inventory
+    assert_eq!(
+        pd.active_item.as_ref().map(|i| i.get_name()),
+        Some("Wood Pickaxe")
+    );
+    assert_eq!(pd.inventory.get(0).get_name(), "Wood");
+    assert_eq!(pd.inventory.get(0).count(), 10);
 
     // entities
     let zombie = g2
