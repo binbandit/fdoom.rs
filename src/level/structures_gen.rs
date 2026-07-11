@@ -196,6 +196,7 @@ struct StructIds {
     tall_grass: [u8; 3],
     stone_wall: u8,
     stone_floor: u8,
+    window: u8,
     grave: u8,
     fence: u8,
     planks: u8,
@@ -225,6 +226,7 @@ impl StructIds {
             ],
             stone_wall: tiles.get("Stone Wall").id,
             stone_floor: tiles.get("Stone Bricks").id,
+            window: tiles.get("Window").id,
             grave: tiles.get("Grave stone").id,
             fence: tiles.get("Fence").id,
             planks: tiles.get("Wood Planks").id,
@@ -333,6 +335,31 @@ fn village_buildings(seed: i64, ox: i32, oy: i32, variant: u32) -> Vec<(i32, i32
         out.push((bx, by, hw, hh));
     }
     out
+}
+
+/// Doorway offset of a village building (on its perimeter, facing the plaza) —
+/// shared by the blueprint and [`lantern_positions`] so the lantern never sits in
+/// the doorway path.
+fn village_door_offset(ox: i32, oy: i32, bx: i32, by: i32, hw: i32, hh: i32) -> (i32, i32) {
+    let (tx, ty) = (ox - bx, oy - by);
+    if tx.abs() >= ty.abs() {
+        (if tx > 0 { hw } else { -hw }, 0)
+    } else {
+        (0, if ty > 0 { hh } else { -hh })
+    }
+}
+
+/// Where a village house keeps its lit lantern: the interior corner away from the
+/// doorway. Off the door-to-center walking line, never the center tile (that is the
+/// loot chest's spot), and deep enough inside that its light has to leave through
+/// the windows and wall gaps — the occlusion showcase.
+fn village_lantern_offset(ox: i32, oy: i32, bx: i32, by: i32, hw: i32, hh: i32) -> (i32, i32) {
+    let (ddx, ddy) = village_door_offset(ox, oy, bx, by, hw, hh);
+    if ddy == 0 {
+        (-ddx.signum() * (hw - 1), hh - 1)
+    } else {
+        (hw - 1, -ddy.signum() * (hh - 1))
+    }
 }
 
 /// The full tile footprint of one structure as `(global x, global y, tile id)` writes,
@@ -657,22 +684,28 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
             }
             for &(bx, by, hw, hh) in &buildings {
                 // doorway on the wall facing the plaza
-                let (tx, ty) = (ox - bx, oy - by);
-                let door = if tx.abs() >= ty.abs() {
-                    (if tx > 0 { hw } else { -hw }, 0)
-                } else {
-                    (0, if ty > 0 { hh } else { -hh })
-                };
+                let door = village_door_offset(ox, oy, bx, by, hw, hh);
+                let lantern = village_lantern_offset(ox, oy, bx, by, hw, hh);
                 for dy in -hh..=hh {
                     for dx in -hw..=hw {
                         let (x, y) = (bx + dx, by + dy);
                         let perimeter = dx.abs() == hw || dy.abs() == hh;
+                        let corner = dx.abs() == hw && dy.abs() == hh;
                         let doorway = (dx, dy) == door;
                         let standing = detail(0x56C4_0003, x, y) >= 0.35;
                         let t = if perimeter && !doorway && standing {
-                            ids.stone_wall
-                        } else if dx == 0 && dy == 0 {
-                            ids.planks // keep the center clear: loot chests sit here
+                            // some standing wall runs keep a glazed pane — at night
+                            // the house lantern glows through it (never a corner:
+                            // wall runs stay solid where they turn)
+                            if !corner && detail(0x56C4_000F, x, y) < 0.25 {
+                                ids.window
+                            } else {
+                                ids.stone_wall
+                            }
+                        } else if (dx == 0 && dy == 0) || (dx, dy) == lantern {
+                            // sound plank floor where the loot chest (center) and
+                            // the house lantern stand — never rubble under either
+                            ids.planks
                         } else if detail(0x56C4_0004, x, y) < 0.05 {
                             ids.rock // rubble
                         } else if detail(0x56C4_0005, x, y) < 0.18 {
@@ -993,9 +1026,30 @@ pub fn campfire_positions(seed: i64, p: Placement) -> Vec<(i32, i32)> {
     }
 }
 
-/// Spawn structure entities (loot chests, cold-camp ember campfires) for a chunk that
-/// was just generated fresh. Marks the chunk dirty so it persists to disk and never
-/// generates fresh again — that's what prevents duplicate spawns.
+/// Where a placement spawns lit lantern entities: one per village house, in the
+/// interior corner away from the doorway (see [`village_lantern_offset`] — same
+/// lore as the plaza Jack-O-Lantern: someone, or something, keeps them burning).
+/// At night the glow leaves through the window panes and wall gaps, which is what
+/// makes village houses read as destinations instead of dead shells (playtest #8).
+/// Pure, like [`chest_positions`], so exactly one chunk owns each spawn.
+pub fn lantern_positions(seed: i64, p: Placement) -> Vec<(i32, i32)> {
+    match p.kind {
+        StructureKind::Village => village_buildings(seed, p.x, p.y, variant_of(seed, p))
+            .into_iter()
+            .map(|(bx, by, hw, hh)| {
+                let (dx, dy) = village_lantern_offset(p.x, p.y, bx, by, hw, hh);
+                (bx + dx, by + dy)
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Spawn structure entities (loot chests, cold-camp ember campfires, village house
+/// lanterns) for a chunk that was just generated fresh. Marks the chunk dirty so it
+/// persists to disk and never generates fresh again — that's what prevents duplicate
+/// spawns. Chunks explored before a structure feature shipped are NOT retrofitted:
+/// they were saved to disk and never re-run through this path.
 pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
     if g.level(lvl).depth != 0 || !g.level(lvl).is_infinite() {
         return;
@@ -1031,6 +1085,16 @@ pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
             }
             let ember = crate::entity::furniture::campfire::new_ember();
             g.level_mut(lvl).add_at(ember, tx, ty, true, lvl);
+            touch(g, tx, ty);
+        }
+        for (tx, ty) in lantern_positions(seed, p) {
+            if chunk_coord(tx) != cx || chunk_coord(ty) != cy {
+                continue; // another chunk owns this lantern
+            }
+            let lantern = crate::entity::furniture::lantern::new(
+                crate::entity::furniture::lantern::LanternType::Norm,
+            );
+            g.level_mut(lvl).add_at(lantern, tx, ty, true, lvl);
             touch(g, tx, ty);
         }
     }

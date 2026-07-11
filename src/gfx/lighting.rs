@@ -542,14 +542,24 @@ fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], 
         TileKind::Snow | TileKind::SnowTree => (SNOW_F, GroundFam::Snow),
         TileKind::Mud => (MUD_F, GroundFam::Mud),
         TileKind::Dirt | TileKind::Farm => (biome(), GroundFam::Dirt),
+        // Species trees stand on the ground their renderer draws beneath them (pine
+        // on snow, dead tree and palm on sand); classifying them all as grass used
+        // to stipple meadow-green seams into snowfields and dunes (playtest bug #6).
+        TileKind::TreeSpecies { species } => {
+            match crate::level::tile::tree_species::base_tile(species) {
+                "snow" => (SNOW_F, GroundFam::Snow),
+                "sand" => (SAND_F, GroundFam::Sand),
+                _ => (biome(), GroundFam::Grass),
+            }
+        }
+        // The dry bush renders a sand base too (dry_bush.rs) — same seam rule.
+        TileKind::DryBush => (SAND_F, GroundFam::Sand),
         TileKind::Grass
         | TileKind::Flower
         | TileKind::TallGrass { .. }
         | TileKind::Tree
-        | TileKind::TreeSpecies { .. }
         | TileKind::Sapling { .. }
-        | TileKind::BerryBush
-        | TileKind::DryBush => (biome(), GroundFam::Grass),
+        | TileKind::BerryBush => (biome(), GroundFam::Grass),
         _ => (biome(), GroundFam::Other),
     }
 }

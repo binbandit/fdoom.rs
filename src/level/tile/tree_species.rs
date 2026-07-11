@@ -84,6 +84,14 @@ fn info(species: TreeSpecies) -> Info {
     }
 }
 
+/// The ground tile a species stands on (rendered beneath the canopy, restored when
+/// felled). Public so the ground-blend/seam pass classifies species tiles by their
+/// *real* base — a pine must read as snow and a dead tree as sand, or seam blending
+/// stipples grass-green into snowfields and dunes (playtest bug #6).
+pub fn base_tile(species: TreeSpecies) -> &'static str {
+    info(species).base
+}
+
 fn kind_species(def: &TileDef) -> TreeSpecies {
     match def.kind {
         TileKind::TreeSpecies { species } => species,
