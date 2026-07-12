@@ -302,3 +302,32 @@ fn empty_pack_keeps_the_onboarding_hint() {
     tw.press("Q");
     assert!(tw.display.menu_active());
 }
+
+/// Regression: crafting consumes inventory items while the PACK row list is
+/// stale; ENTER on a late row then indexed out of bounds (user crash report:
+/// "index out of bounds: the len is 10 but the index is 10" holding an axe).
+#[test]
+fn pack_survives_crafting_shrinking_the_inventory() {
+    let mut tw = TestWorld::infinite().name("ss_stale").build();
+    // three exactly-consumable single stacks + 8 non-stackable axes = 11 slots;
+    // crafting the Crude Axe eats all three stacks and adds one item (net -2)
+    tw.give("Stick", 1);
+    tw.give("Cord", 1);
+    tw.give("Sharp Stone", 1);
+    for _ in 0..8 {
+        tw.give("Crude Axe", 1);
+    }
+
+    tw.press("E");
+    assert!(tw.display.menu_active());
+    // wrap-at-ends onto the LAST row: a material at inventory index 10 (give
+    // fills tools first, so stick/cord/sharp stone land at inv 8..=10)
+    tw.press("UP");
+    tw.press("Z"); // jump to CRAFT — the list sorts affordable first, so the
+    // Crude Axe (stick + cord + sharp stone, all in the pack) is the selection
+    tw.press("ENTER"); // craft it: three stacks consumed, one item added, 11 -> 9
+    tw.press("LEFT");
+    tw.press("LEFT"); // CRAFT -> WEAR -> PACK
+    // ENTER on the remembered last row must not index out of bounds
+    tw.press("ENTER");
+}

@@ -618,6 +618,17 @@ impl SurvivalDisplay {
         let Some(idx) = self.selected_inv_idx() else {
             return;
         };
+        // stale-row guard: if the inventory shrank under this row list (any path
+        // that missed a rebuild), resync instead of indexing out of bounds
+        let inv_len = g
+            .entities
+            .get(self.player_eid)
+            .map(|p| p.player().inventory.inv_size())
+            .unwrap_or(0);
+        if idx >= inv_len {
+            self.rebuild_pack_from_arena(g);
+            return;
+        }
         enum Act {
             Wear,
             Dye(i32),
@@ -733,6 +744,16 @@ impl SurvivalDisplay {
         let Some(sel) = self.selected_inv_idx() else {
             return;
         };
+        // same stale-row guard as hold_selected
+        let inv_len = g
+            .entities
+            .get(self.player_eid)
+            .map(|p| p.player().inventory.inv_size())
+            .unwrap_or(0);
+        if sel >= inv_len {
+            self.rebuild_pack_from_arena(g);
+            return;
+        }
         let creative = g.is_mode("creative");
         let (hx, hy, hlvl, drop);
         {
@@ -1501,6 +1522,12 @@ impl Display for SurvivalDisplay {
         }
         if next != cur {
             self.tab = Tab::ALL[next.rem_euclid(4) as usize];
+            // crafting/equipping on other tabs mutates the inventory: entering
+            // PACK with the old row list would act on stale indices (panic bug —
+            // "index out of bounds" holding an item after crafting)
+            if self.tab == Tab::Pack {
+                self.rebuild_pack_from_arena(g);
+            }
             g.play_sound(Sound::Select);
             return; // the switch consumes the frame's input
         }
