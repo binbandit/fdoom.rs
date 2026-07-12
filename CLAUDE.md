@@ -54,8 +54,15 @@ everything after evolves the game on its own terms.
     Old-save tolerance: unknown entity names skip with a warning, never panic.
 
 ## Product taste (user-established, enforce in reviews)
+- **North star: DayZ / 7-Days-to-Die survival, not Minecraft.** The Minecraft and
+  minicraft markets are flooded — this game carves its own slice: scavenge-and-
+  survive loops, gather-chain crafting, cooking at fires, weather that matters,
+  places with mood (cemeteries, ruins, hollow nights). When a design choice could
+  go "blocky sandbox" or "grounded survival", pick grounded survival.
 - Original flavor over clones: fossicking identity (pans, veins, cave-ins), invisible
   fish, dig-descent instead of stairs, stamina-draining ghosts. Inspired-by is fine;
   1:1 copies of other games' mechanics are not.
+- World coherence is a feature: no snow beside sand, flora on its true ground,
+  ragged organic shapes over squares, seams that blend. Oddities are bugs.
 - Show, don't tell: every user-facing change ships with a screenshot.
 - Sandbox: no win condition, survival-only, worlds are infinite and seed-described.
