@@ -106,7 +106,7 @@ fn empty_inventory_shows_a_hint_line() {
 
     let pid = tw.player_id;
     let player = tw.entities.take(pid).unwrap();
-    let inv = fdoom::screen::player_inv_display::PlayerInvDisplay::new(&tw, &player);
+    let inv = fdoom::screen::survival_display::SurvivalDisplay::new(&tw, &player);
     tw.entities.put_back(player);
     tw.set_menu(inv);
     tw.tick();
@@ -116,7 +116,7 @@ fn empty_inventory_shows_a_hint_line() {
 
     tw.give("Wood", 5);
     let player = tw.entities.take(pid).unwrap();
-    let inv = fdoom::screen::player_inv_display::PlayerInvDisplay::new(&tw, &player);
+    let inv = fdoom::screen::survival_display::SurvivalDisplay::new(&tw, &player);
     tw.entities.put_back(player);
     tw.set_menu(inv);
     tw.tick();

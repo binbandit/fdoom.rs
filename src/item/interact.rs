@@ -40,6 +40,16 @@ fn furniture_take(g: &mut Game, entity: &mut Entity, player: &mut Entity) {
     }
 }
 
+/// Ambient-ticker cue for a player-initiated placement that failed. The audit rule
+/// (UI_REDESIGN §1.3): a place attempt never dies silently — every gate answers
+/// with its specific reason. Deduped against the newest ticker line so mashing the
+/// key doesn't stack the note (the fishing-line pattern).
+pub(crate) fn place_note(g: &mut Game, msg: &str) {
+    if g.notifications.last().map(String::as_str) != Some(msg) {
+        g.push_ambient(msg);
+    }
+}
+
 /// Java `StackableItem.interactOn(subClassSuccess)` — the standardized count decrement.
 fn stackable_interact_on(g: &Game, item: &mut Item, sub_class_success: bool) -> bool {
     if sub_class_success && !g.is_mode("creative") {
@@ -114,19 +124,19 @@ pub fn item_interact_on_tile(
                 println!("{} cannot be placed on {}", model, tile.name);
             }
 
-            let mut note = String::new();
-            if model.contains("WALL") || model.contains("DOOR") {
-                note = format!(
+            // wrong ground always says why (walls want their floor, floors want a
+            // hole, everything else names the ground it grows or sits on)
+            let note = if model.contains("WALL") || model.contains("DOOR") {
+                format!(
                     "Can only be placed on {}!",
                     g.tiles.get_name(&valid_tiles[0])
-                );
+                )
             } else if model.contains("BRICK") || model.contains("PLANK") {
-                note = "Dig a hole first!".to_string();
-            }
-
-            if !note.is_empty() {
-                g.notifications.push(note);
-            }
+                "Dig a hole first!".to_string()
+            } else {
+                format!("Needs {} to go on.", g.tiles.get_name(&valid_tiles[0]))
+            };
+            place_note(g, &note);
 
             stackable_interact_on(g, item, false)
         }
@@ -140,6 +150,7 @@ pub fn item_interact_on_tile(
                 g.set_tile_default(lvl, xt, yt, &torch);
                 return stackable_interact_on(g, item, true);
             }
+            place_note(g, "No footing for a torch here.");
             stackable_interact_on(g, item, false)
         }
 
@@ -332,6 +343,9 @@ pub fn item_interact_on_tile(
 
                 return true;
             }
+            // the tile refused it (water, rock, a tree...) — name the ground
+            let tile_name = g.tile_at(lvl, xt, yt).name.clone();
+            place_note(g, &format!("Won't sit on {}.", tile_name.to_lowercase()));
             false
         }
 

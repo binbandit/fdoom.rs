@@ -38,6 +38,18 @@ pub fn text_width(text: &str) -> i32 {
     text.chars().count() as i32 * 8
 }
 
+/// Draw `msg` clipped to `max_w` pixels: text that would overrun is truncated with
+/// a `..` ellipsis so it can never paint past its panel (the font is fixed 8px).
+pub fn draw_fit(msg: &str, screen: &mut Screen, x: i32, y: i32, col: i32, max_w: i32) {
+    let max_chars = (max_w / 8).max(1) as usize;
+    if msg.chars().count() <= max_chars {
+        draw(msg, screen, x, y, col);
+        return;
+    }
+    let kept: String = msg.chars().take(max_chars.saturating_sub(2)).collect();
+    draw(&format!("{kept}.."), screen, x, y, col);
+}
+
 /// Java `Font.textWidth(String[])` — max width over the lines.
 pub fn text_width_para(para: &[String]) -> i32 {
     para.iter().map(|s| text_width(s)).max().unwrap_or(0)

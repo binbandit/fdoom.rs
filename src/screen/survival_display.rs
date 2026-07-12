@@ -2,9 +2,11 @@
 //! (docs/UI_REDESIGN.md §3). L2 shipped the shell plus the PACK and SELF panes; L3
 //! landed WEAR as real equip slots (HEAD / BODY / HELD, CHARM reserved): ENTER on a
 //! wearable in PACK or on a WEAR slot equips/unequips instantly — no world
-//! interaction, no silent failure. CRAFT hosts the existing personal recipe list
-//! (with a cost card in the detail column) until L4 restyles crafting and adds
-//! station context.
+//! interaction, no silent failure. CRAFT hosts the personal recipe list with a cost
+//! card in the detail column; L4 added station context — using an oven/furnace/
+//! anvil/workbench/enchanter/loom opens this same screen on CRAFT with the
+//! station's recipe set and its name as a sub-header, so PACK stays one tab away
+//! while you shuffle materials at a bench (fixes UI_REDESIGN J11).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -28,26 +30,27 @@ use super::rel_pos::RelPos;
 // Every coordinate below comes from the mockups (`target/verify/ui_mock/mock_*.png`),
 // which were composed at real screen coordinates.
 
-const PANEL_X: i32 = 8;
-const PANEL_Y: i32 = 8;
-const PANEL_W: i32 = 272;
-const PANEL_H: i32 = 176;
+// (pub(crate): the container variant in `container_display` is the same shell.)
+pub(crate) const PANEL_X: i32 = 8;
+pub(crate) const PANEL_Y: i32 = 8;
+pub(crate) const PANEL_W: i32 = 272;
+pub(crate) const PANEL_H: i32 = 176;
 
-const TAB_Y: i32 = 13;
+pub(crate) const TAB_Y: i32 = 13;
 const UNDERLINE_Y: i32 = 22;
 
-const BODY_Y: i32 = 28;
-const BODY_BOTTOM: i32 = 166;
-const LIST_X: i32 = 12;
+pub(crate) const BODY_Y: i32 = 28;
+pub(crate) const BODY_BOTTOM: i32 = 166;
+pub(crate) const LIST_X: i32 = 12;
 const LIST_RIGHT: i32 = 146;
 const DIVIDER_X: i32 = 148;
 const DETAIL_X: i32 = 154;
-const DETAIL_RIGHT: i32 = 276;
+pub(crate) const DETAIL_RIGHT: i32 = 276;
 
-const ROW_H: i32 = 10;
+pub(crate) const ROW_H: i32 = 10;
 const MAX_ROWS: i32 = (BODY_BOTTOM - BODY_Y) / ROW_H; // 13
 
-const LEGEND_Y: i32 = 170;
+pub(crate) const LEGEND_Y: i32 = 170;
 
 /// Category headers, dim gold (reads as a label, not a row).
 const COL_HEADER: i32 = color::get(-1, 431);
@@ -55,13 +58,13 @@ const COL_HEADER: i32 = color::get(-1, 431);
 /// `color::BLUE` is too deep there).
 const COL_WARMTH: i32 = color::get(-1, 225);
 /// The active tab's underline (raw RGB — drawn as a pixel fill).
-const GOLD_RGB: i32 = 0xE0C84A;
-const DIVIDER_RGB: i32 = 0x4A4A4A;
-const SCROLLBAR_RGB: i32 = 0x9A9A9A;
+pub(crate) const GOLD_RGB: i32 = 0xE0C84A;
+pub(crate) const DIVIDER_RGB: i32 = 0x4A4A4A;
+pub(crate) const SCROLLBAR_RGB: i32 = 0x9A9A9A;
 
 /// Fill a screen-space rect with a literal RGB color (bounds-clipped). Same shape as
 /// the renderer's private helper — the gauges here need flat fills, not sprite cells.
-fn fill_rect(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i32) {
+pub(crate) fn fill_rect(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i32) {
     use crate::gfx::screen::{H, W};
     for yy in y.max(0)..(y + h).min(H) {
         let row = (yy * W) as usize;
@@ -118,7 +121,7 @@ fn category_of(item: &Item) -> usize {
 
 /// The item's name without the baked-in stack count ("30 PLANK" -> "PLANK"); counts
 /// get their own right-aligned column on the PACK pane (fixes UI_REDESIGN J7).
-fn bare_name(g: &Game, item: &Item) -> String {
+pub(crate) fn bare_name(g: &Game, item: &Item) -> String {
     let full = item.get_display_name(g);
     let full = full.trim();
     if item.is_stackable() {
@@ -302,9 +305,13 @@ pub struct SurvivalDisplay {
     // WEAR: the selected slot row (HEAD / BODY / HELD)
     wear_sel: usize,
 
-    // CRAFT (the personal recipe list; stations stay on the old display until L4)
+    // CRAFT: the personal recipe list, or a station's set when opened at one
+    // (UI_REDESIGN §3.5 — the station's name renders as a sub-header and the
+    // list starts one row lower to make room for it)
     recipes: Vec<Rc<RefCell<Recipe>>>,
     craft_menu: Menu,
+    station: Option<String>,
+    craft_y0: i32,
 }
 
 impl SurvivalDisplay {
@@ -315,16 +322,36 @@ impl SurvivalDisplay {
 
     /// Opens on a specific tab (Z lands on CRAFT, P lands on SELF).
     pub fn on_tab(g: &Game, player: &Entity, tab: Tab) -> SurvivalDisplay {
-        let inventory = &player.player().inventory;
+        Self::build(g, player, tab, None, g.recipes.craft.clone())
+    }
 
-        let mut recipes: Vec<Rc<RefCell<Recipe>>> = g
-            .recipes
-            .craft
-            .clone()
+    /// Opens on CRAFT with a station's recipe set and its name as a sub-header —
+    /// what using an oven/furnace/anvil/workbench/enchanter/loom does. The other
+    /// tabs stay live, so PACK is reachable without stepping away from the station.
+    pub fn at_station(
+        g: &Game,
+        player: &Entity,
+        station: &str,
+        recipes: Vec<Recipe>,
+    ) -> SurvivalDisplay {
+        Self::build(g, player, Tab::Craft, Some(station.to_uppercase()), recipes)
+    }
+
+    fn build(
+        g: &Game,
+        player: &Entity,
+        tab: Tab,
+        station: Option<String>,
+        recipes: Vec<Recipe>,
+    ) -> SurvivalDisplay {
+        let inventory = &player.player().inventory;
+        let craft_y0 = BODY_Y + if station.is_some() { 12 } else { 0 };
+
+        let mut recipes: Vec<Rc<RefCell<Recipe>>> = recipes
             .into_iter()
             .map(|r| Rc::new(RefCell::new(r)))
             .collect();
-        let craft_menu = Self::build_craft_menu(g, &mut recipes, inventory, 0);
+        let craft_menu = Self::build_craft_menu(g, &mut recipes, inventory, 0, craft_y0);
 
         let shell_menu = MenuBuilder::new(true, 0, RelPos::Center, Vec::new())
             .set_bounds(Rectangle::new(
@@ -348,6 +375,8 @@ impl SurvivalDisplay {
             wear_sel: 0,
             recipes,
             craft_menu,
+            station,
+            craft_y0,
         };
         display.rebuild_pack(inventory.items());
         display
@@ -355,6 +384,20 @@ impl SurvivalDisplay {
 
     pub fn current_tab(&self) -> Tab {
         self.tab
+    }
+
+    /// The station sub-header, when opened at one (None on the personal screen) —
+    /// public for tests.
+    pub fn station_label(&self) -> Option<&str> {
+        self.station.as_deref()
+    }
+
+    /// The CRAFT list's product names, in menu order — public for tests.
+    pub fn craft_product_names(&self, g: &Game) -> Vec<String> {
+        self.recipes
+            .iter()
+            .map(|r| bare_name(g, &r.borrow().get_product(g)))
+            .collect()
     }
 
     /// PACK rows as text (headers, then bare item names) — public for tests.
@@ -377,11 +420,12 @@ impl SurvivalDisplay {
         recipes: &mut [Rc<RefCell<Recipe>>],
         inventory: &crate::item::Inventory,
         selection: i32,
+        y0: i32,
     ) -> Menu {
         for r in recipes.iter() {
             r.borrow_mut().check_can_craft(g, inventory);
         }
-        // craftable recipes first, original order otherwise (same as recipe_menu)
+        // craftable recipes first, original order otherwise
         recipes.sort_by_key(|r| !r.borrow().get_can_craft());
         let entries = RecipeEntry::use_recipes(g, recipes);
         let n = entries.len() as i32;
@@ -393,12 +437,12 @@ impl SurvivalDisplay {
         )
         .set_bounds(Rectangle::new(
             LIST_X,
-            BODY_Y,
+            y0,
             LIST_RIGHT - LIST_X,
-            BODY_BOTTOM - BODY_Y,
+            BODY_BOTTOM - y0,
             Rectangle::CORNER_DIMS,
         ))
-        .set_display_length(n.min(MAX_ROWS))
+        .set_display_length(n.min((BODY_BOTTOM - y0) / ROW_H))
         .set_selectable(true)
         .set_scroll_policies(1.0, false)
         .set_selection(selection)
@@ -607,8 +651,8 @@ impl SurvivalDisplay {
         }
     }
 
-    /// Q / SHIFT-Q — drop one / drop the stack (same rules as `inventory_menu::
-    /// tick_drops`, remapped through the categorized rows).
+    /// Q / SHIFT-Q — drop one / drop the stack (the classic inventory drop rules,
+    /// remapped through the categorized rows).
     fn drop_selected(&mut self, g: &mut Game, drop_one: bool) {
         let Some(sel) = self.selected_inv_idx() else {
             return;
@@ -819,12 +863,15 @@ impl SurvivalDisplay {
                     }
                     item.sprite.render(screen, LIST_X + 8, y);
                     let col = if selected { color::WHITE } else { color::GRAY };
-                    font::draw(&bare_name(g, &item), screen, LIST_X + 17, y, col);
+                    // name clips before the count column so neither ever collides
+                    let mut name_w = LIST_RIGHT - 6 - (LIST_X + 17);
                     if item.count() > 1 {
                         let count = item.count().min(999).to_string();
                         let cx = LIST_RIGHT - 6 - font::text_width(&count);
                         font::draw(&count, screen, cx, y, col);
+                        name_w = cx - 4 - (LIST_X + 17);
                     }
+                    font::draw_fit(&bare_name(g, &item), screen, LIST_X + 17, y, col, name_w);
                 }
             }
         }
@@ -847,7 +894,14 @@ impl SurvivalDisplay {
     fn render_item_card(&self, screen: &mut Screen, g: &Game, item: &Item) {
         item.sprite.render(screen, DETAIL_X + 2, BODY_Y + 6);
         let name = bare_name(g, item);
-        font::draw(&name, screen, DETAIL_X + 14, BODY_Y + 6, color::WHITE);
+        font::draw_fit(
+            &name,
+            screen,
+            DETAIL_X + 14,
+            BODY_Y + 6,
+            color::WHITE,
+            DETAIL_RIGHT - (DETAIL_X + 14),
+        );
 
         let mut y = BODY_Y + 26;
         match &item.kind {
@@ -968,7 +1022,15 @@ impl SurvivalDisplay {
                     if it.count() > 1 {
                         name.push_str(&format!(" X{}", it.count()));
                     }
-                    font::draw(&name, screen, LABEL_X, y + 10, color::WHITE);
+                    // the slot column ends at the divider; long names ellipsize
+                    font::draw_fit(
+                        &name,
+                        screen,
+                        LABEL_X,
+                        y + 10,
+                        color::WHITE,
+                        DIVIDER_X - 4 - LABEL_X,
+                    );
                 }
                 None => {
                     font::draw("-", screen, BOX_X + 6, y + 5, color::DARK_GRAY);
@@ -1081,14 +1143,22 @@ impl SurvivalDisplay {
                 font::draw(">", screen, DETAIL_X, y, color::YELLOW);
             }
             it.sprite.render(screen, DETAIL_X + 8, y);
-            font::draw(&bare_name(g, it), screen, DETAIL_X + 18, y, color::WHITE);
+            let fit_w = DETAIL_RIGHT - (DETAIL_X + 18);
+            font::draw_fit(
+                &bare_name(g, it),
+                screen,
+                DETAIL_X + 18,
+                y,
+                color::WHITE,
+                fit_w,
+            );
             let effect = wear_effect_line(it);
             let ecol = if effect.contains("WARMTH") || effect.contains("SHADE") {
                 COL_WARMTH
             } else {
                 color::GRAY
             };
-            font::draw(&effect, screen, DETAIL_X + 18, y + 9, ecol);
+            font::draw_fit(&effect, screen, DETAIL_X + 18, y + 9, ecol, fit_w);
             y += FIT_PITCH;
         }
         if rows.len() > max_fit {
@@ -1103,7 +1173,13 @@ impl SurvivalDisplay {
     }
 
     fn render_craft(&mut self, screen: &mut Screen, g: &mut Game) {
-        self.render_divider(screen);
+        let y0 = self.craft_y0;
+        // station context: the station's name as a sub-header over the whole body
+        // (mock_bench) — the list and divider start one row lower to make room
+        if let Some(name) = &self.station {
+            font::draw_centered(name, screen, BODY_Y + 1, color::YELLOW);
+        }
+        fill_rect(screen, DIVIDER_X, y0, 1, BODY_BOTTOM - y0, DIVIDER_RGB);
 
         if self.recipes.is_empty() {
             return;
@@ -1115,13 +1191,14 @@ impl SurvivalDisplay {
         let recipe = self.recipes[self.craft_menu.get_selection() as usize].clone();
         let recipe = recipe.borrow();
         let product = recipe.get_product(g);
-        product.sprite.render(screen, DETAIL_X + 2, BODY_Y + 6);
-        font::draw(
+        product.sprite.render(screen, DETAIL_X + 2, y0 + 6);
+        font::draw_fit(
             &bare_name(g, &product),
             screen,
             DETAIL_X + 14,
-            BODY_Y + 6,
+            y0 + 6,
             color::WHITE,
+            DETAIL_RIGHT - (DETAIL_X + 14),
         );
 
         let Some(player) = g.entities.get(self.player_eid) else {
@@ -1129,7 +1206,7 @@ impl SurvivalDisplay {
         };
         let inventory = &player.player().inventory;
 
-        let mut y = BODY_Y + 24;
+        let mut y = y0 + 24;
         font::draw("NEEDS", screen, DETAIL_X, y, color::DARK_GRAY);
         y += ROW_H;
         for (name, amount) in recipe.get_costs() {
@@ -1140,12 +1217,13 @@ impl SurvivalDisplay {
             } else {
                 color::RED
             };
-            font::draw(
+            font::draw_fit(
                 &format!("{}/{} {}", amount, have, bare_name(g, &cost)),
                 screen,
                 DETAIL_X,
                 y,
                 col,
+                DETAIL_RIGHT - DETAIL_X,
             );
             y += ROW_H;
         }
@@ -1247,7 +1325,7 @@ impl SurvivalDisplay {
             font::draw("NONE.", screen, x, y, color::DARK_GRAY);
         } else {
             for line in lines.iter().take(2) {
-                font::draw(line, screen, x, y, color::WHITE);
+                font::draw_fit(line, screen, x, y, color::WHITE, PANEL_X + PANEL_W - 4 - x);
                 y += ROW_H;
             }
             if lines.len() > 2 {

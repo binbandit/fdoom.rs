@@ -4,7 +4,9 @@ use crate::core::game::Game;
 use crate::entity::furniture::crafter::CrafterType;
 use crate::entity::{Entity, EntityKind};
 
-/// Java `Crafter.use(player)` — opens the crafting display.
+/// Using a station opens the survival screen on CRAFT with the station's recipe
+/// set and its name as a sub-header (UI_REDESIGN §3.5) — the other tabs stay
+/// live, so the pack is reachable without stepping away from the bench.
 pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool {
     let EntityKind::Crafter(c) = &e.kind else {
         return false;
@@ -18,11 +20,13 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
         CrafterType::Enchanter => g.recipes.enchant.clone(),
         CrafterType::Loom => g.recipes.loom.clone(),
     };
-    g.set_menu(crate::screen::crafting_display::CraftingDisplay::new(
-        g,
-        recipes,
-        crafter_type.name(),
-        player,
-    ));
+    g.set_menu(
+        crate::screen::survival_display::SurvivalDisplay::at_station(
+            g,
+            player,
+            crafter_type.name(),
+            recipes,
+        ),
+    );
     true
 }

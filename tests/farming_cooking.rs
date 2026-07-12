@@ -574,11 +574,11 @@ fn farming_screens() {
         tw.give(it, 1);
     }
     let player = tw.g.entities.take(tw.g.player_id).expect("player");
-    let display = fdoom::screen::crafting_display::CraftingDisplay::new(
+    let display = fdoom::screen::survival_display::SurvivalDisplay::at_station(
         &tw.g,
-        tw.g.recipes.oven.clone(),
-        "Oven",
         &player,
+        "Oven",
+        tw.g.recipes.oven.clone(),
     );
     tw.g.entities.put_back(player);
     tw.g.set_menu(display);

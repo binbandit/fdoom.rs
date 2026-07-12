@@ -186,7 +186,7 @@ fn shot_new_item_icons() {
     // open the inventory like the I key does (see tests/display_flow.rs)
     let pid = tw.player_id;
     let player = tw.entities.take(pid).unwrap();
-    let inv_display = fdoom::screen::player_inv_display::PlayerInvDisplay::new(&tw, &player);
+    let inv_display = fdoom::screen::survival_display::SurvivalDisplay::new(&tw, &player);
     tw.entities.put_back(player);
     tw.set_menu(inv_display);
     tw.tick();
