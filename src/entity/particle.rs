@@ -16,6 +16,9 @@ pub struct ParticleData {
     pub rise: f32,
     pub sway: f32,
     pub phase: f32,
+    /// Vertical sine amplitude in pixels (the fishing bobber's bob); 0 for most
+    /// particles. Like `rise`/`sway`, purely visual — position never moves.
+    pub bob: f32,
 }
 
 /// Java `new Particle(x, y, xr, lifetime, sprite)`.
@@ -32,6 +35,7 @@ pub fn new_particle(x: i32, y: i32, xr: i32, lifetime: i32, sprite: Sprite) -> E
             rise: 0.0,
             sway: 0.0,
             phase: 0.0,
+            bob: 0.0,
         }),
     )
 }
@@ -75,6 +79,26 @@ pub fn new_material_puff(x: i32, y: i32, palette: i32, random: &mut Rng) -> Enti
     if let EntityKind::Particle(p) = &mut e.kind {
         p.rise = 0.3;
         p.sway = 1.0;
+        p.phase = random.next_float() * std::f32::consts::TAU;
+    }
+    e
+}
+
+/// Fishing wave: the cast's landing marker — a small bright-red float that sits on
+/// the water for a moment with a gentle vertical bob. Reuses the fire-particle cell
+/// with everything but its dense 3-pixel core masked transparent, so the bobber is
+/// exactly three red pixels. `(x, y)` is the float's center (tile center of the
+/// landed cast).
+pub fn new_bobber_particle(x: i32, y: i32, random: &mut Rng) -> Entity {
+    let mut e = new_particle(
+        x - 4,
+        y - 4,
+        1,
+        22 + random.next_int_bound(8),
+        Sprite::new1x1(9, 19, color::get4(-1, -1, -1, 500)),
+    );
+    if let EntityKind::Particle(p) = &mut e.kind {
+        p.bob = 1.0;
         p.phase = random.next_float() * std::f32::consts::TAU;
     }
     e
@@ -133,6 +157,7 @@ pub fn new_text_particle(msg: &str, x: i32, y: i32, col: i32, random: &mut Rng) 
             rise: 0.0,
             sway: 0.0,
             phase: 0.0,
+            bob: 0.0,
         },
         msg: msg.to_string(),
         xx: x as f64,

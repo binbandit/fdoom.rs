@@ -284,6 +284,74 @@ fn tidal_flats_fish_only_while_submerged() {
     assert!(!used, "exposed flat must not fish");
 }
 
+/* ------------------------------- cast feedback ------------------------------- */
+
+/// Bobbers waiting in the current level's add-queue (casts spawn them there; they
+/// enter the arena on the next tick). A bobber is the only particle with `bob` set.
+fn queued_bobbers(tw: &TestWorld) -> usize {
+    tw.g.level(tw.g.current_level)
+        .entities_to_add
+        .iter()
+        .filter(|e| matches!(&e.kind, fdoom::entity::EntityKind::Particle(p) if p.bob > 0.0))
+        .count()
+}
+
+#[test]
+fn water_cast_spawns_a_bobber_and_dirt_cast_says_so() {
+    let mut tw = TestWorld::infinite().build();
+    let (px, py) = tw.player_tile();
+
+    // A cast that lands on water: a bobber (and no "dirt" line).
+    tw.place_at("water", px + 1, py);
+    assert_eq!(queued_bobbers(&tw), 0);
+    let (used, _) = rod_cast(&mut tw, px + 1, py);
+    assert!(used, "water should take the cast");
+    assert_eq!(queued_bobbers(&tw), 1, "a water cast should float a bobber");
+    assert!(
+        !tw.notifications.iter().any(|n| n.contains("dirt")),
+        "water cast must not cue the dirt line: {:?}",
+        tw.notifications
+    );
+    tw.tick_n(1); // move the bobber (and splash ring) into the arena
+
+    // A cast that lands on dry ground: no bobber, but the line says where it went.
+    tw.place_at("grass", px + 1, py);
+    let (used, _) = rod_cast(&mut tw, px + 1, py);
+    assert!(!used, "grass is not fishable");
+    assert_eq!(queued_bobbers(&tw), 0, "no bobber on dry ground");
+    assert!(
+        tw.notifications
+            .iter()
+            .any(|n| n == "The line lands in the dirt."),
+        "dirt cast should cue the landing line: {:?}",
+        tw.notifications
+    );
+}
+
+#[test]
+fn bobber_persists_a_moment_then_sinks() {
+    let mut tw = TestWorld::infinite().build();
+    let (px, py) = tw.player_tile();
+    tw.place_at("water", px + 1, py);
+    rod_cast(&mut tw, px + 1, py);
+    tw.tick_n(1); // into the arena
+
+    let lvl = tw.g.current_level;
+    let bobber_live = |tw: &TestWorld| {
+        tw.g.entities.ids_on_level(lvl).into_iter().any(|id| {
+            matches!(
+                tw.g.entities.get(id).map(|e| &e.kind),
+                Some(fdoom::entity::EntityKind::Particle(p)) if p.bob > 0.0
+            )
+        })
+    };
+    assert!(bobber_live(&tw), "bobber should be live after the cast");
+    tw.tick_n(15);
+    assert!(bobber_live(&tw), "bobber should persist ~20+ ticks");
+    tw.tick_n(30);
+    assert!(!bobber_live(&tw), "bobber should be gone within ~30 ticks");
+}
+
 /* ------------------------------- the new items ------------------------------- */
 
 #[test]

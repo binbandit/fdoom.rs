@@ -82,6 +82,14 @@ pub fn item_interact_on_tile(
                     crate::entity::mob::player_behavior::go_fishing(g, player, x, y, xt, yt);
                     return true;
                 }
+            } else if ttype == ToolType::FishingRod {
+                // A cast that lands on dry ground still swings like any tool (the
+                // fall-through attack pays durability) — say where the line went,
+                // deduped so repeat casts don't stack the note.
+                let msg = "The line lands in the dirt.";
+                if g.notifications.last().map(String::as_str) != Some(msg) {
+                    g.push_ambient(msg);
+                }
             }
 
             false

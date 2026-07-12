@@ -23,7 +23,8 @@ pub fn render(_g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     };
     let t = p.time as f32;
     let dx = (p.sway * (t * 0.12 + p.phase).sin()) as i32;
-    let dy = -(p.rise * t) as i32;
+    // `bob` is a stationary vertical sine (the fishing bobber); `rise` a steady climb
+    let dy = (p.bob * (t * 0.25 + p.phase).sin()).round() as i32 - (p.rise * t) as i32;
     p.sprite.render(screen, e.c.x + dx, e.c.y + dy);
 }
 

@@ -424,6 +424,21 @@ fn fill_spawner_chest(g: &mut Game, c: &mut crate::entity::Entity, chance: i32) 
 }
 
 /// Java `World.initWorld()` — full world creation/loading ("this is a full reset").
+/// The day-clock tick a brand-new world spawns at: seed-random (not always morning —
+/// user request; deterministic per world so respawns of the same seed match), but
+/// floored out of the dark band so the first minutes are readable — rolls landing in
+/// night or the pre-dawn murk shift forward to early morning (the sleep wake-up
+/// tick). Loads are untouched; this only runs at world creation.
+pub fn new_world_spawn_time(world_seed: i64) -> i32 {
+    let rolled = crate::rng::Rng::new(world_seed ^ 0x7135_A17E)
+        .next_int_bound(crate::core::updater::DAY_LENGTH);
+    if crate::core::updater::in_dark_band(rolled) {
+        crate::core::updater::SLEEP_END_TIME
+    } else {
+        rolled
+    }
+}
+
 pub fn init_world(g: &mut Game) {
     if g.debug {
         println!("resetting world...");
@@ -547,11 +562,7 @@ pub fn init_world(g: &mut Game) {
         }
 
         g.past_day1 = false;
-        // spawn at a seed-random point in the day cycle, not always morning (user
-        // request); deterministic per world so respawns of the same seed match
-        let spawn_time = crate::rng::Rng::new(world_seed ^ 0x7135_A17E)
-            .next_int_bound(crate::core::updater::DAY_LENGTH);
-        g.set_time(spawn_time);
+        g.set_time(new_world_spawn_time(world_seed));
 
         let lvl = g.current_level; // sets level to the current level (3; surface)
         let mut p = g.entities.take(g.player_id).expect("player must exist");

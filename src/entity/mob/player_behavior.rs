@@ -16,7 +16,9 @@ use crate::entity::mob::player::{
     INTERACT_DIST, MAX_HEALTH, MAX_HUNGER, MAX_HUNGER_STAMS, MAX_HUNGER_TICKS, MAX_STAMINA,
     MAX_STAMINA_RECHARGE, MIN_STARVE_HEALTH, PLAYER_HURT_TIME, SPRITES, SUIT_SPRITES,
 };
-use crate::entity::particle::{new_material_puff, new_text_particle};
+use crate::entity::particle::{
+    new_bobber_particle, new_material_puff, new_smash_particle, new_text_particle,
+};
 use crate::entity::projectile::{ProjectileStyle, new_arrow, new_thrown};
 use crate::entity::{Direction, Entity, EntityKind};
 use crate::gfx::{MobAnims, Point, Rectangle, Screen, color};
@@ -1016,7 +1018,15 @@ pub fn go_fishing(g: &mut Game, player: &mut Entity, x: i32, y: i32, xt: i32, yt
     let presence = weather::fish_presence(g.world_seed, xt, yt);
     let raining = weather::is_raining(g);
 
-    // Flavor cues (deduped so repeat casts don't stack the same note).
+    // Cast feedback at the landed tile: a one-frame splash ring where the line
+    // hits, and a little red bobber that sits on the water a moment.
+    let (bx, by) = (xt * 16 + 8, yt * 16 + 8);
+    let splash = new_smash_particle(xt * 16, yt * 16);
+    g.level_mut(lvl).add(splash, lvl);
+    let bobber = new_bobber_particle(bx, by, &mut g.random);
+    g.level_mut(lvl).add(bobber, lvl);
+
+    // Flavor cues (ambient tier, deduped so repeat casts don't stack the same note).
     let cue = if presence >= weather::FISH_PRESENCE_THRESHOLD {
         Some("Something stirs here...")
     } else if raining {
@@ -1026,7 +1036,7 @@ pub fn go_fishing(g: &mut Game, player: &mut Entity, x: i32, y: i32, xt: i32, yt
     };
     if let Some(msg) = cue {
         if g.notifications.last().map(String::as_str) != Some(msg) {
-            g.notifications.push(msg.to_string());
+            g.push_ambient(msg);
         }
     }
 
