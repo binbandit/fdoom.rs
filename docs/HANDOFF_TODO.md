@@ -103,7 +103,9 @@ Done-when: per-effect verdicts reported, hero shots exist (sunset lakeshore, nig
   torch scene), suite green. Commit per bundle:
   `feat(gfx): boundary color-carry blending` then `feat(gfx): atmosphere effects`.
 
-### 1d. Pixel studio v2 — LANDED (committed); REMAINING DEBT: extended tests only
+### 1d. Pixel studio — v3 LANDED (ff86b95); debt cleared. CORRECTION: v2's
+commit (9f62f1c) claimed canvas mode but it did not exist; v3 implemented it for
+real. Remaining nice-to-have: in-game sprite reload key (relaunch is the refresh).
 Remaining: canvas-mode multi-file save roundtrip test + nudge/copy-paste correctness
 tests + odd-origin selection regression test (features shipped; tests were being
 written when the agent was stopped). Original spec below for reference.
