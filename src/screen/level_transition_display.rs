@@ -62,7 +62,7 @@ impl Display for LevelTransitionDisplay {
                         screen.render(x * 8, y * 8, 0, 0, 0);
                     } else {
                         // If the direction is negative, then the squares will go down.
-                        screen.render(x * 8, crate::gfx::screen::H - y * 8 - 8, 0, 0, 0);
+                        screen.render(x * 8, screen.h - y * 8 - 8, 0, 0, 0);
                     }
                 }
             }

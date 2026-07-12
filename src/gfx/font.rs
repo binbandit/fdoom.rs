@@ -2,7 +2,7 @@
 
 use super::color;
 use super::font_style::FontStyle;
-use super::screen::{self, Screen};
+use super::screen::Screen;
 use super::sprite_sheet;
 
 // These are all the characters that will be translated to the screen. (The spaces are important)
@@ -72,7 +72,7 @@ pub fn draw_paragraph_str(
     style: &mut FontStyle,
     line_spacing: i32,
 ) {
-    let lines = get_lines(para, screen::W, screen::H, line_spacing);
+    let lines = get_lines(para, screen.w, screen.h, line_spacing);
     draw_paragraph(&lines, screen, style, line_spacing);
 }
 

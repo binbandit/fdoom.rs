@@ -12,7 +12,7 @@ use std::collections::HashSet;
 
 use crate::core::game::Game;
 use crate::gfx::biome_palette::biome_color;
-use crate::gfx::{Screen, color, font, screen, sprite_sheet};
+use crate::gfx::{Screen, color, font, sprite_sheet};
 use crate::level::chunk::{CHUNK_SIZE, chunk_coord};
 use crate::level::infinite_gen::biome_at;
 use crate::level::structures_gen::placements_in_rect;
@@ -461,8 +461,8 @@ impl Display for MapMenu {
         let inner_w = (mw.max(SURFACE_MAP) + 7) / 8 * 8;
         let inner_h = (mh + 20 + 7) / 8 * 8;
         let (pw, ph) = (inner_w + 16, inner_h + 16);
-        let px0 = (screen::W - pw) / 2 / 8 * 8;
-        let py0 = (screen::H - ph) / 2 / 8 * 8;
+        let px0 = (s.w - pw) / 2 / 8 * 8;
+        let py0 = (s.h - ph) / 2 / 8 * 8;
         Self::glass_frame(s, "Map", px0, py0, pw, ph);
 
         let map_x = px0 + 8 + (inner_w - mw) / 2;

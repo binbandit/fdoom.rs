@@ -54,7 +54,7 @@ use crate::core::weather::{self, Precip};
 use crate::entity::EntityKind;
 use crate::entity::furniture::crafter::CrafterType;
 use crate::gfx::ambience;
-use crate::gfx::screen::{self, Screen};
+use crate::gfx::screen::Screen;
 use crate::item::ItemKind;
 use crate::level::tile::TileKind;
 
@@ -275,8 +275,8 @@ pub fn render_pass(
     {
         weather::fog_sample_at(
             g,
-            (x_scroll + screen::W / 2) >> 4,
-            (y_scroll + screen::H / 2) >> 4,
+            (x_scroll + screen.w / 2) >> 4,
+            (y_scroll + screen.h / 2) >> 4,
         )
     } else {
         weather::FogSample::NONE
@@ -423,9 +423,9 @@ fn rain_streaks(
     let coverage = (intensity * 16.0).ceil() as i32; // Bayer level 0..16
 
     let d0 = 3 * x_scroll + y_scroll;
-    let d1 = 3 * (x_scroll + screen::W) + y_scroll + screen::H;
+    let d1 = 3 * (x_scroll + screen.w) + y_scroll + screen.h;
     let e0 = (y_scroll as i64 - fall).div_euclid(SEG as i64) as i32 - 1;
-    let e1 = ((y_scroll + screen::H) as i64 - fall).div_euclid(SEG as i64) as i32 + 1;
+    let e1 = ((y_scroll + screen.h) as i64 - fall).div_euclid(SEG as i64) as i32 + 1;
     for q in (d0.div_euclid(LANE) - 1)..=(d1.div_euclid(LANE) + 1) {
         for e in e0..=e1 {
             if BAYER[((q & 3) + ((e & 3) << 2)) as usize] >= coverage {
@@ -466,9 +466,9 @@ fn snow_flecks(
     let a = (105.0 * lift) as i32;
 
     let i0 = x_scroll.div_euclid(CELL) - 1;
-    let i1 = (x_scroll + screen::W).div_euclid(CELL) + 1;
+    let i1 = (x_scroll + screen.w).div_euclid(CELL) + 1;
     let j0 = (y_scroll as i64 - fall).div_euclid(CELL as i64) as i32 - 1;
-    let j1 = ((y_scroll + screen::H) as i64 - fall).div_euclid(CELL as i64) as i32 + 1;
+    let j1 = ((y_scroll + screen.h) as i64 - fall).div_euclid(CELL as i64) as i32 + 1;
     for j in j0..=j1 {
         for i in i0..=i1 {
             if BAYER[((i & 3) + ((j & 3) << 2)) as usize] >= coverage {
@@ -504,8 +504,8 @@ pub fn fish_bubbles(
     let seed = g.world_seed;
     let lift = 0.4 + 0.6 * ambient.clamp(0.0, 1.0);
     let a = (46.0 * lift) as i32;
-    for ty in (y_scroll >> 4)..=((y_scroll + screen::H - 1) >> 4) {
-        for tx in (x_scroll >> 4)..=((x_scroll + screen::W - 1) >> 4) {
+    for ty in (y_scroll >> 4)..=((y_scroll + screen.h - 1) >> 4) {
+        for tx in (x_scroll >> 4)..=((x_scroll + screen.w - 1) >> 4) {
             if crate::core::weather::fish_presence(seed, tx, ty)
                 <= crate::core::weather::FISH_PRESENCE_THRESHOLD
             {
@@ -668,8 +668,8 @@ fn ground_blend_pass(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
     // Span math stays in i32 until the end: at negative scroll (west/north of the
     // origin — half the infinite world) casting the floored tile coords to usize
     // first wrapped huge and the subtraction overflowed.
-    let nx = (((x_scroll + screen::W - 1) >> 4) - tx0 + 1) as usize;
-    let ny = (((y_scroll + screen::H - 1) >> 4) - ty0 + 1) as usize;
+    let nx = (((x_scroll + screen.w - 1) >> 4) - tx0 + 1) as usize;
+    let ny = (((y_scroll + screen.h - 1) >> 4) - ty0 + 1) as usize;
 
     // Per-tile factors + ground families over the visible grid plus a one-tile
     // margin (edge corners average tiles just off screen; edge seams carry from it).
@@ -705,7 +705,7 @@ fn ground_blend_pass(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
     for tj in 0..ny {
         let ty = ty0 + tj as i32;
         let y0 = (ty * 16 - y_scroll).max(0);
-        let y1 = (ty * 16 + 16 - y_scroll).min(screen::H);
+        let y1 = (ty * 16 + 16 - y_scroll).min(screen.h);
         for ti in 0..nx {
             let tx = tx0 + ti as i32;
             let c00 = cf[tj * cw + ti];
@@ -717,9 +717,9 @@ fn ground_blend_pass(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
                 continue;
             }
             let x0 = (tx * 16 - x_scroll).max(0);
-            let x1 = (tx * 16 + 16 - x_scroll).min(screen::W);
+            let x1 = (tx * 16 + 16 - x_scroll).min(screen.w);
             for y in y0..y1 {
-                let row = (y * screen::W) as usize;
+                let row = (y * screen.w) as usize;
                 let px = &mut screen.pixels[row + x0 as usize..row + x1 as usize];
                 if flat {
                     let [fr, fg, fb] = c00;
@@ -828,12 +828,12 @@ fn seam_carry(
                     ty * 16 + 15 - d
                 };
                 let y = wy - y_scroll;
-                if !(0..screen::H).contains(&y) {
+                if !(0..screen.h).contains(&y) {
                     continue;
                 }
                 let x0 = (tx * 16 - x_scroll).max(0);
-                let x1 = (tx * 16 + 16 - x_scroll).min(screen::W);
-                let row = (y * screen::W) as usize;
+                let x1 = (tx * 16 + 16 - x_scroll).min(screen.w);
+                let row = (y * screen.w) as usize;
                 let by = ((wy & 3) << 2) as usize;
                 for x in x0..x1 {
                     if BAYER[((x + x_scroll) & 3) as usize + by] < cov {
@@ -848,16 +848,16 @@ fn seam_carry(
                     tx * 16 + 15 - d
                 };
                 let x = wx - x_scroll;
-                if !(0..screen::W).contains(&x) {
+                if !(0..screen.w).contains(&x) {
                     continue;
                 }
                 let y0 = (ty * 16 - y_scroll).max(0);
-                let y1 = (ty * 16 + 16 - y_scroll).min(screen::H);
+                let y1 = (ty * 16 + 16 - y_scroll).min(screen.h);
                 let bx = (wx & 3) as usize;
                 for y in y0..y1 {
                     if BAYER[bx + (((y + y_scroll) & 3) << 2) as usize] < cov {
                         lerp_px(
-                            &mut screen.pixels[(y * screen::W) as usize + x as usize],
+                            &mut screen.pixels[(y * screen.w) as usize + x as usize],
                             ncol,
                             CARRY_LERP,
                         );
@@ -1083,16 +1083,16 @@ fn stamp_falloff(
     let x = cx - x_scroll;
     let y = cy - y_scroll;
     let x0 = (x - reach).max(0);
-    let x1 = (x + reach).min(screen::W);
+    let x1 = (x + reach).min(light.w);
     let y0 = (y - reach).max(0);
-    let y1 = (y + reach).min(screen::H);
+    let y1 = (y + reach).min(light.h);
     let rr = r * r;
     let rh2 = rh * rh;
     let rf2 = rf * rf;
     for yy in y0..y1 {
         let ty = (yy + y_scroll) >> 4;
         let yd = (yy - y) * (yy - y);
-        let row = (yy * screen::W) as usize;
+        let row = (yy * light.w) as usize;
         for xx in x0..x1 {
             let xd = xx - x;
             let dist = xd * xd + yd;
@@ -1137,8 +1137,8 @@ pub fn stamp_emitters(light: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
 
     let xo = x_scroll >> 4;
     let yo = y_scroll >> 4;
-    let w = (screen::W + 15) >> 4;
-    let h = (screen::H + 15) >> 4;
+    let w = (light.w + 15) >> 4;
+    let h = (light.h + 15) >> 4;
     const MARGIN: i32 = 8; // widest emitter (gold lantern, r=15) reaches ~8 tiles
 
     // Halo/fog context: the same graded ambient the compose will use.
@@ -1288,10 +1288,10 @@ fn compose(
     // Fog thresholds on the sub-ambient ramp, in thirds of ambient.
     let (fog_hi, fog_lo) = (a8 * 2 / 3, a8 / 3);
 
-    for y in 0..screen::H {
+    for y in 0..screen.h {
         let by = (((y + y_scroll) & 3) << 2) as usize;
-        let row = (y * screen::W) as usize;
-        for x in 0..screen::W {
+        let row = (y * screen.w) as usize;
+        for x in 0..screen.w {
             let i = row + x as usize;
             let mut band = 0usize;
             if stamp {
@@ -1328,7 +1328,7 @@ fn compose(
 /// added as a subtle green/teal wash, stronger toward the top of the screen.
 fn aurora_bands(screen: &mut Screen, g: &Game, x_scroll: i32) {
     let t = g.game_time as f32;
-    let mut cols = [(0i32, 0i32); screen::W as usize];
+    let mut cols = vec![(0i32, 0i32); screen.w as usize];
     for (x, col) in cols.iter_mut().enumerate() {
         let wx = (x as i32 + x_scroll / 3) as f32;
         let a = ((wx * 0.045 + t * 0.0045).sin()) * 0.5 + 0.5;
@@ -1337,8 +1337,8 @@ fn aurora_bands(screen: &mut Screen, g: &Game, x_scroll: i32) {
         let i = a * (0.35 + 0.65 * b); // 0..1 drifting interference bands
         *col = ((i * 40.0) as i32, (i * 25.0) as i32); // (green, blue) adds
     }
-    for y in 0..screen::H {
-        let k = 256 - (y * 150) / screen::H; // fade toward the bottom of the frame
+    for y in 0..screen.h {
+        let k = 256 - (y * 150) / screen.h; // fade toward the bottom of the frame
         for (x, &(cg, cb)) in cols.iter().enumerate() {
             let dg = (cg * k) >> 8;
             let db = (cb * k) >> 8;

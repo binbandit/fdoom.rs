@@ -554,7 +554,8 @@ fn visual_pass_stays_inside_budget() {
         worst < std::time::Duration::from_millis(25),
         "visual pass too slow ({worst_name}: {worst:?})"
     );
-    // Release profile: the real budget — the whole pass under 400µs worst case.
+    // Release profile: the 400µs budget is for the classic 288x192 screen. It scales
+    // with area; the intentional 640x400 cap is about 4.6x that work.
     #[cfg(not(debug_assertions))]
     assert!(
         worst < std::time::Duration::from_micros(400),

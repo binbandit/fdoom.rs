@@ -102,6 +102,8 @@ pub struct Game {
     /// Frames/ticks in the previous second (Java `Initializer.fra`/`tik`).
     pub fra: i32,
     pub tik: i32,
+    /// Current renderer logical dimensions; displays use this during ticks.
+    pub screen_size: (i32, i32),
 
     /// Shared incidental RNG (see PORTING.md "Rng").
     pub random: Rng,
@@ -192,6 +194,7 @@ impl Game {
             has_focus: true,
             fra: 0,
             tik: 0,
+            screen_size: (crate::gfx::screen::W, crate::gfx::screen::H),
             random: Rng::from_time(),
             items: Rc::new(Vec::new()),
             recipes: Rc::new(Recipes::new()),

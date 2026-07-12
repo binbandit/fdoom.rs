@@ -39,6 +39,14 @@ struct App {
     last_timer1: Instant,
 }
 
+/// Integer presentation scale and capped logical framebuffer dimensions.
+pub fn logical_size_for_window(win_w: i32, win_h: i32) -> (i32, i32, i32) {
+    let scale = (win_w / WIDTH).min(win_h / HEIGHT).clamp(1, 6);
+    let w = (win_w / scale).clamp(WIDTH, 640);
+    let h = (win_h / scale).clamp(HEIGHT, 400);
+    (scale, w, h)
+}
+
 impl App {
     fn new(game: Game, renderer: Renderer) -> App {
         let now = Instant::now();
@@ -127,21 +135,20 @@ impl App {
             return;
         };
 
-        // Java: SCALE = min(w/WIDTH, h/HEIGHT); image centered; rest black.
-        let scale = (win_w as f32 / WIDTH as f32).min(win_h as f32 / HEIGHT as f32);
-        let ww = (WIDTH as f32 * scale) as i32;
-        let hh = (HEIGHT as f32 * scale) as i32;
+        let (scale, _, _) = logical_size_for_window(win_w, win_h);
+        let ww = self.renderer.screen.w * scale;
+        let hh = self.renderer.screen.h * scale;
         let xo = (win_w - ww) / 2;
         let yo = (win_h - hh) / 2;
 
         let pixels = &self.renderer.screen.pixels;
         buffer.fill(0);
         for dy in 0..hh {
-            let sy = ((dy as f32 / scale) as i32).clamp(0, HEIGHT - 1);
+            let sy = dy / scale;
             let dest_row = ((dy + yo) * win_w) as usize;
-            let src_row = (sy * WIDTH) as usize;
+            let src_row = (sy * self.renderer.screen.w) as usize;
             for dx in 0..ww {
-                let sx = ((dx as f32 / scale) as i32).clamp(0, WIDTH - 1);
+                let sx = dx / scale;
                 buffer[dest_row + (dx + xo) as usize] =
                     (pixels[src_row + sx as usize] as u32) & 0x00FF_FFFF;
             }
@@ -212,6 +219,11 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 self.redraw();
+            }
+            WindowEvent::Resized(size) => {
+                let (_, w, h) = logical_size_for_window(size.width as i32, size.height as i32);
+                self.renderer.resize(w, h);
+                self.game.screen_size = (w, h);
             }
             _ => {}
         }

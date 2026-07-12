@@ -8,7 +8,7 @@
 use crate::core::game::Game;
 use crate::core::updater::{self, Time};
 use crate::entity::mob::player::MAX_STAT;
-use crate::gfx::screen::{self, Screen};
+use crate::gfx::screen::Screen;
 use crate::gfx::{color, font};
 
 use super::display::{Display, DisplayBase};
@@ -58,8 +58,8 @@ impl Display for DevConsole {
 
     fn render(&mut self, s: &mut Screen, _g: &mut Game) {
         let h = font::text_height();
-        let y = screen::H - h - 2;
-        s.darken_rect_screen(0, y - 2, screen::W, h + 4, 200);
+        let y = s.h - h - 2;
+        s.darken_rect_screen(0, y - 2, s.w, h + 4, 200);
         let caret = if (self.ticks / 20) % 2 == 0 { "_" } else { "" };
         font::draw(&format!(">{}{caret}", self.typing), s, 2, y, color::WHITE);
     }
@@ -197,7 +197,7 @@ pub fn render_overlay(s: &mut Screen, g: &Game) {
     let mut y = 18;
     for line in &lines {
         let w = font::text_width(line);
-        let x = screen::W - 2 - w;
+        let x = s.w - 2 - w;
         s.darken_rect_screen(x - 2, y - 1, w + 4, font::text_height() + 1, 185);
         font::draw(line, s, x, y, color::WHITE);
         y += font::text_height();

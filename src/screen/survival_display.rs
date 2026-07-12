@@ -52,6 +52,54 @@ const MAX_ROWS: i32 = (BODY_BOTTOM - BODY_Y) / ROW_H; // 13
 
 pub(crate) const LEGEND_Y: i32 = 170;
 
+/// Runtime survival/container shell geometry. Classic dimensions intentionally map
+/// byte-for-byte to the original constants; taller panels expose more list rows.
+#[allow(dead_code)] // fields are consumed incrementally by the individual pane renderers.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Layout {
+    pub panel_x: i32,
+    pub panel_y: i32,
+    pub panel_w: i32,
+    pub panel_h: i32,
+    pub body_y: i32,
+    pub body_bottom: i32,
+    pub list_x: i32,
+    pub list_right: i32,
+    pub divider_x: i32,
+    pub detail_x: i32,
+    pub detail_right: i32,
+    pub row_h: i32,
+    pub max_rows: i32,
+}
+
+impl Layout {
+    pub(crate) fn new(w: i32, h: i32) -> Self {
+        let panel_w = (w - 16).clamp(PANEL_W, 336);
+        let panel_h = (h - 16).clamp(PANEL_H, 224);
+        let panel_x = (w - panel_w) / 2;
+        let panel_y = (h - panel_h) / 2;
+        let body_y = panel_y + 20;
+        let body_bottom = panel_y + panel_h - 18;
+        let divider_x = panel_x + panel_w / 2 + 4;
+        let row_h = if panel_h > 200 { 11 } else { ROW_H };
+        Self {
+            panel_x,
+            panel_y,
+            panel_w,
+            panel_h,
+            body_y,
+            body_bottom,
+            list_x: panel_x + 4,
+            list_right: divider_x - 2,
+            divider_x,
+            detail_x: divider_x + 6,
+            detail_right: panel_x + panel_w - 4,
+            row_h,
+            max_rows: ((body_bottom - body_y) / row_h).max(1),
+        }
+    }
+}
+
 /// Category headers, dim gold (reads as a label, not a row).
 const COL_HEADER: i32 = color::get(-1, 431);
 /// Warmth/shade stat lines, the mock's indigo (readable on the dark glass —
@@ -307,6 +355,10 @@ pub struct SurvivalDisplay {
     pack_rows: Vec<PackRow>,
     pack_sel: usize,
     pack_off: usize,
+    /// Inventory length the rows were built against — `sync_pack` rebuilds on any
+    /// mismatch, so no mutation path (drop, eat, craft, equip, external) can leave
+    /// a row indexing past the live inventory (the survival-screen crash class).
+    pack_inv_len: i32,
 
     // WEAR: the selected slot row (HEAD / BODY / HELD)
     wear_sel: usize,
@@ -413,6 +465,7 @@ impl SurvivalDisplay {
             pack_rows: Vec::new(),
             pack_sel: 0,
             pack_off: 0,
+            pack_inv_len: 0,
             wear_sel: 0,
             recipes,
             craft_menu,
@@ -495,6 +548,7 @@ impl SurvivalDisplay {
 
     fn rebuild_pack(&mut self, items: &[Item]) {
         let prev_sel = self.pack_sel;
+        self.pack_inv_len = items.len() as i32;
         self.pack_rows.clear();
         for (cat, label) in CATEGORY_LABELS.iter().enumerate() {
             let mut wrote_header = false;
@@ -531,6 +585,20 @@ impl SurvivalDisplay {
             .map(|p| p.player().inventory.items().to_vec())
             .unwrap_or_default();
         self.rebuild_pack(&items);
+    }
+
+    /// Self-heal before any read of the row list: if the live inventory length no
+    /// longer matches what the rows were built against, rebuild. A same-length swap
+    /// keeps every index in bounds, so this cheap check is sufficient for safety.
+    fn sync_pack(&mut self, g: &Game) {
+        let live = g
+            .entities
+            .get(self.player_eid)
+            .map(|p| p.player().inventory.inv_size())
+            .unwrap_or(0);
+        if live != self.pack_inv_len {
+            self.rebuild_pack_from_arena(g);
+        }
     }
 
     fn item_row_indices(&self) -> Vec<usize> {
@@ -574,6 +642,7 @@ impl SurvivalDisplay {
     /* --------------------------------- pack input --------------------------------- */
 
     fn tick_pack(&mut self, g: &mut Game) {
+        self.sync_pack(g);
         let item_rows = self.item_row_indices();
         if item_rows.is_empty() {
             return;
@@ -919,7 +988,9 @@ impl SurvivalDisplay {
         );
     }
 
-    fn render_pack(&self, screen: &mut Screen, g: &mut Game) {
+    fn render_pack(&mut self, screen: &mut Screen, g: &mut Game) {
+        self.sync_pack(g);
+        let max_rows = Layout::new(screen.w, screen.h).max_rows;
         self.render_divider(screen);
 
         if self.item_row_indices().is_empty() {
@@ -942,7 +1013,7 @@ impl SurvivalDisplay {
         });
 
         // the list
-        let end = ((self.pack_off as i32 + MAX_ROWS) as usize).min(self.pack_rows.len());
+        let end = ((self.pack_off as i32 + max_rows) as usize).min(self.pack_rows.len());
         for (slot, row_idx) in (self.pack_off..end).enumerate() {
             let y = BODY_Y + slot as i32 * ROW_H;
             match self.pack_rows[row_idx] {
@@ -975,9 +1046,9 @@ impl SurvivalDisplay {
 
         // 1px scrollbar on the divider when the list overflows
         let rows = self.pack_rows.len() as i32;
-        if rows > MAX_ROWS {
+        if rows > max_rows {
             let body_h = BODY_BOTTOM - BODY_Y;
-            let bar_h = (body_h * MAX_ROWS / rows).max(8);
+            let bar_h = (body_h * max_rows / rows).max(8);
             let bar_y = BODY_Y + body_h * self.pack_off as i32 / rows;
             fill_rect(screen, DIVIDER_X, bar_y, 1, bar_h, SCROLLBAR_RGB);
         }
@@ -1541,9 +1612,18 @@ impl Display for SurvivalDisplay {
     }
 
     fn render(&mut self, screen: &mut Screen, g: &mut Game) {
+        let layout = Layout::new(screen.w, screen.h);
         // deepen the frame's default 185 glass to the survival panel's 200 spec
-        screen.darken_rect_screen(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 55);
-        self.shell_menu.render(screen, g);
+        screen.darken_rect_screen(
+            layout.panel_x,
+            layout.panel_y,
+            layout.panel_w,
+            layout.panel_h,
+            55,
+        );
+        if layout.panel_w == PANEL_W && layout.panel_h == PANEL_H {
+            self.shell_menu.render(screen, g);
+        }
         self.render_tabs(screen);
         let legend = match self.tab {
             Tab::Wear => "ENTER WEAR   Q TAKE OFF   ESC CLOSE",

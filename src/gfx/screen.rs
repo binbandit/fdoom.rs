@@ -28,6 +28,9 @@ must have in order to remain lit, repeating every 4 pixels in both directions. *
 const DITHER: [i32; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
 pub struct Screen {
+    /// Runtime logical framebuffer dimensions. `W`/`H` remain the classic minimum.
+    pub w: i32,
+    pub h: i32,
     x_offset: i32,
     y_offset: i32,
     pub pixels: Vec<i32>,
@@ -36,12 +39,26 @@ pub struct Screen {
 
 impl Screen {
     pub fn new(sheet: Arc<SpriteSheet>) -> Screen {
+        Self::with_size(W, H, sheet)
+    }
+
+    /// Make a logical framebuffer. The platform constrains live sizes; clamping here
+    /// keeps standalone callers from constructing an invalid pixel buffer.
+    pub fn with_size(w: i32, h: i32, sheet: Arc<SpriteSheet>) -> Screen {
+        let w = w.max(1);
+        let h = h.max(1);
         Screen {
+            w,
+            h,
             x_offset: 0,
             y_offset: 0,
-            pixels: vec![0; (W * H) as usize],
+            pixels: vec![0; (w * h) as usize],
             sheet,
         }
+    }
+
+    pub fn center(&self) -> Point {
+        Point::new(self.w / 2, self.h / 2)
     }
 
     /// Java `clear(color)`.
@@ -69,15 +86,15 @@ impl Screen {
 
         for y in 0..8 {
             let ys = if mirror_y { 7 - y } else { y };
-            if y + yp < 0 || y + yp >= H {
+            if y + yp < 0 || y + yp >= self.h {
                 continue;
             }
             for x in 0..8 {
-                if x + xp < 0 || x + xp >= W {
+                if x + xp < 0 || x + xp >= self.w {
                     continue;
                 }
                 let xs = if mirror_x { 7 - x } else { x };
-                let dest = ((x + xp) + (y + yp) * W) as usize;
+                let dest = ((x + xp) + (y + yp) * self.w) as usize;
                 match self.sheet.pixels[(toffs + xs + ys * self.sheet.width) as usize] {
                     // grayscale shade: recolor through the caller's packed palette
                     crate::gfx::sprite_sheet::SheetPixel::Palette(shade) => {
@@ -105,9 +122,9 @@ impl Screen {
     /// Darken a rectangle in raw screen coordinates (UI panels).
     pub fn darken_rect_screen(&mut self, xp: i32, yp: i32, w: i32, h: i32, amount: i32) {
         let keep = (255 - amount.clamp(0, 255)) as u32;
-        for y in yp.max(0)..(yp + h).min(H) {
-            for x in xp.max(0)..(xp + w).min(W) {
-                let i = (x + y * W) as usize;
+        for y in yp.max(0)..(yp + h).min(self.h) {
+            for x in xp.max(0)..(xp + w).min(self.w) {
+                let i = (x + y * self.w) as usize;
                 let p = self.pixels[i] as u32;
                 let r = ((p >> 16 & 0xFF) * keep) >> 8;
                 let g = ((p >> 8 & 0xFF) * keep) >> 8;
@@ -127,10 +144,10 @@ impl Screen {
         img_pixels: &[i32],
     ) {
         for y in 0..height {
-            if y + yp >= 0 && y + yp < H {
+            if y + yp >= 0 && y + yp < self.h {
                 for x in 0..width {
-                    if x + xp >= 0 && x + xp < W {
-                        self.pixels[(x + xp + (y + yp) * W) as usize] =
+                    if x + xp >= 0 && x + xp < self.w {
+                        self.pixels[(x + xp + (y + yp) * self.w) as usize] =
                             img_pixels[(x + y * width) as usize];
                     }
                 }
@@ -188,8 +205,8 @@ impl Screen {
 
         let o_pixels = &screen2.pixels;
         let mut i = 0usize;
-        for y in 0..H {
-            for x in 0..W {
+        for y in 0..self.h {
+            for x in 0..self.w {
                 if o_pixels[i] / 10 <= DITHER[(((x + xa) & 3) + ((y + ya) & 3) * 4) as usize] {
                     // this pixel is not lit enough
                     if current_level < 3 {
@@ -211,8 +228,8 @@ impl Screen {
     pub fn copy_rect(&self, screen2: &mut Screen, x2: i32, y2: i32, w2: i32, h2: i32) {
         for y in 0..h2 {
             for x in 0..w2 {
-                screen2.pixels[((x + x2) + (y + y2) * W) as usize] =
-                    self.pixels[(x + y * W) as usize];
+                screen2.pixels[((x + x2) + (y + y2) * screen2.w) as usize] =
+                    self.pixels[(x + y * self.w) as usize];
             }
         }
     }
@@ -222,10 +239,10 @@ impl Screen {
     /// is the multiplicative counterpart.
     #[inline]
     pub fn add_rgb(&mut self, x: i32, y: i32, dr: i32, dg: i32, db: i32) {
-        if !(0..W).contains(&x) || !(0..H).contains(&y) {
+        if !(0..self.w).contains(&x) || !(0..self.h).contains(&y) {
             return;
         }
-        let i = (x + y * W) as usize;
+        let i = (x + y * self.w) as usize;
         let p = self.pixels[i];
         let r = (((p >> 16) & 0xFF) + dr).clamp(0, 255);
         let g = (((p >> 8) & 0xFF) + dg).clamp(0, 255);
@@ -238,9 +255,9 @@ impl Screen {
         x -= self.x_offset;
         y -= self.y_offset;
         let x0 = (x - r).max(0);
-        let x1 = (x + r).min(W);
+        let x1 = (x + r).min(self.w);
         let y0 = (y - r).max(0);
-        let y1 = (y + r).min(H);
+        let y1 = (y + r).min(self.h);
 
         for yy in y0..y1 {
             let yd = (yy - y) * (yy - y);
@@ -249,7 +266,7 @@ impl Screen {
                 let dist = xd * xd + yd;
                 if dist <= r * r {
                     let br = 255 - dist * 255 / (r * r);
-                    let idx = (xx + yy * W) as usize;
+                    let idx = (xx + yy * self.w) as usize;
                     if self.pixels[idx] < br {
                         self.pixels[idx] = br;
                     }

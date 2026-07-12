@@ -63,7 +63,7 @@ impl TitleDisplay {
 
         let menu = MenuBuilder::new(false, 2, RelPos::Center, entries)
             .set_positioning(
-                Point::new(crate::gfx::screen::W / 2, crate::gfx::screen::H * 3 / 5),
+                Point::new(g.screen_size.0 / 2, g.screen_size.1 * 3 / 5),
                 RelPos::Center,
             )
             .create_menu(g);
@@ -104,9 +104,9 @@ impl Display for TitleDisplay {
         let title_color = color::get4(-1, 0, color::hex("#2c2c2c"), color::hex("#ff0000"));
         let kicker_w = 17; // strip width in sheet cells
         let doom_w = 15;
-        let kicker_x = (crate::gfx::screen::W - kicker_w * 8) / 2;
+        let kicker_x = (screen.w - kicker_w * 8) / 2;
         let kicker_y = 14;
-        let doom_x = (crate::gfx::screen::W - doom_w * 8) / 2;
+        let doom_x = (screen.w - doom_w * 8) / 2;
         let doom_y = kicker_y + 18; // kicker art is 15px tall + 3px gap
 
         for y in 0..2 {
@@ -159,18 +159,12 @@ impl Display for TitleDisplay {
             ),
         ];
         for (i, hint) in hints.iter().enumerate() {
-            let y = crate::gfx::screen::H - 32 + i as i32 * 10;
+            let y = screen.h - 32 + i as i32 * 10;
             font::draw_centered(hint, screen, y, color::get(-1, 111));
         }
         // one multiplicative darken over the whole hint block: drops the text below the
         // palette's dimmest gray without leaving per-line boxes
         let w = hints.iter().map(|h| font::text_width(h)).max().unwrap_or(0) + 8;
-        screen.darken_rect_screen(
-            (crate::gfx::screen::W - w) / 2,
-            crate::gfx::screen::H - 35,
-            w,
-            32,
-            110,
-        );
+        screen.darken_rect_screen((screen.w - w) / 2, screen.h - 35, w, 32, 110);
     }
 }

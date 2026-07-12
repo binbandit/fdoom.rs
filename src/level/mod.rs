@@ -955,8 +955,8 @@ pub fn render_background(
 ) {
     let xo = x_scroll >> 4;
     let yo = y_scroll >> 4;
-    let w = crate::gfx::screen::W >> 4;
-    let h = crate::gfx::screen::H >> 4;
+    let w = screen.w >> 4;
+    let h = screen.h >> 4;
     screen.set_offset(x_scroll, y_scroll);
     for y in yo..=h + yo {
         for x in xo..=w + xo {
@@ -977,8 +977,8 @@ pub fn render_sprites(
 ) {
     let xo = x_scroll >> 4;
     let yo = y_scroll >> 4;
-    let w = (crate::gfx::screen::W + 15) >> 4;
-    let h = (crate::gfx::screen::H + 15) >> 4;
+    let w = (screen.w + 15) >> 4;
+    let h = (screen.h + 15) >> 4;
 
     screen.set_offset(x_scroll, y_scroll);
 
@@ -1015,8 +1015,8 @@ pub fn render_light(
 ) {
     let xo = x_scroll >> 4;
     let yo = y_scroll >> 4;
-    let w = (crate::gfx::screen::W + 15) >> 4;
-    let h = (crate::gfx::screen::H + 15) >> 4;
+    let w = (screen.w + 15) >> 4;
+    let h = (screen.h + 15) >> 4;
 
     screen.set_offset(x_scroll, y_scroll);
     let r = 4;

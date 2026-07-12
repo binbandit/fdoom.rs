@@ -487,7 +487,7 @@ impl MenuBuilder {
             frame_fill_col: 111,
             frame_edge_stroke: 0,
             frame_edge_fill: 333,
-            anchor: Point::new(crate::gfx::screen::W / 2, crate::gfx::screen::H / 2),
+            anchor: Point::new(0, 0),
             menu_pos: RelPos::Center,
             menu_size: None,
         }
@@ -592,6 +592,9 @@ impl MenuBuilder {
     /// Java `createMenu()` — consumes the builder (Java copied it first; entry handles
     /// stay shared either way, so rebuild a Builder when a menu must be recreated).
     pub fn create_menu(mut self, g: &Game) -> Menu {
+        if self.anchor == Point::new(0, 0) && self.menu_pos == RelPos::Center {
+            self.anchor = Point::new(g.screen_size.0 / 2, g.screen_size.1 / 2);
+        }
         let menu = &mut self.menu;
         menu.title = g.localization.get_localized(&menu.title);
 
@@ -676,9 +679,9 @@ impl MenuBuilder {
                 if self.menu_pos.y_index() == 0 {
                     max_height = self.anchor.y;
                 } else if self.menu_pos.y_index() == 2 {
-                    max_height = crate::gfx::screen::H - self.anchor.y;
+                    max_height = g.screen_size.1 - self.anchor.y;
                 } else {
-                    max_height = self.anchor.y.min(crate::gfx::screen::H - self.anchor.y) * 2;
+                    max_height = self.anchor.y.min(g.screen_size.1 - self.anchor.y) * 2;
                 }
 
                 max_height -= border.top + border.bottom; // reserve border space

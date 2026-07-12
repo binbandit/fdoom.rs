@@ -23,7 +23,7 @@ use crate::core::updater::DAY_LENGTH;
 use crate::core::weather;
 use crate::entity::EntityKind;
 use crate::gfx::lighting::{BAYER, FX_CONTACT_SHADOWS, fx_on};
-use crate::gfx::screen::{self, Screen};
+use crate::gfx::screen::Screen;
 use crate::level::infinite_gen::{self, Biome};
 use crate::level::tile::TileKind;
 
@@ -40,13 +40,13 @@ fn darken_px(p: &mut i32, keep: i32) {
 /// so drawn-on-top motes still sit inside the frame's grade.
 #[inline]
 fn put_px(screen: &mut Screen, x: i32, y: i32, rgb: i32, k256: i32) {
-    if !(0..screen::W).contains(&x) || !(0..screen::H).contains(&y) {
+    if !(0..screen.w).contains(&x) || !(0..screen.h).contains(&y) {
         return;
     }
     let r = (((rgb >> 16) & 0xFF) * k256) >> 8;
     let g = (((rgb >> 8) & 0xFF) * k256) >> 8;
     let b = ((rgb & 0xFF) * k256) >> 8;
-    screen.pixels[(x + y * screen::W) as usize] = (r << 16) | (g << 8) | b;
+    screen.pixels[(x + y * screen.w) as usize] = (r << 16) | (g << 8) | b;
 }
 
 /* ----------------------------- golden-hour shadows ------------------------------ */
@@ -102,8 +102,8 @@ pub fn long_shadows(
 ) {
     let tx0 = x_scroll >> 4;
     let ty0 = y_scroll >> 4;
-    let nx = (((x_scroll + screen::W - 1) >> 4) - tx0 + 1) as usize;
-    let ny = (((y_scroll + screen::H - 1) >> 4) - ty0 + 1) as usize;
+    let nx = (((x_scroll + screen.w - 1) >> 4) - tx0 + 1) as usize;
+    let ny = (((y_scroll + screen.h - 1) >> 4) - ty0 + 1) as usize;
 
     // Caster grid with a one-tile horizontal margin: an off-screen tree on the sun
     // side still throws onto the visible edge.
@@ -120,7 +120,7 @@ pub fn long_shadows(
     for tj in 0..ny {
         let ty = ty0 + tj as i32;
         let y0 = (ty * 16 - y_scroll).max(0);
-        let y1 = (ty * 16 + 16 - y_scroll).min(screen::H);
+        let y1 = (ty * 16 + 16 - y_scroll).min(screen.h);
         for ti in 0..nx {
             let ci = tj * cw + ti + 1;
             // The strip lands on the neighbor in `dir`; another caster swallows it.
@@ -135,7 +135,7 @@ pub fn long_shadows(
                     tx * 16 - 1 - k
                 };
                 let x = wx - x_scroll;
-                if !(0..screen::W).contains(&x) {
+                if !(0..screen.w).contains(&x) {
                     continue;
                 }
                 // Two steps: full coverage for the near half, half beyond.
@@ -143,7 +143,7 @@ pub fn long_shadows(
                 let bx = (wx & 3) as usize;
                 for y in y0..y1 {
                     if BAYER[bx + (((y + y_scroll) & 3) << 2) as usize] < cov {
-                        darken_px(&mut screen.pixels[(y * screen::W + x) as usize], KEEP);
+                        darken_px(&mut screen.pixels[(y * screen.w + x) as usize], KEEP);
                     }
                 }
             }
@@ -162,8 +162,8 @@ pub fn contact_shadows(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32,
     }
     let xo = x_scroll >> 4;
     let yo = y_scroll >> 4;
-    let w = (screen::W + 15) >> 4;
-    let h = (screen::H + 15) >> 4;
+    let w = (screen.w + 15) >> 4;
+    let h = (screen.h + 15) >> 4;
     for eid in crate::level::get_entities_in_tiles(g, lvl, xo - 1, yo - 1, xo + w + 1, yo + h + 1) {
         let Some(e) = g.entities.get(eid) else {
             continue;
@@ -192,14 +192,14 @@ pub fn contact_shadows(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32,
         for (dy, hw) in [(4, hw0), (5, hw1)] {
             let wy = e.c.y + dy;
             let y = wy - y_scroll;
-            if !(0..screen::H).contains(&y) {
+            if !(0..screen.h).contains(&y) {
                 continue;
             }
             for wx in (cx - hw)..(cx + hw) {
                 let x = wx - x_scroll;
                 // 50% checker, world-anchored
-                if (0..screen::W).contains(&x) && (wx ^ wy) & 1 == 0 {
-                    darken_px(&mut screen.pixels[(y * screen::W + x) as usize], KEEP);
+                if (0..screen.w).contains(&x) && (wx ^ wy) & 1 == 0 {
+                    darken_px(&mut screen.pixels[(y * screen.w + x) as usize], KEEP);
                 }
             }
         }
@@ -230,8 +230,8 @@ pub fn water_glitter(
     // Water mask over the visible tile grid — one lookup per tile, not per glint.
     let tx0 = x_scroll >> 4;
     let ty0 = y_scroll >> 4;
-    let nx = (((x_scroll + screen::W - 1) >> 4) - tx0 + 1) as usize;
-    let ny = (((y_scroll + screen::H - 1) >> 4) - ty0 + 1) as usize;
+    let nx = (((x_scroll + screen.w - 1) >> 4) - tx0 + 1) as usize;
+    let ny = (((y_scroll + screen.h - 1) >> 4) - ty0 + 1) as usize;
     let mut water = vec![false; nx * ny];
     let mut any = false;
     for (j, row) in water.chunks_mut(nx).enumerate() {
@@ -259,9 +259,9 @@ pub fn water_glitter(
     };
 
     let i0 = x_scroll.div_euclid(cell) - 1;
-    let i1 = (x_scroll + screen::W).div_euclid(cell) + 1;
+    let i1 = (x_scroll + screen.w).div_euclid(cell) + 1;
     let j0 = y_scroll.div_euclid(cell) - 1;
-    let j1 = (y_scroll + screen::H).div_euclid(cell) + 1;
+    let j1 = (y_scroll + screen.h).div_euclid(cell) + 1;
     for j in j0..=j1 {
         for i in i0..=i1 {
             let h = infinite_gen::hash(seed, GLINT_SALT, i, j);
@@ -321,8 +321,8 @@ pub fn heat_shimmer(
 ) {
     let tx0 = x_scroll >> 4;
     let ty0 = y_scroll >> 4;
-    let nx = (((x_scroll + screen::W - 1) >> 4) - tx0 + 1) as usize;
-    let ny = (((y_scroll + screen::H - 1) >> 4) - ty0 + 1) as usize;
+    let nx = (((x_scroll + screen.w - 1) >> 4) - tx0 + 1) as usize;
+    let ny = (((y_scroll + screen.h - 1) >> 4) - ty0 + 1) as usize;
     let seed = g.world_seed;
     let mut hot = vec![false; nx * ny];
     let mut any = false;
@@ -343,7 +343,7 @@ pub fn heat_shimmer(
         return;
     }
 
-    for y in 0..screen::H {
+    for y in 0..screen.h {
         let wy = y + y_scroll;
         // amplitude-1 square-ish wave: right, rest, left, rest — 4-row bands
         let o = [0, 1, 0, -1][(((wy >> 2) + g.game_time / 20) & 3) as usize];
@@ -352,7 +352,7 @@ pub fn heat_shimmer(
         }
         let tj = ((wy >> 4) - ty0) as usize;
         let row = &mut hot[tj * nx..(tj + 1) * nx];
-        let base = (y * screen::W) as usize;
+        let base = (y * screen.w) as usize;
         let mut ti = 0usize;
         while ti < nx {
             if !row[ti] {
@@ -365,7 +365,7 @@ pub fn heat_shimmer(
             }
             // pixel span of this hot run, clamped to the screen
             let x0 = ((tx0 + start as i32) * 16 - x_scroll).max(0) as usize;
-            let x1 = (((tx0 + ti as i32) * 16) - x_scroll).min(screen::W) as usize;
+            let x1 = (((tx0 + ti as i32) * 16) - x_scroll).min(screen.w) as usize;
             if x1 <= x0 + 1 {
                 continue;
             }
@@ -423,8 +423,8 @@ pub fn mist_patches(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_
     // grid; all-zero frames (dry country) bail before any pixel work.
     let tx0 = x_scroll >> 4;
     let ty0 = y_scroll >> 4;
-    let nx = (((x_scroll + screen::W - 1) >> 4) - tx0 + 1) as usize;
-    let ny = (((y_scroll + screen::H - 1) >> 4) - ty0 + 1) as usize;
+    let nx = (((x_scroll + screen.w - 1) >> 4) - tx0 + 1) as usize;
+    let ny = (((y_scroll + screen.h - 1) >> 4) - ty0 + 1) as usize;
     let mut dens = vec![0u8; nx * ny];
     let mut any = false;
     for (j, row) in dens.chunks_mut(nx).enumerate() {
@@ -440,14 +440,14 @@ pub fn mist_patches(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_
 
     let drift = g.game_time / 12; // slow west drift, world-anchored
     // Player-clarity rings, squared (the renderer centers the player).
-    let (pcx, pcy) = (screen::W / 2, (screen::H - 8) / 2);
+    let (pcx, pcy) = (screen.w / 2, (screen.h - 8) / 2);
     const R_IN2: i32 = 32 * 32;
     const R_OUT2: i32 = 56 * 56;
 
     let cy0 = y_scroll >> 3;
-    let cy1 = (y_scroll + screen::H - 1) >> 3;
+    let cy1 = (y_scroll + screen.h - 1) >> 3;
     let cx0 = x_scroll >> 3;
-    let cx1 = (x_scroll + screen::W - 1) >> 3;
+    let cx1 = (x_scroll + screen.w - 1) >> 3;
     for cy in cy0..=cy1 {
         for cx in cx0..=cx1 {
             let (wx, wy) = (cx * 8, cy * 8); // cell origin in world px
@@ -491,9 +491,9 @@ pub fn mist_patches(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_
                 continue;
             }
             let y0 = (wy - y_scroll).max(0);
-            let y1 = (wy + 8 - y_scroll).min(screen::H);
+            let y1 = (wy + 8 - y_scroll).min(screen.h);
             let x0 = (wx - x_scroll).max(0);
-            let x1 = (wx + 8 - x_scroll).min(screen::W);
+            let x1 = (wx + 8 - x_scroll).min(screen.w);
             let k = if step >= 5 {
                 MIST_LERP_DENSE
             } else {
@@ -501,7 +501,7 @@ pub fn mist_patches(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_
             };
             for y in y0..y1 {
                 let by = (((y + y_scroll) & 3) << 2) as usize;
-                let row = (y * screen::W) as usize;
+                let row = (y * screen.w) as usize;
                 for x in x0..x1 {
                     if BAYER[((x + x_scroll) & 3) as usize + by] < cov {
                         let p = &mut screen.pixels[row + x as usize];
@@ -543,9 +543,9 @@ pub fn drift_motes(screen: &mut Screen, g: &Game, x_scroll: i32, y_scroll: i32, 
     let k256 = (brightness.clamp(0.0, 1.0) * 256.0) as i32;
 
     let i0 = x_scroll.div_euclid(CELL) - 1;
-    let i1 = (x_scroll + screen::W).div_euclid(CELL) + 1;
+    let i1 = (x_scroll + screen.w).div_euclid(CELL) + 1;
     let j0 = (y_scroll as i64 - fall).div_euclid(CELL as i64) as i32 - 1;
-    let j1 = ((y_scroll + screen::H) as i64 - fall).div_euclid(CELL as i64) as i32 + 1;
+    let j1 = ((y_scroll + screen.h) as i64 - fall).div_euclid(CELL as i64) as i32 + 1;
     for j in j0..=j1 {
         for i in i0..=i1 {
             let h = infinite_gen::hash(seed, MOTE_SALT, i, j);

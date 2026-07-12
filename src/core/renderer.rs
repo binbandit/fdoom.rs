@@ -92,9 +92,9 @@ impl HudMem {
 /// Fill a screen-space rect with a literal RGB color (bounds-clipped). The HUD's
 /// durability bar needs a flat fill, which no sprite-cell primitive provides.
 fn fill_rect_screen(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i32) {
-    for yy in y.max(0)..(y + h).min(screen::H) {
-        let row = (yy * screen::W) as usize;
-        for xx in x.max(0)..(x + w).min(screen::W) {
+    for yy in y.max(0)..(y + h).min(screen.h) {
+        let row = (yy * screen.w) as usize;
+        for xx in x.max(0)..(x + w).min(screen.w) {
             screen.pixels[row + xx as usize] = rgb;
         }
     }
@@ -104,22 +104,7 @@ fn fill_rect_screen(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i3
 UI_REDESIGN §2: frameless, corner-anchored, fixed slots. All geometry below is
 measured against target/verify/ui_mock/mock_hud_{calm,alert}.png. */
 
-/// Badge row (temperature dot + one-word label + effect pips).
-const BADGE_Y: i32 = 146;
-/// Fixed vitals rows, bottom-left. A row keeps its slot forever; it is simply absent
-/// while its meter is full and untouched. y = 182 is the reserved thirst row (L6:
-/// five droplets, same hide-at-full rule) — nothing renders there until the stat
-/// ships; the slot is the design commitment.
-const ROW_HEARTS_Y: i32 = 158;
-const ROW_STAMINA_Y: i32 = 166;
-const ROW_FOOD_Y: i32 = 174;
-/// Held-item plate: 18x18 bordered slot, bottom-right.
-const PLATE_X: i32 = 266;
-const PLATE_Y: i32 = 170;
 const PLATE_BORDER_RGB: i32 = 0x666666;
-/// Right edges the transient name label / count badge text align to.
-const LABEL_RIGHT: i32 = 284;
-const BADGE_RIGHT: i32 = 282;
 
 /// One frameless vitals row: icons on a light smoked strip, plus the 1px white pulse
 /// underline when the meter is at/below 30%.
@@ -153,10 +138,11 @@ fn draw_text_shadowed(screen: &mut Screen, msg: &str, x: i32, y: i32, col: i32) 
 /// recolors the glyph pixels: capture-before/compare-after keeps it exact.
 fn draw_text_rgb(screen: &mut Screen, msg: &str, x: i32, y: i32, rgb: i32) {
     let w = font::text_width(msg) + 2;
+    let screen_w = screen.w;
     let (x0, y0) = (x.max(0), y.max(0));
-    let (x1, y1) = ((x + w).min(screen::W), (y + 9).min(screen::H));
+    let (x1, y1) = ((x + w).min(screen.w), (y + 9).min(screen.h));
     let before: Vec<i32> = (y0..y1)
-        .flat_map(|yy| (x0..x1).map(move |xx| (yy * screen::W + xx) as usize))
+        .flat_map(|yy| (x0..x1).map(move |xx| (yy * screen_w + xx) as usize))
         .map(|i| screen.pixels[i])
         .collect();
     draw_text_shadowed(screen, msg, x, y, color::get(-1, 555));
@@ -164,7 +150,7 @@ fn draw_text_rgb(screen: &mut Screen, msg: &str, x: i32, y: i32, rgb: i32) {
     let mut i = 0;
     for yy in y0..y1 {
         for xx in x0..x1 {
-            let d = (yy * screen::W + xx) as usize;
+            let d = (yy * screen.w + xx) as usize;
             if screen.pixels[d] != before[i] && screen.pixels[d] == white {
                 screen.pixels[d] = rgb;
             }
@@ -241,8 +227,18 @@ impl Renderer {
         }
     }
 
+    /// Replace the two per-frame buffers without disturbing game or flyover state.
+    pub fn resize(&mut self, w: i32, h: i32) {
+        if self.screen.w == w && self.screen.h == h {
+            return;
+        }
+        self.screen = Screen::with_size(w, h, self.sheet.clone());
+        self.light_screen = Screen::with_size(w, h, self.sheet.clone());
+    }
+
     /// Java `Renderer.render()` — called from the game loop, a bit after tick().
     pub fn render(&mut self, g: &mut Game) {
+        g.screen_size = (self.screen.w, self.screen.h);
         if !g.has_gui {
             return; // no point in this if there's no gui
         }
@@ -315,16 +311,16 @@ impl Renderer {
         // would dirty its chunks, and dirty chunks persist to the current save dir
         crate::level::ensure_chunks_at(g, LVL, cx >> 4, cy >> 4, false);
 
-        let x_scroll = cx - screen::W / 2;
-        let y_scroll = cy - (screen::H - 8) / 2;
+        let x_scroll = cx - self.screen.w / 2;
+        let y_scroll = cy - (self.screen.h - 8) / 2;
         crate::level::render_background(g, &mut self.screen, LVL, x_scroll, y_scroll);
 
         // dusk dimming, deepening smoothly toward the menu area: per-row brightness
         // ramps from 50% (top, showcases the world) to ~22% (bottom, text contrast)
-        for y in 0..screen::H {
+        for y in 0..self.screen.h {
             let k: i32 = 128 - ((y - 40).clamp(0, 100) * 72) / 100; // 128 -> 56
-            let row = (y * screen::W) as usize;
-            for p in self.screen.pixels[row..row + screen::W as usize].iter_mut() {
+            let row = (y * self.screen.w) as usize;
+            for p in self.screen.pixels[row..row + self.screen.w as usize].iter_mut() {
                 let r = (((*p >> 16) & 0xFF) * k) >> 8;
                 let g2 = (((*p >> 8) & 0xFF) * k) >> 8;
                 let b = ((*p & 0xFF) * k) >> 8;
@@ -350,8 +346,8 @@ impl Renderer {
             (level.w, level.h)
         };
 
-        let mut x_scroll = player_x - screen::W / 2; // scrolls the screen in the x axis
-        let mut y_scroll = player_y - (screen::H - 8) / 2; // scrolls the screen in the y axis
+        let mut x_scroll = player_x - self.screen.w / 2; // scrolls the screen in the x axis
+        let mut y_scroll = player_y - (self.screen.h - 8) / 2; // scrolls the screen in the y axis
 
         // stop scrolling at the borders (finite levels only; infinite layers have none)
         if !g.level(lvl).is_infinite() {
@@ -361,11 +357,11 @@ impl Renderer {
             if y_scroll < 0 {
                 y_scroll = 0;
             }
-            if x_scroll > lw * 16 - screen::W {
-                x_scroll = lw * 16 - screen::W;
+            if x_scroll > lw * 16 - self.screen.w {
+                x_scroll = lw * 16 - self.screen.w;
             }
-            if y_scroll > lh * 16 - screen::H {
-                y_scroll = lh * 16 - screen::H;
+            if y_scroll > lh * 16 - self.screen.h {
+                y_scroll = lh * 16 - self.screen.h;
             }
         }
         if lvl > 3 {
@@ -405,6 +401,13 @@ impl Renderer {
     /// bottom-left, held-item plate bottom-right, notifications on their own tiers.
     /// Guiding rule: a meter that needs nothing from you does not exist.
     fn render_gui(&mut self, g: &mut Game) {
+        let (hud_w, hud_h) = (self.screen.w, self.screen.h);
+        let hearts_y = hud_h - 34;
+        let stamina_y = hud_h - 26;
+        let food_y = hud_h - 18;
+        let badge_y = hud_h - 46;
+        let plate_x = hud_w - 22;
+        let plate_y = hud_h - 22;
         // ---- HUD memory: which meters moved recently (drives every transient) ----
         let (health, stamina, stamina_recharge_delay, hunger, armor, cur_armor_color) = {
             let p = g.player();
@@ -480,7 +483,7 @@ impl Renderer {
 
         if !perm_status.is_empty() {
             let mut style = FontStyle::new(color::WHITE)
-                .set_y_pos(screen::H / 2 - 25)
+                .set_y_pos(screen.h / 2 - 25)
                 .set_rel_text_pos(RelPos::Top)
                 .set_shadow_type(color::DARK_GRAY, false);
             font::draw_paragraph(&perm_status, screen, &mut style, 1);
@@ -510,7 +513,7 @@ impl Renderer {
             // draw each current warning, with shadow text effect
             let mut style = FontStyle::new(color::WHITE)
                 .set_shadow_type(color::DARK_GRAY, false)
-                .set_y_pos(screen::H * 2 / 5)
+                .set_y_pos(screen.h * 2 / 5)
                 .set_rel_text_pos_both(RelPos::Top, false);
             let notes = g.warnings.clone();
             // smoked-glass backing band (same primitive as the menu panels) so the text
@@ -519,8 +522,7 @@ impl Renderer {
                 font::text_width_para(&notes),
                 notes.len() as i32 * font::text_height(),
             );
-            let band =
-                RelPos::Top.position_rect(size, Point::new(screen::W / 2, screen::H * 2 / 5));
+            let band = RelPos::Top.position_rect(size, Point::new(screen.w / 2, screen.h * 2 / 5));
             screen.darken_rect_screen(
                 band.left() - 4,
                 band.top() - 3,
@@ -583,7 +585,7 @@ impl Renderer {
             if health < MAX_HEALTH || self.hud.health_show > 0 {
                 vitals_row(
                     screen,
-                    ROW_HEARTS_Y,
+                    hearts_y,
                     0,
                     |i| {
                         if i < health {
@@ -599,7 +601,7 @@ impl Renderer {
             if stamina < MAX_STAMINA || self.hud.stamina_show > 0 || stamina_recharge_delay > 0 {
                 vitals_row(
                     screen,
-                    ROW_STAMINA_Y,
+                    stamina_y,
                     1,
                     |i| {
                         if stamina_recharge_delay > 0 {
@@ -622,7 +624,7 @@ impl Renderer {
             if hunger < MAX_HUNGER || self.hud.hunger_show > 0 {
                 vitals_row(
                     screen,
-                    ROW_FOOD_Y,
+                    food_y,
                     2,
                     |i| {
                         if i < hunger {
@@ -641,15 +643,15 @@ impl Renderer {
             if armor > 0 {
                 let count = armor.to_string();
                 let wtxt = font::text_width(&count);
-                screen.darken_rect_screen(86, ROW_HEARTS_Y - 1, wtxt + 13, 10, 90);
+                screen.darken_rect_screen(86, hearts_y - 1, wtxt + 13, 10, 90);
                 let flash_on = self.hud.armor_flash > 0 && (self.hud.armor_flash / 3) % 2 == 0;
                 let col = if flash_on {
                     color::get(-1, 555)
                 } else {
                     cur_armor_color.unwrap_or(color::get4(-1, 111, 333, 444))
                 };
-                screen.render(88, ROW_HEARTS_Y, 3 + 12 * 32, col, 0);
-                draw_text_shadowed(screen, &count, 97, ROW_HEARTS_Y, color::get(-1, 555));
+                screen.render(88, hearts_y, 3 + 12 * 32, col, 0);
+                draw_text_shadowed(screen, &count, 97, hearts_y, color::get(-1, 555));
             }
 
             // TEMPERATURE dot (core::temperature): band colors and pulse cadence are
@@ -678,10 +680,10 @@ impl Renderer {
                         }
                     }
                 };
-                badge_dot(screen, 4, BADGE_Y, rgb);
+                badge_dot(screen, 4, badge_y, rgb);
                 if steps.abs() >= 2 {
                     let word = if steps < 0 { "COLD" } else { "HOT" };
-                    draw_text_rgb(screen, word, 12, BADGE_Y, rgb);
+                    draw_text_rgb(screen, word, 12, badge_y, rgb);
                 }
             }
 
@@ -693,13 +695,13 @@ impl Renderer {
             effects.sort_by_key(|p| p.disp_color()); // HashMap order is unstable
             for (i, ptype) in effects.iter().enumerate() {
                 let x = 48 + i as i32 * 9;
-                if x + 7 > screen::W {
+                if x + 7 > screen.w {
                     break;
                 }
                 badge_dot(
                     screen,
                     x,
-                    BADGE_Y,
+                    badge_y,
                     color::upgrade(color::get_byte(ptype.disp_color())),
                 );
             }
@@ -710,11 +712,11 @@ impl Renderer {
         let active = g.player().player().active_item.clone();
         {
             let screen = &mut self.screen;
-            fill_rect_screen(screen, PLATE_X, PLATE_Y, 18, 1, PLATE_BORDER_RGB);
-            fill_rect_screen(screen, PLATE_X, PLATE_Y + 17, 18, 1, PLATE_BORDER_RGB);
-            fill_rect_screen(screen, PLATE_X, PLATE_Y + 1, 1, 16, PLATE_BORDER_RGB);
-            fill_rect_screen(screen, PLATE_X + 17, PLATE_Y + 1, 1, 16, PLATE_BORDER_RGB);
-            screen.darken_rect_screen(PLATE_X + 1, PLATE_Y + 1, 16, 16, 150);
+            fill_rect_screen(screen, plate_x, plate_y, 18, 1, PLATE_BORDER_RGB);
+            fill_rect_screen(screen, plate_x, plate_y + 17, 18, 1, PLATE_BORDER_RGB);
+            fill_rect_screen(screen, plate_x, plate_y + 1, 1, 16, PLATE_BORDER_RGB);
+            fill_rect_screen(screen, plate_x + 17, plate_y + 1, 1, 16, PLATE_BORDER_RGB);
+            screen.darken_rect_screen(plate_x + 1, plate_y + 1, 16, 16, 150);
             match &active {
                 Some(item) => {
                     let cells = (
@@ -726,15 +728,15 @@ impl Renderer {
                             screen,
                             &self.sheet,
                             &item.sprite,
-                            PLATE_X + 1,
-                            PLATE_Y + 1,
+                            plate_x + 1,
+                            plate_y + 1,
                         );
                     } else {
                         // bigger sprites (held furniture is 2x2 cells = 16x16px) fit at 1x
-                        item.sprite.render(screen, PLATE_X + 1, PLATE_Y + 1);
+                        item.sprite.render(screen, plate_x + 1, plate_y + 1);
                     }
                 }
-                None => render_fist(screen, PLATE_X + 1, PLATE_Y + 1),
+                None => render_fist(screen, plate_x + 1, plate_y + 1),
             }
 
             // durability bar under the plate (replaces the numeric % readout):
@@ -751,11 +753,11 @@ impl Renderer {
                 };
                 let fill = color::upgrade(color::get_byte(readable));
                 let empty = color::upgrade(color::get_byte(111));
-                fill_rect_screen(screen, PLATE_X, PLATE_Y + 18, 18, 3, 0x000000);
-                fill_rect_screen(screen, PLATE_X + 1, PLATE_Y + 19, 16, 1, empty);
+                fill_rect_screen(screen, plate_x, plate_y + 18, 18, 3, 0x000000);
+                fill_rect_screen(screen, plate_x + 1, plate_y + 19, 16, 1, empty);
                 let min_fw = if *dur > 0 { 1 } else { 0 };
                 let fw = ((16.0 * frac).round() as i32).clamp(min_fw, 16);
-                fill_rect_screen(screen, PLATE_X + 1, PLATE_Y + 19, fw, 1, fill);
+                fill_rect_screen(screen, plate_x + 1, plate_y + 19, fw, 1, fill);
             }
 
             // count badge above the plate: stack sizes and ammo only. No bow, no
@@ -786,9 +788,9 @@ impl Renderer {
             };
             if let Some(text) = badge {
                 let w = font::text_width(&text);
-                let tx = BADGE_RIGHT - w;
-                screen.darken_rect_screen(tx - 1, PLATE_Y - 9, w + 3, 10, 150);
-                draw_text_shadowed(screen, &text, tx, PLATE_Y - 8, color::get(-1, 555));
+                let tx = hud_w - 6 - w;
+                screen.darken_rect_screen(tx - 1, plate_y - 9, w + 3, 10, 150);
+                draw_text_shadowed(screen, &text, tx, plate_y - 8, color::get(-1, 555));
             }
 
             // transient name label: shows for ~90 frames after a switch, dims for its
@@ -797,8 +799,8 @@ impl Renderer {
             if self.hud.label_ticks > 0 {
                 if let Some(name) = &self.hud.held_label {
                     let w = font::text_width(name);
-                    let tx = (LABEL_RIGHT - w).max(2);
-                    let ty = BADGE_Y + 1;
+                    let tx = (hud_w - 4 - w).max(2);
+                    let ty = badge_y + 1;
                     screen.darken_rect_screen(tx - 2, ty - 1, w + 4, 10, 150);
                     let col = if self.hud.label_ticks < 20 {
                         color::get(-1, 333) // fading out
@@ -829,7 +831,7 @@ impl Renderer {
             let screen = &mut self.screen;
             let lift = if self.hud.label_ticks > 0 { 20 } else { 0 };
             let w = font::text_width(&line);
-            let (tx, ty) = (screen::W - w - 4, screen::H - 12 - lift);
+            let (tx, ty) = (screen.w - w - 4, screen.h - 12 - lift);
             screen.darken_rect_screen(tx - 2, ty - 1, w + 4, 10, 185);
             font::draw(&line, screen, tx, ty, color::get(-1, 555));
         }
@@ -904,8 +906,8 @@ impl Renderer {
     fn render_focus_nagger(&mut self, g: &mut Game) {
         let msg = "Come Back!"; // the message when you click off the screen
         g.paused = true; // perhaps paused is only used for this
-        let xx = (screen::W - font::text_width(msg)) / 2; // the width of the box
-        let yy = (HEIGHT - 8) / 2; // the height of the box
+        let xx = (self.screen.w - font::text_width(msg)) / 2; // the width of the box
+        let yy = (self.screen.h - 8) / 2; // the height of the box
         let w = msg.len() as i32; // length of message in characters
         let h = 1;
         let txtcolor = color::get4(-1, 1, color::hex("#2c2c2c"), 445);
