@@ -9,9 +9,19 @@ use crate::gfx::{Screen, Sprite, color};
 use crate::item::{Item, ToolType};
 use crate::level::{drop_item, drop_items_counted};
 
-/// Java `FlowerTile.flowersprite`.
-fn flower_sprite() -> Sprite {
-    Sprite::new1x1(1, 1, color::get4(10, 141, 555, 440))
+/// Three meadow species on the `tiles/flower_species` strip (one 8x8 cell each):
+/// daisy, poppy, cornflower. Palette-mode shade roles: 1 = stem, 2 = petals,
+/// 3 = flower center.
+const SPECIES_PALETTES: [i32; 3] = [
+    color::get4(-1, 20, 555, 550), // daisy: white petals, yellow heart
+    color::get4(-1, 20, 500, 100), // poppy: red petals, dark heart
+    color::get4(-1, 20, 115, 335), // cornflower: blue petals, paler heart
+];
+
+/// One blossom of species `k` (0..3), optionally mirrored for within-tile variety.
+fn flower_sprite(k: usize, mirror: i32) -> Sprite {
+    let c = crate::assets::sprite_cell("tiles/flower_species");
+    Sprite::new(c.x + k as i32, c.y, 1, 1, SPECIES_PALETTES[k], mirror)
 }
 
 /// Java `FlowerTile` constructor.
@@ -69,13 +79,18 @@ pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: 
     let grass = g.tiles.get("grass");
     dispatch::render(g, screen, &grass, lvl, x, y);
 
+    // Species and blossom placement vary per position (gen never writes flower
+    // data, so the hash carries the variety; data still nudges `shape` for tiles
+    // that do set it). One species per tile — patches read as a meadow, not confetti.
+    let h = crate::level::infinite_gen::hash(g.world_seed, 0x464C_5257, x, y);
+    let species = (h % 3) as usize;
     let data = g.level(lvl).get_data(x, y);
-    let shape = (data / 16) % 2;
+    let shape = (data / 16 + ((h >> 2) & 1) as i32) % 2;
 
     let x = x << 4;
     let y = y << 4;
 
-    let sprite = flower_sprite();
-    sprite.render(screen, x + 8 * shape, y);
-    sprite.render(screen, x + 8 * (if shape == 0 { 1 } else { 0 }), y + 8);
+    flower_sprite(species, 0).render(screen, x + 8 * shape, y);
+    // the second blossom mirrors, so a tile never shows twin stamps
+    flower_sprite(species, 1).render(screen, x + 8 * (if shape == 0 { 1 } else { 0 }), y + 8);
 }

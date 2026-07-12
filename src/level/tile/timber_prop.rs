@@ -4,9 +4,6 @@
 //! `fossick::PROP_RADIUS` tiles, breaking rock never triggers a cave-in there
 //! (see `fossick.rs`). Walk-through — you pass under the beams — and one hit
 //! knocks it down, refunding the timber.
-//!
-//! TODO(art): dedicated prop cells (two uprights + a header beam). Until the art
-//! agent lands them, this reuses the fence-post cell for the uprights.
 
 use super::{TileDef, TileKind, dispatch};
 use crate::core::game::Game;
@@ -24,14 +21,10 @@ pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: 
     let dirt = g.tiles.get("dirt");
     dispatch::render(g, screen, &dirt, lvl, x, y);
 
-    // two uprights (fence-post cell) and a header-beam shadow across the top
-    let post = Sprite::new1x1(6, 4, color::get4(310, 420, 530, -1));
-    let (px, py) = (x << 4, y << 4);
-    post.render(screen, px, py);
-    post.render(screen, px, py + 8);
-    post.render(screen, px + 8, py);
-    post.render(screen, px + 8, py + 8);
-    screen.darken_rect(px, py, 16, 3, 60);
+    // dedicated prop cells: a full-width header beam over two footed uprights, open
+    // in the middle — the floor shows through, so it reads as a support, not a block
+    let c = crate::assets::sprite_cell("tiles/timber_prop");
+    Sprite::new(c.x, c.y, 2, 2, color::get4(-1, 310, 420, 530), 0).render(screen, x << 4, y << 4);
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -2,8 +2,9 @@
 
 The game's art is plain PNG files under `assets/sprites/**`, one file per sprite
 (or per frame strip / connector set). Edit them with any pixel editor or the built-in
-studio (`just studio`, see DEV_GUIDE.md). There is no generator: **the PNGs are the
-source of truth.** The old `artgen` program and its monolithic `assets/sprites.png`
+studio (`just studio`, see DEV_GUIDE.md — including a whole-sheet canvas view that
+edits every file on the real atlas layout at once, and an `N` new-sprite flow).
+There is no generator: **the PNGs are the source of truth.** The old `artgen` program and its monolithic `assets/sprites.png`
 are gone; `assets/golden_atlas.png` remains only as a test fixture (see
 [Golden atlas](#the-golden-atlas) below).
 
@@ -125,8 +126,10 @@ roles — the palettes live at the call sites and expect them.
 
 ## Adding an item, end to end
 
-1. Draw `assets/sprites/items/moonfruit.png` (8x8) — `just studio`, pick any items/
-   file, or create the file with any editor. True color, remember: no pure grays.
+1. Draw `assets/sprites/items/moonfruit.png` (8x8) — `just studio`, press `N`, type
+   `items/moonfruit`, Enter (the studio creates the file and opens it; DEV_GUIDE.md
+   has the full flow) — or create the file with any editor. True color, remember:
+   no pure grays.
 2. **No manifest edit.** The stitcher auto-allocates it and
    `sheet.cell("items/moonfruit")` resolves it (`.pos()` for the render call).
 3. Register the item in `src/item/registry.rs` (one line, see
@@ -139,13 +142,20 @@ roles — the palettes live at the call sites and expect them.
 `assets/golden_atlas.png` is the frozen pre-decomposition sheet (the last
 `sprites.png`, with one stray artgen overflow pixel at cell (21,0) scrubbed). It is
 **not shipped or loaded by the game** — `tests/sprite_atlas.rs` stitches the tree
-and asserts byte-identity against it, proving the decomposition (and any later
-refactor of the stitcher) never changed what the renderer sees.
+and asserts byte-identity against it across the **pinned 256x256 base grid** (the
+appended rows where unpinned art auto-allocates are not part of the fixture),
+proving the decomposition (and any later refactor of the stitcher) never changed
+what the renderer sees at the historical cell addresses.
 
 When you *deliberately* change pinned art, the golden test will fail; regenerate the
-fixture from your approved tree: run `just preview` and copy the output over the
-fixture (`cp target/verify/atlas.png assets/golden_atlas.png` — only valid while all
-art is pinned; review the visual diff first).
+fixture from your approved tree: run `just preview` and copy the **top 256x256** of
+the output over the fixture (with no unpinned files that was a plain
+`cp target/verify/atlas.png assets/golden_atlas.png`; now the preview is taller, so
+crop it to the first 256 rows first — review the visual diff either way).
+
+New unpinned files must also be added to the `UNPINNED_PAL` / `UNPINNED_RGB` lists
+in `tests/sprite_atlas.rs`, which enforce the pixel-mode rules the manifest column
+declares for pinned art.
 
 ## Acceptance checklist
 

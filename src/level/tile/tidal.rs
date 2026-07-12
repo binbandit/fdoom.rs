@@ -12,19 +12,18 @@
 //!
 //! - Submerged: renders as (slightly darkened) water, passable by swimmers only,
 //!   counts as swimming (`behavior::is_swimming`).
-//! - Exposed: renders as wet sand with phase-driven puddle glints, walkable, and
-//!   rarely washes up a beachcombing find (Grass Fibers / Stone / rare gem) on random
-//!   tile ticks — throttled so the shore never accumulates litter.
-//!
-//! TODO(art): dedicated wet-sand cells — until the art agent lands them, the exposed
-//! state reuses the dry sand art under a mild darken.
+//! - Exposed: renders as wet sand (dedicated `tiles/wet_sand_texture` cells under
+//!   the sand connector shapes in a damp palette) with phase-driven puddle glints,
+//!   walkable, and rarely washes up a beachcombing find (Grass Fibers / Stone /
+//!   rare gem) on random tile ticks — throttled so the shore never accumulates
+//!   litter.
 
 use super::{TileDef, TileKind, dispatch};
 use crate::core::game::Game;
 use crate::core::updater::DAY_LENGTH;
 use crate::entity::behavior::can_swim;
 use crate::entity::{Entity, EntityKind};
-use crate::gfx::Screen;
+use crate::gfx::{Screen, Sprite, color};
 use crate::level::drop_item;
 use crate::level::infinite_gen::{hash, land_at, unit};
 
@@ -77,10 +76,34 @@ pub fn render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i32) {
         screen.darken_rect(x * 16, y * 16, 16, 16, 40);
         return;
     }
-    // exposed: wet sand (TODO(art): dedicated wet-sand cells; darkened dry sand for now)
-    let sand = g.tiles.get("sand");
-    dispatch::render(g, screen, &sand, lvl, x, y);
-    screen.darken_rect(x * 16, y * 16, 16, 16, 28);
+    // exposed: dedicated wet-sand cells. Each 8x8 quarter picks independently from
+    // the `tiles/wet_sand_texture` variant row (a ripple-and-glint cluster, a damp
+    // patch, a plain damp cell, a lone ripple) by position hash, so detail arrives
+    // in scattered clumps instead of a uniform dither. The edges reuse the sand
+    // connector *shapes* in a damp palette, so the flat still blends seamlessly
+    // into the dry beach above it. Shade roles: 0 damp patch, 1 base, 2 sheen,
+    // 3 ripple shadow.
+    let mut wet = (*g.tiles.get("sand")).clone();
+    let cs = wet.csprite.as_mut().expect("sand has a csprite");
+    cs.sparse = Sprite::new(11, 0, 3, 3, color::get4(330, 431, 330, 210), 3);
+    cs.sides = cs.sparse.clone();
+    let base = crate::assets::sprite_cell("tiles/wet_sand_texture").pos();
+    let h = hash(g.world_seed, 0x5745_5453, x, y);
+    let coords = [
+        base + (h & 3) as i32,
+        base + ((h >> 2) & 3) as i32,
+        base + ((h >> 4) & 3) as i32,
+        base + ((h >> 6) & 3) as i32,
+    ];
+    cs.full = crate::gfx::sprite::make_sprite(
+        2,
+        2,
+        color::get4(320, 431, 455, 321),
+        ((h >> 8) & 1) as i32,
+        false,
+        &coords,
+    );
+    dispatch::csprite_render(g, screen, &wet, lvl, x, y, None);
     // puddle glints: brief shimmer strips on a positional phase offset, the same
     // trick as the deep-water wave crests
     let phase = ((g.tick_count / 7) + (x * 5 + y * 11)) & 63;
