@@ -16,15 +16,6 @@ pub struct TitleDisplay {
     base: DisplayBase,
 }
 
-/// Java `displayFactory(entryText, entries...)` — a submenu-in-a-plain-Display button.
-/// The entry handles are shared (cloned Rc's), matching Java reusing the same objects.
-fn display_factory(entry_text: &str, entries: Vec<EntryHandle>) -> EntryHandle {
-    handle(SelectEntry::new(entry_text, move |g: &mut Game| {
-        let menu = MenuBuilder::new(false, 2, RelPos::Center, entries.clone()).create_menu(g);
-        g.set_menu(super::plain_display(true, true, vec![menu]));
-    }))
-}
-
 impl TitleDisplay {
     pub fn new(g: &Game) -> TitleDisplay {
         // Modern flat flow: Continue (most recent world) / New World / Load World —
@@ -52,12 +43,11 @@ impl TitleDisplay {
             handle(SelectEntry::new("Options", |g: &mut Game| {
                 g.set_menu(OptionsDisplay::new(g));
             })),
-            display_factory(
-                "Help",
-                vec![handle(SelectEntry::new("Instructions", |g: &mut Game| {
-                    g.set_menu(BookDisplay::new(g, super::book_data::INSTRUCTIONS));
-                }))],
-            ),
+            // straight to the instructions book: the old Help submenu was one
+            // empty black page holding a single entry (found playing)
+            handle(SelectEntry::new("Help", |g: &mut Game| {
+                g.set_menu(BookDisplay::new(g, super::book_data::INSTRUCTIONS));
+            })),
             handle(SelectEntry::new("Quit", |g: &mut Game| g.quit())),
         ]);
 

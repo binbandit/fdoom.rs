@@ -907,10 +907,15 @@ fn try_spawn_pass(g: &mut Game, lvl: usize) {
             }
         }
 
-        // firefly swarms drift out at dusk near trees and marsh water
+        // firefly swarms drift out at dusk near trees and marsh water — and keep
+        // replenishing through the night (a console/sleep time-jump used to skip
+        // the Evening-only window and leave night marshes glowless; found playing)
         if depth == 0
             && !spawned
-            && g.get_time() == crate::core::updater::Time::Evening
+            && matches!(
+                g.get_time(),
+                crate::core::updater::Time::Evening | crate::core::updater::Time::Night
+            )
             && rnd >= 91
             && crate::entity::fireflies::weather_allows(g)
             && crate::entity::behavior::firefly_check_start_pos(g, lvl, nx, ny)
