@@ -99,3 +99,40 @@ Status: ✅ done & verified · 🔄 in flight (agent working now) · 📋 planne
 - ✅ Sub-agents used aggressively with correct sequencing/file ownership
 - ✅ Creative roadmap committed (docs/ROADMAP.md): mystical layer (leylines, shrines),
      bountiful layer (hives, fishing schools) — future waves
+
+## Product-manager era (this cycle: taste doc + wave board; commits cited)
+- ✅ DayZ/7DtD north star + Minecraft approachability written into CLAUDE.md taste
+     (eebe302, 494000d); world coherence = "oddities are bugs"
+- ✅ Snow never beside sand: climate-gated biome adjacency + property test (17af522)
+- ✅ Square holes → ragged organic pits/chasms (5364a72); merged excavations, channel
+     flooding that assumes pit depth, base-in-hole (a628082)
+- ✅ Tiles-not-merging sweep: ODDITIES.md audit of 27 findings (e1c6c00); O1-O3 light
+     seams/rock backings/tint identity fixed (be7b198); water family O4/O5 + all
+     waterline axes (39c7970)
+- ✅ Tiny mushrooms 3-5 per tile (asked twice) + flower species + wet sand + dedicated
+     icons + roof-support timber prop (3ff1fe5)
+- ✅ Trees in groups read as little forests (canopy connectors, 4937964)
+- ✅ Crops/cooking/food recipes: 4 world-seeded crops, campfire roasting, oven pot
+     dishes, Queasy raw-food risk (8aec45c)
+- ✅ Rain→snow in cold biomes + snowfall converting tiles one at a time + thaw
+     (24b700b — snow visits the cold fringe, tundra keeps it)
+- ✅ Morning fog / afternoon haze / regional fog banks (bbc59ed), capped below the
+     Whisper Fog event
+- ✅ Towns of different shapes/sizes/ages (overgrown→settled) + hamlets; searchable
+     containers; water bottles / food cans / can→tin chain (5df1fec)
+- ✅ Heat/cold system: 7 bands, fur coats, straw hats, tree shade, campfire warmth,
+     3-heart mercy floor (2e837da)
+- ✅ Pixel studio kept improving for post-AI self-sufficiency: real canvas mode,
+     new-sprite flow, in-context previews, full manual (ff86b95)
+- ✅ HUD redo + one survival screen + original crafting identity: design 634dbbd,
+     frameless HUD 5fb146c, survival screen 2e553cd, wear slots 4ba7f3e,
+     stations/containers deb066c, THE BENCH 14dfa5c
+- ✅ Text overflow "hard to read": draw_fit ellipsis rule across all panes + pixel
+     guard-band tests (deb066c; recipe list follow-up in 14dfa5c)
+- ✅ Crash holding item after crafting (stale pack rows) fixed structurally (e8473c3)
+- 🔄 Resizable window that shows MORE (dynamic logical resolution 288x192→640x400,
+     integer scaling, denser lists) — gpt-5.5 migration in flight
+- ✅ Playtest program: docs/PLAYTEST.md top-10 fully landed (combat juice e1427d4,
+     notifications 4dacdd9, saves 0a460f3, cave-ins 3e38de0, map e525614, village
+     light 94bae2d, first-day thread 660f09f); README + hero shots (b1609fe)
+\n
