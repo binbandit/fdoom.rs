@@ -257,14 +257,28 @@ saved — like the event calendar, the whole schedule is a **pure function** of
   session day, same convention as events). `schedule_intensity(seed, day, tick)` is the
   pure curve; `rain_intensity(g)` / `is_raining(g)` are the live queries.
 - **Biome gating at the player** (presentation + effects): Desert only passes a rare
-  per-slice roll (`desert_slice_wet`, ~15% — a gate, not a scaled drizzle); Tundra
-  presents the same intensity as snowfall (`Precip::Snow`), which does **not** count as
-  rain for the effects API; underground renders nothing (gate in
+  per-slice roll (`desert_slice_wet`, ~15% — a gate, not a scaled drizzle); *cold
+  country* presents the same intensity as snowfall (`Precip::Snow`) — the smooth
+  climate field below `COLD_REACH = 0.36` (`snow_climate`), i.e. all of Tundra
+  (`< 0.30`) plus the 0.30..0.36 **cold fringe** of its neighbors. Snow does **not**
+  count as rain for the effects API; underground renders nothing (gate in
   `gfx::lighting::render_pass`, surface slot only) and cues stay silent.
+- **Accumulation & thaw** (`level::tile::snowfall`, snow wave): where snow falls it
+  also *settles* — `snowing_at(g, x, y)` (schedule x cold-reach) drives a random-tick
+  interpose in `tile::dispatch::tick` (fire-style) that converts the natural families
+  one tile at a time on loaded surface chunks: grass/tufts → Snow (1-in-700 per random
+  tick), broadleaf Tree → Snow Tree (1-in-450) — roughly a quarter of a clearing per
+  snowy slice. Clear weather thaws *visiting* snow back (1-in-1500 / 1-in-1100), but
+  never where snow is native (`snow_native`: Tundra or Mountains by either `biome_at`
+  or `biome_at_blended`, protecting the generated patchy boundary and summit caps).
+  Nothing else ever converts — floors, farmland, sand, dirt and all player work are
+  untouched, and the climate gate keeps dynamic snow 20+ tiles from any sand.
 - **Effects API** (for the fire/mob/crop waves): `extinguishes_fire(g)` (intensity >
   0.5), `growth_boost(g)`, `fireflies_hidden(g)` — tile/entity hooks are one-liners on
   the consumer side.
-- **Cues**: "Rain patters down..." / "The rain clears." (snow variants in Tundra) fire on
+- **Cues**: "Rain patters down..." / "The rain clears." — snow variants in Tundra
+  ("Snow drifts down..." / "The snow eases.") and, outside Tundra where snow only
+  visits, "The cold creeps in..." / "The snow begins to thaw." — fire on
   `CUE_THRESHOLD = 0.05` crossings, surface-only. **Stateless** edge detection:
   `weather::tick` re-derives the previous intensity from the pure schedule at
   `tick_count - 1` (day-normalized), guarded by `g.paused` and the day-cycle divisor so a
@@ -278,7 +292,10 @@ saved — like the event calendar, the whole schedule is a **pure function** of
   fishing wave reads the same field for its hotspots.
 
 Test coverage: `tests/weather.rs` (schedule fraction/determinism, ramp smoothness,
-desert/tundra gating, cue edges, fish-presence field, render smoke + perf ceiling).
+desert/tundra gating, cue edges, fish-presence field, render smoke + perf ceiling);
+`tests/snow_accumulation.rs` (cold-reach presentation, gradual settle + tree flip,
+thaw vs. tundra-permanence, worked-tile immunity, visiting-snow cues, staged
+screenshot run into `target/verify/snow_spell_*.png`).
 
 ## 3. Platform layer (`src/platform/`)
 

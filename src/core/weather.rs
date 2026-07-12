@@ -11,10 +11,13 @@
 //! rain always fades in and out — never a 0→1 pop.
 //!
 //! **Biome gating at the player** (presentation): the schedule is world-wide, but what
-//! the player sees/feels samples their surface biome — Desert passes only a rare
-//! per-slice roll ([`desert_slice_wet`], ~15%), Tundra presents the same intensity as
-//! snowfall, and underground layers render no precipitation at all (the render gate
-//! lives in `gfx::lighting::render_pass`; audio is deliberately skipped).
+//! the player sees/feels samples their surface position — Desert passes only a rare
+//! per-slice roll ([`desert_slice_wet`], ~15%), cold country presents the same
+//! intensity as snowfall (the smooth climate field below [`COLD_REACH`] — all of
+//! Tundra plus the cold fringe of its neighbors), and underground layers render no
+//! precipitation at all (the render gate lives in `gfx::lighting::render_pass`; audio
+//! is deliberately skipped). Where snow falls it also *settles*: the accumulation /
+//! thaw random-tick lives in `level::tile::snowfall` and reads [`snowing_at`].
 //!
 //! Consumers:
 //! - `gfx::lighting` — rain streaks / snow flecks / cool ambient dim, plus the fish
@@ -40,6 +43,14 @@ pub const RAIN_SLICE_ODDS: u64 = 5;
 /// Intensity threshold for "it is raining" — the cue edge and the boolean queries.
 /// Below this the ramp tails are just damp air.
 pub const CUE_THRESHOLD: f32 = 0.05;
+
+/// Cold-reach gate on the smooth climate field (`infinite_gen::climate_at`):
+/// precipitation falls as snow below this. Tundra classifies at `< 0.30`, so the
+/// 0.30..0.36 band is the *cold fringe* — Plains/Forest country where snow visits
+/// during precipitation slices and settles tile by tile (`level::tile::snowfall`).
+/// The field's gradient bound keeps 0.36 a comfortable 20+ tiles from the Savanna
+/// gate (0.42), so dynamic snow can never reach sand.
+pub const COLD_REACH: f64 = 0.36;
 
 /// Fish-presence level above which open water hosts visible bubbles
 /// (`gfx::lighting::fish_bubbles`) and, later, the fishing wave's hotspots.
@@ -136,14 +147,32 @@ pub fn schedule_intensity(seed: i64, day: i32, tick: i32) -> f32 {
     intensity_gated(seed, day, tick, Gate::Open)
 }
 
-/// The player's surface biome, when they stand on an infinite surface layer. Classic
-/// finite surfaces have no biome field — generic rain everywhere.
-fn player_biome(g: &Game) -> Option<Biome> {
+/// Does precipitation fall as *snow* at this surface tile? Pure climate read
+/// ([`COLD_REACH`]); covers all of Tundra plus the cold fringe of its neighbors.
+pub fn snow_climate(seed: i64, x: i32, y: i32) -> bool {
+    infinite_gen::climate_at(seed, x, y) < COLD_REACH
+}
+
+/// Is snow falling on surface tile (x, y) right now? The schedule intensity crossed
+/// with the cold-reach climate gate — the driver for `level::tile::snowfall`'s
+/// settle rolls. (No desert gate: cold-reach tiles can never classify Desert.)
+pub fn snowing_at(g: &Game, x: i32, y: i32) -> bool {
+    snow_climate(g.world_seed, x, y)
+        && schedule_intensity(g.world_seed, g.events.day_number, g.tick_count) >= CUE_THRESHOLD
+}
+
+/// The player's tile position, when they stand on an infinite surface layer. Classic
+/// finite surfaces have no biome/climate fields — generic rain everywhere.
+fn player_surface_pos(g: &Game) -> Option<(i32, i32)> {
     let p = g.try_player()?;
     let lvl = p.c.level?;
     let level = g.levels.get(lvl)?.as_ref()?;
-    (level.depth == 0 && level.is_infinite())
-        .then(|| infinite_gen::biome_at(g.world_seed, p.c.x >> 4, p.c.y >> 4))
+    (level.depth == 0 && level.is_infinite()).then_some((p.c.x >> 4, p.c.y >> 4))
+}
+
+/// The player's surface biome (see [`player_surface_pos`]).
+fn player_biome(g: &Game) -> Option<Biome> {
+    player_surface_pos(g).map(|(x, y)| infinite_gen::biome_at(g.world_seed, x, y))
 }
 
 /// Is the player on a surface (depth 0) layer? Cues are surface-only.
@@ -157,7 +186,8 @@ fn player_on_surface(g: &Game) -> bool {
 }
 
 fn precip_at_clock(g: &Game, day: i32, tick: i32) -> Precip {
-    let biome = player_biome(g);
+    let pos = player_surface_pos(g);
+    let biome = pos.map(|(x, y)| infinite_gen::biome_at(g.world_seed, x, y));
     let gate = if biome == Some(Biome::Desert) {
         Gate::Desert
     } else {
@@ -166,7 +196,9 @@ fn precip_at_clock(g: &Game, day: i32, tick: i32) -> Precip {
     let i = intensity_gated(g.world_seed, day, tick, gate);
     if i <= 0.0 {
         Precip::None
-    } else if biome == Some(Biome::Tundra) {
+    } else if pos.is_some_and(|(x, y)| snow_climate(g.world_seed, x, y)) {
+        // cold-reach: snow in Tundra proper AND the cold fringe of its neighbors —
+        // the same gate `tile::snowfall` uses, so flakes fall exactly where they settle
         Precip::Snow(i)
     } else {
         Precip::Rain(i)
@@ -273,11 +305,16 @@ pub fn tick(g: &mut Game) {
         return;
     }
     let snow = matches!(if now { cur } else { prev }, Precip::Snow(_));
-    let msg = match (now, snow) {
-        (true, false) => "Rain patters down...",
-        (true, true) => "Snow drifts down...",
-        (false, false) => "The rain clears.",
-        (false, true) => "The snow eases.",
+    // Cold-reach flavor: outside Tundra proper, snowfall is a visitor — it settles on
+    // (and later thaws off) ground that is normally green, so the cue says so.
+    let visiting = snow && player_biome(g) != Some(Biome::Tundra);
+    let msg = match (now, snow, visiting) {
+        (true, false, _) => "Rain patters down...",
+        (true, true, false) => "Snow drifts down...",
+        (true, true, true) => "The cold creeps in...",
+        (false, false, _) => "The rain clears.",
+        (false, true, false) => "The snow eases.",
+        (false, true, true) => "The snow begins to thaw.",
     };
     g.notify_all(msg);
 }

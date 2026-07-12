@@ -221,9 +221,15 @@ pub fn default_render(
 ///
 /// Fire wave: while a tile burns, the fire's own burn tick replaces the tile's
 /// normal random tick (no grass spread or regrowth mid-blaze).
+///
+/// Snow wave: falling snow may settle on (or thaw off) the natural ground families —
+/// when it converts the tile, the new tile takes over from the next pass.
 pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
     if fire::is_burning(g, lvl, xt, yt) {
         fire::random_tick(g, lvl, xt, yt);
+        return;
+    }
+    if snowfall::random_tick(g, def, lvl, xt, yt) {
         return;
     }
     match &def.kind {

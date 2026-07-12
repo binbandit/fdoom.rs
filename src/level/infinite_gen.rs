@@ -244,7 +244,10 @@ pub enum Biome {
 /// are retuned vs the old two-octave 0.35/0.68 pair because the single-octave
 /// marginal distribution has fatter tails; these keep tundra ~18% and desert ~5% of
 /// climate-classified land, matching the old frequencies.)
-fn climate_at(seed: i64, x: i32, y: i32) -> f64 {
+/// Public: `core::weather` thresholds this same field for the cold-reach snow gate
+/// (`weather::COLD_REACH`), so snowfall and snow accumulation track the biome map
+/// exactly — the gradient bound above is what keeps dynamic snow away from sand too.
+pub fn climate_at(seed: i64, x: i32, y: i32) -> f64 {
     fractal(seed, 6, x, y, 512, 1)
 }
 

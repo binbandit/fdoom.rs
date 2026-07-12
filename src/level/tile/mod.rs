@@ -41,6 +41,7 @@ pub mod sand;
 pub mod sapling;
 pub mod snow;
 pub mod snow_tree;
+pub mod snowfall;
 pub mod stairs;
 pub mod tall_grass;
 pub mod tidal;

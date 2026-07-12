@@ -210,6 +210,13 @@ per tile per axis), so the `0.30..0.70` strip between the cold and hot gates is 
 can never sit next to sand, even after `biome_at_blended`'s ±4-tile jitter. The
 `tundra_never_borders_desert_or_savanna` test guards this property across seeds.
 
+The *dynamic* weather layer reads the same field: `core::weather` presents
+precipitation as snow wherever `climate_at < COLD_REACH = 0.36` (all of Tundra plus
+the 0.30..0.36 cold fringe), and `level::tile::snowfall` settles/thaws snow there one
+random tick at a time (see CORE_AND_SAVES.md §2.5). The gradient bound makes that
+safe too — 0.36 stays 20+ tiles from the Savanna gate, so even fully wintered fringe
+country never touches sand.
+
 Thresholds are chosen empirically to keep regions "expansive" (hundreds of tiles) per the
 `biomes_are_large_and_all_present` test, which asserts fewer than 40 biome changes over a
 2048-tile straight-line walk and that `{Ocean, Beach, Tundra, Desert, Forest, Plains}` all
