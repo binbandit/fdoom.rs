@@ -331,3 +331,29 @@ fn pack_survives_crafting_shrinking_the_inventory() {
     // ENTER on the remembered last row must not index out of bounds
     tw.press("ENTER");
 }
+
+/// Regression (second live crash report): render/tick must survive ANY inventory
+/// mutation the rows didn't see — here the last slot vanishes out from under the
+/// row list, then both render and ENTER run on the stale selection.
+#[test]
+fn pack_self_heals_when_the_inventory_shrinks_externally() {
+    let mut tw = TestWorld::infinite().name("ss_selfheal").build();
+    for _ in 0..10 {
+        tw.give("Crude Axe", 1);
+    }
+    tw.press("E");
+    assert!(tw.display.menu_active());
+    tw.press("UP"); // wrap to the last row (inventory index 9)
+
+    // yank the last item out from under the row list (no display code runs)
+    if let Some(p) = tw.g.entities.get_mut(tw.g.player_id) {
+        let inv = &mut p.player_mut().inventory;
+        let last = inv.inv_size() - 1;
+        inv.remove(last);
+    }
+
+    // a frame renders with the stale rows (this alone panicked at len=idx), then
+    // ENTER acts on the remembered selection
+    let _ = tw.render();
+    tw.press("ENTER");
+}
