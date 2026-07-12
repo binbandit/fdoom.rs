@@ -522,7 +522,9 @@ fn dot_colors(steps: i32) -> Vec<i32> {
 }
 
 fn dot_pixel(pixels: &[i32]) -> i32 {
-    pixels[16 * fdoom::gfx::screen::W as usize + 87] // center of the 5x5 dot
+    // Center of the 5x5 dot fill. The dot moved off the old frame seam (84,13) into
+    // the HUD badge slot at (4,146) with the corner-HUD relayout (UI_REDESIGN §2 L1).
+    pixels[149 * fdoom::gfx::screen::W as usize + 7]
 }
 
 /// The single slow-ish test: two real worlds at (nearby) climate extremes verify

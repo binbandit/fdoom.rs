@@ -11,8 +11,10 @@ fn px(pixels: &[i32], x: i32, y: i32) -> i32 {
     pixels[(y * screen::W + x) as usize]
 }
 
-/// Inside the ambient ticker's first-line backing (renderer: TICKER_X=4, TICKER_Y=42).
-const TICKER_PROBE: (i32, i32) = (6, 45);
+/// Inside the ambient ticker's first-line backing (renderer: TICKER_X=4, TICKER_Y=3 —
+/// flush to the top-left edge since the corner-HUD relayout removed the frame boxes
+/// the ticker used to dock under; UI_REDESIGN §2 L1).
+const TICKER_PROBE: (i32, i32) = (6, 4);
 /// Inside the centered warning band for a ~20-char message (same spot the old
 /// hud_qol band test sampled: within the darkened band, left of the glyph column).
 fn band_probe() -> (i32, i32) {
@@ -123,11 +125,13 @@ fn save_toast_sits_bottom_right() {
 }
 
 #[test]
-fn held_item_name_never_bleeds_out_of_the_panel() {
+fn held_item_name_never_bleeds_out_of_its_corner() {
     let mut tw = TestWorld::infinite().name("nh_clip").build();
 
-    // Both are stackables (same HUD furniture: no durability bar/percent), so any
-    // pixel difference right of the panel could only come from name overflow.
+    // Corner HUD: the held item is an icon plate bottom-right plus a transient
+    // right-aligned name label (UI_REDESIGN §2 L1). Both test items are stackables
+    // (same plate furniture: badge but no durability bar), so any pixel difference
+    // outside the plate/badge/label corner could only come from name overflow.
     let pan = fdoom::item::registry::get(&tw, "Prospector's Pan");
     tw.player_mut().player_mut().active_item = Some(pan);
     let long = tw.render();
@@ -137,42 +141,45 @@ fn held_item_name_never_bleeds_out_of_the_panel() {
     tw.player_mut().player_mut().active_item = Some(wood);
     let short = tw.render();
 
-    // The clipped name may reach x=197; the frame border tile spans 200..=207 and the
-    // arrow/durability box starts at 208. Nothing from x=198 on may depend on the name.
-    for y in 0..24 {
-        for x in 198..screen::W {
+    // The label band starts at y=145 (backing top); everything above it, and
+    // everything left of the plate column below it, must not depend on the name.
+    for y in 0..145 {
+        for x in 0..screen::W {
             assert_eq!(
                 px(&long, x, y),
                 px(&short, x, y),
-                "held-item name bled outside the panel at ({x},{y})"
+                "held-item name bled out of the label band at ({x},{y})"
+            );
+        }
+    }
+    for y in 145..screen::H {
+        for x in 0..160 {
+            assert_eq!(
+                px(&long, x, y),
+                px(&short, x, y),
+                "held-item name bled left of its corner at ({x},{y})"
             );
         }
     }
 }
 
 #[test]
-fn empty_hands_show_a_dash() {
+fn empty_hands_show_a_dim_fist() {
     let mut tw = TestWorld::infinite().name("nh_empty").build();
     tw.player_mut().player_mut().active_item = None;
     let pixels = tw.render();
     tw.screenshot("nh_empty.png");
 
-    // The dash cell (144..152, 8..16) must not be the flat frame background: without
-    // the glyph the panel interior is a uniform fill.
-    let cell: Vec<i32> = (8..16)
-        .flat_map(|y| (144..152).map(move |x| (x, y)))
+    // The plate interior (267..283, 171..187) must hold the fist glyph: without it
+    // the interior is only the smoked-glass darken, which never yields the fist's
+    // two flat grays.
+    let cell: Vec<i32> = (171..187)
+        .flat_map(|y| (267..283).map(move |x| (x, y)))
         .map(|(x, y)| px(&pixels, x, y))
         .collect();
-    let distinct = {
-        let mut v = cell.clone();
-        v.sort_unstable();
-        v.dedup();
-        v.len()
-    };
     assert!(
-        distinct > 1,
-        "empty-hands dash missing: held-item box cell is a uniform fill ({:#x})",
-        cell[0]
+        cell.contains(&0x3A3A3A) && cell.contains(&0x5A5A5A),
+        "empty-hands fist missing from the held plate"
     );
 }
 
@@ -189,9 +196,10 @@ fn ticker_stacks_newest_on_top() {
     let ticker = tw.render();
     tw.screenshot("nh_ticker3.png");
 
-    // Three stacked 9px rows under the HUD: each row's backing must darken the frame.
+    // Three stacked 9px rows at the top-left edge: each row's backing must darken
+    // the frame.
     for row in 0..3 {
-        let (x, y) = (6, 45 + row * 9);
+        let (x, y) = (6, 4 + row * 9);
         assert_ne!(
             px(&ticker, x, y),
             px(&base, x, y),
