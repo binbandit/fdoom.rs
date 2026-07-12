@@ -603,17 +603,44 @@ the actual `Recipe::new` calls in `Recipes::new()` (`src/item/recipe.rs`):
     Cooked Mushroom_1 <- Mushroom_1, coal_1
 ```
 
-Field cooking (fire wave): interacting with a **lit Campfire** while holding a
-Mushroom roasts it directly (1 Mushroom → 1 Cooked Mushroom, no coal) — an
+Field cooking (fire wave, generalized by the farming wave): interacting with a
+**lit Campfire** while holding anything in `item/cooking.rs`'s `cooked_result` table
+roasts it 1:1 with no coal (raw meats/fish, Mushroom, Potato, Corn, Pumpkin, and the
+Mushroom Skewer), at a small fuel cost plus a smoke puff and the Craft sound — an
 entity-interact path (`campfire_behavior::interact`), not a recipe list, so it does
 not appear in any crafting menu.
 
-Registered forage foods (world spawning/drops belong to the flora work — these exact
-names are the contract): `Berry` (heal 1), `Mushroom` (1), `Apple` (1, pre-existing),
-`Cactus Fruit` (1), `Coconut` (2), `Cooked Mushroom` (3), `Pumpkin` (2), `Fruit Medley`
-(3). **Note for the flora work**: the `pumpkin` tile (`src/level/tile/pumpkin.rs`)
-currently has no `hurt_by`/`interact` drop path — the `Pumpkin` *item* is registered and
-recipe-ready, but nothing in the world drops it yet.
+Registered forage foods (these exact names are the contract): `Berry` (heal 1),
+`Mushroom` (1), `Apple` (1, pre-existing), `Cactus Fruit` (1), `Coconut` (2),
+`Cooked Mushroom` (3), `Pumpkin` (2, dropped by smashing a pumpkin tile — along
+with 0-2 `Pumpkin Seeds`), `Fruit Medley` (3).
+
+**Farming & cooking wave** — the crop loop and the pot dishes. Every seed comes out
+of the world, none from a menu:
+
+| Crop | Seed item | Seed source | Raw (heal) | Cooked (heal) |
+|---|---|---|---|---|
+| Carrot Crop | `Carrot Seeds` | Wild Carrot plants (plains/forest bands), village fields/chests, harvest return | `Carrot` (1) | — (stew ingredient) |
+| Potato Crop | `Seed Potato` | **panning** river banks (`PanFind::Tuber`, surface only), harvest return | `Potato` (1, Queasy risk raw) | `Baked Potato` (3) |
+| Corn Crop | `Corn Kernels` | village fields (structures_gen plots) + village chests, harvest return | `Corn` (1) | `Roast Corn` (3) |
+| Pumpkin Vine | `Pumpkin Seeds` | smashed pumpkins (wild plains patches; legacy blob spawns) | `Pumpkin` (2) | `Roast Pumpkin` (4) |
+
+Crop tiles (`level/tile/crop.rs`, `TileKind::Crop`) ride the wheat clock: data byte
+= age 0..50, three drawn stages, partial harvest from 40, full at 50 (2-3 produce +
+1-2 seeds back, tile → dirt). Growth leans into the weather sim: +1 step next to
+water, +1 while it rains (`weather::growth_boost` — wheat got the same rain step).
+A ripe Pumpkin Vine *becomes* a `pumpkin` tile instead of being harvested in place.
+
+The eating tiers, top to bottom: composed hot dish (`Hearty Stew` 8, `Fish Chowder`
+7 — oven-only pot cookery; eating one also refills stamina and grants a 600-tick
+Regen, `cooking::is_hearty`) > stick food (`Roasted Skewer` 6) > cooked singles
+(3-4) > raw (1-2). Raw flesh and raw potato gamble a 1-in-3 **Queasy** spell on
+eating (`PotionType::Queasy`, 3600 ticks, halves stamina-recharge progress; rides
+the potion-effect timer/HUD/save machinery but has no brewable potion item).
+New recipes: `Mushroom Skewer` ← Stick + Mushroom*2 (personal); `Baked Potato` /
+`Roast Corn` / `Roast Pumpkin` / `Roasted Skewer` ← raw + coal (oven AND furnace);
+`Hearty Stew` ← Raw Beef + Potato + Carrot + coal and `Fish Chowder` ← Raw Fish +
+Potato + Corn + coal (oven only). Tests: `tests/farming_cooking.rs`.
 
 Every recipe quoted above is copied verbatim from `Recipes::new()` — no quantities were
 invented. Note the "no station should conjure a finished wood/metal tool from raw

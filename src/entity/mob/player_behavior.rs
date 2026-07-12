@@ -191,6 +191,13 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             e.player_mut().stamina_recharge += 1;
         }
 
+        // cooking wave: a Queasy stomach (raw flesh gamble) halves the recharge —
+        // every other tick's progress is lost
+        if e.player().potioneffects.contains_key(&PotionType::Queasy) && g.tick_count % 2 == 0 {
+            let pd = e.player_mut();
+            pd.stamina_recharge = (pd.stamina_recharge - 1).max(0);
+        }
+
         if is_swimming(g, e) && !e.player().potioneffects.contains_key(&PotionType::Swim) {
             e.player_mut().stamina_recharge = 0; // don't recharge stamina while swimming.
         }
@@ -557,9 +564,14 @@ pub fn apply_temperature_effects(g: &mut Game, e: &mut Entity, score: f64) {
         e.player_mut().temp_cue_cooldown = TEMP_CUE_COOLDOWN;
     }
 
-    // second band out: stamina recharges slower, and the body shows it
+    // second band out: stamina recharges slower, and the body shows it. When a
+    // Queasy stomach (cooking wave) is also dragging on recharge, the two
+    // penalties take the WORST (Queasy's 1/2), not both — stacked they'd grind
+    // recharge to ~1/6, a death-spiral feel the taste rules forbid. Queasy's own
+    // halving runs in the main player tick; here the cold/heat drag stands down.
     if steps.abs() >= 2 {
-        if g.game_time % 3 == 0 {
+        let queasy = e.player().potioneffects.contains_key(&PotionType::Queasy);
+        if !queasy && g.game_time % 3 == 0 {
             let pd = e.player_mut();
             if pd.stamina_recharge > 0 {
                 pd.stamina_recharge -= 1; // ~2/3 recharge speed

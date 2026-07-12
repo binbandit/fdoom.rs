@@ -1,6 +1,7 @@
 //! Behavior of the Campfire furniture (fire wave): fuel burn-down, smoke, flame
-//! animation, the rest-by-the-fire stamina bonus, wood refueling, mushroom cooking,
-//! and the occasional stray spark that ignites adjacent flammable tiles.
+//! animation, the rest-by-the-fire stamina bonus, wood refueling, field cooking
+//! (anything in `item/cooking.rs`'s roast table, 1:1 for a little fuel), and the
+//! occasional stray spark that ignites adjacent flammable tiles.
 
 use crate::core::game::Game;
 use crate::entity::{Direction, Entity, EntityKind, behavior};
@@ -17,6 +18,8 @@ const LOW_FUEL: i32 = FUEL_PER_WOOD;
 /// 1-in-this per tick: a spark lands on one random neighboring tile (which only
 /// matters if that tile is flammable — keep tinder clear of the fire ring).
 const SPARK_ODDS: i32 = 500;
+/// Fuel spent roasting one item (cooking wave): half an in-game minute of burn.
+const COOK_FUEL: i32 = FUEL_PER_WOOD / 8;
 
 /// Campfire tick: base push handling, then fuel burn-down + smoke + stray sparks.
 pub fn tick(g: &mut Game, e: &mut Entity) {
@@ -88,7 +91,8 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
 
 /// Campfire `interact` (attack key while facing it):
 /// - holding Wood: feed the fire (relights an ember; capped at [`MAX_FUEL`]);
-/// - holding a Mushroom over a lit fire: roast it (1 -> 1 Cooked Mushroom);
+/// - holding anything the roast table maps (`cooking::cooked_result`) over a lit
+///   fire: cook it 1:1, spending [`COOK_FUEL`] and puffing smoke;
 /// - empty-handed: read the fuel state.
 pub fn interact(
     g: &mut Game,
@@ -122,11 +126,27 @@ pub fn interact(
             });
             true
         }
-        Some(it) if cf.fuel > 0 && it.get_name().eq_ignore_ascii_case("Mushroom") => {
+        Some(it) if cf.fuel > 0 && crate::item::cooking::cooked_result(it.get_name()).is_some() => {
+            // field cooking (item/cooking.rs): anything the table maps roasts 1:1
+            // over a lit fire. Costs a little fuel and sends up a puff of smoke.
+            let cooked_name = crate::item::cooking::cooked_result(it.get_name())
+                .expect("guard checked the table");
+            cf.fuel = (cf.fuel - COOK_FUEL).max(1); // never cooks the fire dead
             consume_one(item, creative);
-            let cooked = crate::item::registry::get(g, "Cooked Mushroom");
+            let cooked = crate::item::registry::get(g, cooked_name);
+            let note = format!("The {} sizzles over the fire...", cooked.get_name());
             player.player_mut().inventory.add(cooked);
-            g.notify_all("The mushroom roasts slowly over the fire...");
+            if let Some(lvl) = e.c.level {
+                let smoke = crate::entity::particle::new_smoke_particle(
+                    e.c.x,
+                    e.c.y - 8,
+                    false,
+                    &mut g.random,
+                );
+                g.level_mut(lvl).add(smoke, lvl);
+            }
+            g.play_sound(crate::core::io::sound::Sound::Craft);
+            g.notify_all(&note);
             true
         }
         None => {

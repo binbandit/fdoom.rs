@@ -196,6 +196,8 @@ impl Recipes {
             r("Jack-O-Lantern", "Pumpkin + Torch"),
             // no-cook trail food: mashed forage
             r("Fruit Medley", "Berry*2 + Apple"),
+            // two caps threaded on a stick, ready for the campfire
+            r("Mushroom Skewer", "Stick + Mushroom*2"),
             r("Torch*2", "Wood + coal"),
             r("Grass Seeds", "seeds + Flower*2"),
             r("plank*2", "Wood"),
@@ -315,6 +317,12 @@ impl Recipes {
             r("Tin", "Empty Can*3 + coal"),
             // roast forage — available at either heat station (also in the oven list)
             r("Cooked Mushroom", "Mushroom + coal"),
+            // farming-wave roasts: any hot stone will do (mirrored in the oven list;
+            // a lit campfire roasts them fuel-for-free in the field)
+            r("Baked Potato", "Potato + coal"),
+            r("Roast Corn", "Corn + coal"),
+            r("Roast Pumpkin", "Pumpkin + coal"),
+            r("Roasted Skewer", "Mushroom Skewer + coal"),
         ];
 
         let oven = vec![
@@ -326,6 +334,15 @@ impl Recipes {
             r("Cooked Cave Eel", "Cave Eel + coal"),
             r("bread", "wheat*4"),
             r("Cooked Mushroom", "Mushroom + coal"),
+            // farming-wave roasts (also at the furnace)
+            r("Baked Potato", "Potato + coal"),
+            r("Roast Corn", "Corn + coal"),
+            r("Roast Pumpkin", "Pumpkin + coal"),
+            r("Roasted Skewer", "Mushroom Skewer + coal"),
+            // composed dishes — pot cookery, oven only: the kitchen payoff for a
+            // stocked pantry (see item/cooking.rs `is_hearty` for the eat bonus)
+            r("Hearty Stew", "Raw Beef + Potato + Carrot + coal"),
+            r("Fish Chowder", "Raw Fish + Potato + Corn + coal"),
         ];
 
         let enchant = vec![

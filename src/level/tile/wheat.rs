@@ -51,11 +51,15 @@ pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         return;
     }
 
-    // wheat next to water grows twice as fast
+    // wheat next to water grows twice as fast; rain waters the field too
+    // (farming wave — same weather lean as level/tile/crop.rs)
     let age = g.level(lvl).get_data(xt, yt);
     if age < 50 {
-        let step = if if_water(g, lvl, xt, yt) { 2 } else { 1 };
-        g.level_mut(lvl).set_data(xt, yt, age + step);
+        let mut step = if if_water(g, lvl, xt, yt) { 2 } else { 1 };
+        if crate::core::weather::growth_boost(g) {
+            step += 1;
+        }
+        g.level_mut(lvl).set_data(xt, yt, (age + step).min(50));
     }
 }
 

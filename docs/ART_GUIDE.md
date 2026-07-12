@@ -44,7 +44,11 @@ assets/sprites/
 A sprite's **name** is its path minus `.png`: `items/berry`, `mobs/player/walk`,
 `tiles/grass_texture`. That name is how code finds unpinned sprites at runtime:
 `sheet.cell("items/berry")` returns its `CellRect` (and `.pos()` gives the classic
-`cx + cy * 32` index render calls take).
+`cx + cy * 32` index render calls take). In game code the two ready-made paths are
+`Sprite::named("items/carrot", w, h, colors)` (resolved against the screen's sheet
+at draw time — item icons, overlay art) and `screen.name_pos("tiles/crop_corn")`
+for hand-rolled render fns that address sub-cells themselves (the farming-wave
+crop stage strips are the reference example).
 
 ## manifest.txt — the pin table
 

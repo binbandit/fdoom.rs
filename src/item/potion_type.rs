@@ -14,10 +14,15 @@ pub enum PotionType {
     Lava,
     Shield,
     Haste,
+    /// Post-port (farming/cooking wave): food-borne nausea, not a brewable potion —
+    /// eating raw flesh (or a raw potato) risks it. Slows stamina recovery while it
+    /// lasts. Rides the potion-effect machinery for its timer/HUD/save handling but
+    /// is excluded from the registry's potion items (you can't bottle it).
+    Queasy,
 }
 
 impl PotionType {
-    pub const VALUES: [PotionType; 11] = [
+    pub const VALUES: [PotionType; 12] = [
         PotionType::None,
         PotionType::Speed,
         PotionType::Light,
@@ -29,6 +34,7 @@ impl PotionType {
         PotionType::Lava,
         PotionType::Shield,
         PotionType::Haste,
+        PotionType::Queasy,
     ];
 
     pub fn disp_color(self) -> i32 {
@@ -44,6 +50,7 @@ impl PotionType {
             PotionType::Lava => 400,
             PotionType::Shield => 115,
             PotionType::Haste => 303,
+            PotionType::Queasy => 230, // bilious green
         }
     }
 
@@ -60,6 +67,7 @@ impl PotionType {
             PotionType::Lava => 7200,
             PotionType::Shield => 5400,
             PotionType::Haste => 4800,
+            PotionType::Queasy => 3600, // one in-game minute of a turned stomach
         }
     }
 
@@ -77,6 +85,7 @@ impl PotionType {
             PotionType::Lava => "Lava",
             PotionType::Shield => "Shield",
             PotionType::Haste => "Haste",
+            PotionType::Queasy => "Queasy",
         }
     }
 

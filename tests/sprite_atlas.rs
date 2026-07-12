@@ -71,8 +71,13 @@ fn stitched_atlas_matches_golden() {
 fn unpinned_files_follow_pixel_mode_rules() {
     const UNPINNED_PAL: &[&str] = &[
         "items/big_fish.png",
+        "items/carrot.png",
         "items/cave_eel.png",
+        "items/corn.png",
         "items/pan.png",
+        "items/potato.png",
+        "items/skewer.png",
+        "items/stew_bowl.png",
         "items/timber_prop.png",
         "items/window.png",
         "tiles/flower_species.png",
@@ -80,10 +85,15 @@ fn unpinned_files_follow_pixel_mode_rules() {
         "tiles/wet_sand_texture.png",
     ];
     const UNPINNED_RGB: &[&str] = &[
+        "tiles/crop_carrot.png",
+        "tiles/crop_corn.png",
+        "tiles/crop_potato.png",
         "tiles/mushroom_cluster.png",
+        "tiles/pumpkin_vine.png",
         "tiles/tree_canopy.png",
         "tiles/tree_pine_canopy.png",
         "tiles/tree_snow_pine_canopy.png",
+        "tiles/wild_carrot.png",
     ];
 
     let pinned: std::collections::HashSet<String> = parse_manifest(&manifest_text())
@@ -142,14 +152,24 @@ fn unpinned_files_follow_pixel_mode_rules() {
 fn named_call_sites_resolve() {
     for name in [
         "items/big_fish",
+        "items/carrot",
         "items/cave_eel",
+        "items/corn",
         "items/pan",
+        "items/potato",
+        "items/skewer",
+        "items/stew_bowl",
         "items/timber_prop",
         "items/window",
+        "tiles/crop_carrot",
+        "tiles/crop_corn",
+        "tiles/crop_potato",
         "tiles/flower_species",
         "tiles/mushroom_cluster",
+        "tiles/pumpkin_vine",
         "tiles/timber_prop",
         "tiles/wet_sand_texture",
+        "tiles/wild_carrot",
     ] {
         let c = fdoom::assets::sprite_cell(name);
         assert!(

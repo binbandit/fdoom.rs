@@ -164,6 +164,9 @@ struct Ids {
     tidal_flat: u8,
     reeds: u8,
     dry_bush: u8,
+    // farming wave
+    wild_carrot: u8,
+    pumpkin: u8,
     iron: u8,
     gold: u8,
     gem: u8,
@@ -207,6 +210,8 @@ impl Ids {
             tidal_flat: tiles.get("Tidal Flat").id,
             reeds: tiles.get("Reeds").id,
             dry_bush: tiles.get("Dry Bush").id,
+            wild_carrot: tiles.get("Wild Carrot").id,
+            pumpkin: tiles.get("pumpkin").id,
             iron: tiles.get("iron ore").id,
             gold: tiles.get("gold ore").id,
             gem: tiles.get("gem ore").id,
@@ -447,6 +452,9 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
                 ids.berry_bush
             } else if detail < trees + 0.016 {
                 ids.mushroom
+            } else if detail < trees + 0.020 {
+                // farming wave: wild carrots on the clearing floor
+                ids.wild_carrot
             } else if detail < trees + 0.066 {
                 tuft(4)
             } else {
@@ -493,6 +501,13 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
                 ids.tree
             } else if detail < 0.020 {
                 ids.berry_bush
+            } else if detail < 0.026 {
+                // farming wave: wild carrots thread the open grass...
+                ids.wild_carrot
+            } else if detail < 0.028 {
+                // ...and the odd volunteer pumpkin squats in it (seed stock for
+                // infinite worlds; classic finite maps blob-spawn theirs)
+                ids.pumpkin
             } else if detail < 0.060 {
                 ids.flower
             } else if detail < 0.105 {

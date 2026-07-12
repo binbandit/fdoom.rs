@@ -99,6 +99,9 @@ pub enum PanFind {
     Iron,
     Gold,
     Gem,
+    /// Farming wave: a wild seed potato washed out of the bank silt — the
+    /// fossicker's way into potato farming (surface creeks only; see `try_pan`).
+    Tuber,
 }
 
 /// The pan-roll table: pure, so tests can pin it down. `richness` is the shared field
@@ -110,6 +113,7 @@ pub fn pan_outcome(richness: f64, roll: f64) -> PanFind {
     let iron = gold + 0.020 + 0.080 * richness;
     let coal = iron + 0.040 + 0.100 * richness;
     let stone = coal + 0.300;
+    let tuber = stone + 0.050; // flat, like stone: banks hold tubers, rich or poor
     if roll < gem {
         PanFind::Gem
     } else if roll < gold {
@@ -120,6 +124,8 @@ pub fn pan_outcome(richness: f64, roll: f64) -> PanFind {
         PanFind::Coal
     } else if roll < stone {
         PanFind::Stone
+    } else if roll < tuber {
+        PanFind::Tuber
     } else {
         PanFind::Nothing
     }
@@ -161,6 +167,12 @@ pub fn try_pan(
     let roll = g.random.next_double();
     let (name, note) = match pan_outcome(richness, roll) {
         PanFind::Nothing => (None, "Nothing but gray sand."),
+        // tubers live in surface creek banks; underground pools pan them as silt
+        PanFind::Tuber if g.level(lvl).depth < 0 => (None, "Nothing but gray sand."),
+        PanFind::Tuber => (
+            Some("Seed Potato"),
+            "A knobbly tuber rolls out of the silt.",
+        ),
         PanFind::Stone => (Some("Stone"), "A smooth stone clacks in the pan."),
         PanFind::Coal => (Some("Coal"), "Black flecks settle in the pan."),
         PanFind::Iron => (Some("Iron Ore"), "A rusty gleam in the gravel."),

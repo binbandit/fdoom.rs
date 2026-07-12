@@ -10,6 +10,7 @@ pub mod berry_bush;
 pub mod cactus;
 pub mod cloud;
 pub mod cloud_cactus;
+pub mod crop;
 pub mod depth;
 pub mod dirt;
 pub mod dispatch;
@@ -52,6 +53,7 @@ pub mod tree_species;
 pub mod wall;
 pub mod water;
 pub mod wheat;
+pub mod wild_carrot;
 pub mod window;
 pub mod wool;
 
@@ -292,6 +294,13 @@ pub enum TileKind {
         /// Jack-O-Lantern: carved + lit (stronger light, different drop).
         lit: bool,
     },
+    /// Farmland row crop (farming wave); per-tile data = age 0..50 on the wheat
+    /// clock. See `crop.rs`.
+    Crop {
+        crop: crop::CropKind,
+    },
+    /// Foraged root plant on grass — the carrot-farming entry point.
+    WildCarrot,
     /// Pickable berry shrub; per-tile data 0 = ripe, 1 = regrowing.
     BerryBush,
     /// Forest-floor / cave-floor fungus; walk-through, breakable pickup.
@@ -454,6 +463,24 @@ impl Tiles {
         // biome identity: the Mountains highland ground (see heath.rs)
         set(67, dispatch::make_heath_tile("Heath"));
 
+        // farming wave (ids 68+): row crops on farmland + the foraged wild carrot
+        set(
+            68,
+            dispatch::make_crop_tile("Carrot Crop", crop::CropKind::Carrot),
+        );
+        set(
+            69,
+            dispatch::make_crop_tile("Potato Crop", crop::CropKind::Potato),
+        );
+        set(
+            70,
+            dispatch::make_crop_tile("Corn Crop", crop::CropKind::Corn),
+        );
+        set(
+            71,
+            dispatch::make_crop_tile("Pumpkin Vine", crop::CropKind::PumpkinVine),
+        );
+        set(72, dispatch::make_wild_carrot_tile("Wild Carrot"));
         Tiles {
             list: RefCell::new(t),
         }

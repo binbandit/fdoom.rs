@@ -293,9 +293,12 @@ struct StructIds {
     wool: u8,
     torch_dirt: u8,
     jack_o: u8,
-    /// Settled-town garden plots (towns wave).
+    /// Settled-town garden plots (towns wave); crop rows are the farming wave's
+    /// gone-to-seed village fields.
     farmland: u8,
     berry_bush: u8,
+    corn_crop: u8,
+    carrot_crop: u8,
     /// Flora-wave scatter tiles trails may wear through (species trees, bushes, reeds).
     soft_flora: [u8; 9],
 }
@@ -328,6 +331,8 @@ impl StructIds {
             jack_o: tiles.get("Jack-O-Lantern").id,
             farmland: tiles.get("Farmland").id,
             berry_bush: tiles.get("Berry Bush").id,
+            corn_crop: tiles.get("Corn Crop").id,
+            carrot_crop: tiles.get("Carrot Crop").id,
             soft_flora: [
                 tiles.get("Pine Tree").id,
                 tiles.get("Dead Tree").id,
@@ -913,7 +918,8 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
             // link the center to every doorway. How far gone it all is — walls,
             // paving, paths, flora — comes from the town's age axis ([`town_age`]).
             let variant = variant_of(seed, p);
-            let ap = age_params(town_age(seed, p));
+            let age = town_age(seed, p);
+            let ap = age_params(age);
             let ground = |x: i32, y: i32| {
                 if detail(0x56C4_0006, x, y) < ap.paving {
                     ids.stone_floor // surviving paving stones
@@ -964,6 +970,58 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
                     }
                 }
             }
+            // farming wave: the village field, gone to seed — a fenced plot between
+            // plaza and building ring where corn rows (and the odd carrot) still
+            // volunteer; breaking them yields the seed stock that starts a player's
+            // own farm. Only aged villages keep one — a Settled village's tended
+            // plot is its kitchen garden (`stamp_garden`). Stamped before paths and
+            // buildings so anything later worn or built wins overlaps.
+            if age != TownAge::Settled {
+                // decay dials: Weathered is the classic look the plot was tuned
+                // for; Overgrown is one bad summer from being meadow again
+                let (fence_keep, revert) = match age {
+                    TownAge::Overgrown => (0.22, 0.45),
+                    _ => (0.45, 0.20),
+                };
+                let fh = hash(seed, 0x56C4_0010, ox, oy);
+                // one of the four diagonals, nudged clear of the 12..15-tile
+                // building ring; 6..8 tiles out
+                let (qx, qy) = QUADRANT_DIRS[(fh % 4) as usize];
+                let dist = 9 + ((fh >> 8) % 3) as i32;
+                let (fx, fy) = (ox + qx * dist / 4, oy + qy * dist / 4);
+                let (hw, hh) = (2 + ((fh >> 16) % 2) as i32, 2); // 5..7 x 5 tiles
+                for dy in -hh..=hh {
+                    for dx in -hw..=hw {
+                        let (x, y) = (fx + dx, fy + dy);
+                        let perimeter = dx.abs() == hw || dy.abs() == hh;
+                        if perimeter {
+                            // mostly-collapsed fence line
+                            if detail(0x56C4_0011, x, y) < fence_keep {
+                                w.push((x, y, ids.fence));
+                            }
+                            continue;
+                        }
+                        let t = if detail(0x56C4_0012, x, y) < revert {
+                            // patch gone back to bare earth — or, Overgrown, to
+                            // the same reclaiming tufts as the rest of the town
+                            if ap.overgrow > 0.0 && detail(0x6F76_0001, x, y) < ap.overgrow * 0.6 {
+                                ids.tall_grass[(hash(seed, 0x6F76_0002, x, y) % 3) as usize]
+                            } else {
+                                ids.dirt
+                            }
+                        } else if dx.rem_euclid(2) == 0 {
+                            if detail(0x56C4_0013, x, y) < 0.15 {
+                                ids.carrot_crop
+                            } else {
+                                ids.corn_crop
+                            }
+                        } else {
+                            ids.farmland
+                        };
+                        w.push((x, y, t));
+                    }
+                }
+            }
             let buildings = village_buildings(seed, ox, oy, variant);
             // paths before buildings, so the shells stamp cleanly over the path ends
             for &(bx, by, _, _) in &buildings {
@@ -1007,7 +1065,7 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
             }
             // the rubble well, last so it always crowns the plaza center; how much
             // of the ring has collapsed tracks the town's age
-            let well_rubble = match town_age(seed, p) {
+            let well_rubble = match age {
                 TownAge::Overgrown => 0.70,
                 TownAge::Weathered => 0.40,
                 TownAge::Settled => 0.10,
@@ -1611,6 +1669,10 @@ fn fill_structure_chest(
             (5, "Coal", 4),
             (8, "Iron", 2),
             (12, "Gold", 1),
+            // farming wave: the hamlet's seed stock survived in its larders
+            (2, "Corn Kernels", 3),
+            (3, "Carrot Seeds", 2),
+            (4, "Pumpkin Seeds", 2),
         ],
         StructureKind::Ruins => &[
             (2, "Torch", 3),

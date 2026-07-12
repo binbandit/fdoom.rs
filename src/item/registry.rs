@@ -557,6 +557,41 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         &["dirt"],
     ));
 
+    // Farming wave: seed stock for the crop tiles (level/tile/crop.rs). Every seed
+    // comes out of the world — wild carrot plants, panned riverbank tubers, village
+    // plots and their chests, smashed pumpkins — none is craftable from a menu.
+    items.push(tile_item(
+        "Carrot Seeds",
+        (5, 4),
+        get4(-1, 20, 240, 520),
+        "Carrot Crop",
+        &["farmland"],
+    ));
+    // A whole seed tuber, planted as-is (hence the potato icon in muddy tones).
+    items.push(Item::new(
+        "Seed Potato",
+        icon_named("items/potato", get4(-1, 110, 321, 210)),
+        ItemKind::TileItem {
+            count: 1,
+            model: "POTATO CROP".to_string(),
+            valid_tiles: vec!["FARMLAND".to_string()],
+        },
+    ));
+    items.push(tile_item(
+        "Corn Kernels",
+        (5, 4),
+        get4(-1, 110, 440, 550),
+        "Corn Crop",
+        &["farmland"],
+    ));
+    items.push(tile_item(
+        "Pumpkin Seeds",
+        (5, 4),
+        get4(-1, 110, 430, 550),
+        "Pumpkin Vine",
+        &["farmland"],
+    ));
+
     // ToolItem.getAllInstances()
     for ttype in ToolType::VALUES {
         if ttype.flat_name().is_some() {
@@ -624,6 +659,60 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     // out of you (mild, telegraphed at the bite; interact.rs). Leaves an Empty Can.
     // TODO(art): dedicated can icon (placeholder recolors the bucket cell).
     items.push(food("Old Food Can", (21, 4), get4(-1, 100, 322, 433), 2));
+    // Farming & cooking wave — item/cooking.rs holds the raw/cooked/hearty design
+    // table. Tiers: raw crop 1 (raw potato risks Queasy), cooked single 3..4,
+    // stick food 6, composed hot dish 7..8 (+ the warm-meal bonus). Raw/cooked
+    // pairs share one grayscale icon file, told apart by palette (tool-tier style).
+    items.push(food_named(
+        "Carrot",
+        "items/carrot",
+        get4(-1, 200, 520, 542),
+        1,
+    ));
+    items.push(food_named(
+        "Potato",
+        "items/potato",
+        get4(-1, 110, 321, 432),
+        1,
+    ));
+    items.push(food_named("Corn", "items/corn", get4(-1, 110, 440, 551), 1));
+    items.push(food_named(
+        "Baked Potato",
+        "items/potato",
+        get4(-1, 210, 432, 543),
+        3,
+    ));
+    items.push(food_named(
+        "Roast Corn",
+        "items/corn",
+        get4(-1, 210, 441, 552),
+        3,
+    ));
+    items.push(food("Roast Pumpkin", (2, 4), get4(-1, 100, 320, 540), 4));
+    items.push(food_named(
+        "Mushroom Skewer",
+        "items/skewer",
+        get4(-1, 100, 433, 544),
+        2,
+    ));
+    items.push(food_named(
+        "Roasted Skewer",
+        "items/skewer",
+        get4(-1, 100, 321, 542),
+        6,
+    ));
+    items.push(food_named(
+        "Hearty Stew",
+        "items/stew_bowl",
+        get4(-1, 100, 310, 542),
+        8,
+    ));
+    items.push(food_named(
+        "Fish Chowder",
+        "items/stew_bowl",
+        get4(-1, 100, 332, 554),
+        7,
+    ));
 
     // Post-port first-aid: heals health (not hunger), hand-crafted from cord + fibers.
     items.push(medical("Bandage", (1, 4), get4(-1, 300, 444, 555), 3));
@@ -722,8 +811,12 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items.push(armor("Fur Coat", get4(-1, 100, 210, 432), 0.3, 1));
     items.push(armor("Straw Hat", get4(-1, 110, 330, 552), 0.1, 0));
 
-    // PotionItem.getAllInstances()
+    // PotionItem.getAllInstances(). Queasy is a food-sickness effect, not a brew —
+    // no bottle exists for it.
     for ptype in PotionType::VALUES {
+        if ptype == PotionType::Queasy {
+            continue;
+        }
         items.push(new_potion_item(ptype));
     }
 

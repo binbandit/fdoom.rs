@@ -59,6 +59,11 @@ pub fn hurt_by(
     };
     let item = crate::item::registry::get(g, item_name);
     drop_item(g, lvl, x * 16 + 8, y * 16 + 8, item);
+    // farming wave: an uncarved pumpkin spills seed stock for a farmland vine
+    if !matches!(def.kind, TileKind::Pumpkin { lit: true }) {
+        let seeds = crate::item::registry::get(g, "Pumpkin Seeds");
+        crate::level::drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 0, 2, &[seeds]);
+    }
     let grass = g.tiles.get("grass");
     g.set_tile_default(lvl, x, y, &grass);
     g.play_sound(crate::core::io::sound::Sound::MonsterHurt);

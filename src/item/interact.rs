@@ -185,6 +185,21 @@ pub fn item_interact_on_tile(
                 let pd = player.player_mut();
                 pd.hunger = (pd.hunger + heal).min(MAX_HUNGER); // restore the hunger
                 success = true;
+
+                // cooking wave (item/cooking.rs): raw flesh gambles on a Queasy
+                // spell; a composed hot dish refills stamina and grants a short
+                // Regen — the pot cookery payoff.
+                let name = item.get_name().to_string();
+                if crate::item::cooking::queasy_risk(&name) && g.random.next_int_bound(3) == 0 {
+                    apply_potion_time(g, player, PotionType::Queasy, PotionType::Queasy.duration());
+                    g.notifications.push("Your stomach turns...".to_string());
+                } else if crate::item::cooking::is_hearty(&name) {
+                    let pd = player.player_mut();
+                    pd.stamina = crate::entity::mob::player::MAX_STAMINA;
+                    apply_potion_time(g, player, PotionType::Regen, 600);
+                    g.notifications
+                        .push("The hot meal warms you through".to_string());
+                }
             }
 
             // scavenge wave: aged tin rations always leave the can behind, and

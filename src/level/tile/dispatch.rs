@@ -83,6 +83,12 @@ pub fn make_farm_tile(name: &str) -> TileDef {
 pub fn make_wheat_tile(name: &str) -> TileDef {
     wheat::make(name)
 }
+pub fn make_crop_tile(name: &str, kind: crop::CropKind) -> TileDef {
+    crop::make(name, kind)
+}
+pub fn make_wild_carrot_tile(name: &str) -> TileDef {
+    wild_carrot::make(name)
+}
 pub fn make_hard_rock_tile(name: &str) -> TileDef {
     hard_rock::make(name)
 }
@@ -182,6 +188,8 @@ fn render_inner(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x:
         TileKind::Lava => lava::render(g, screen, def, lvl, x, y),
         TileKind::Ore { .. } => ore::render(g, screen, def, lvl, x, y),
         TileKind::Wheat => wheat::render(g, screen, def, lvl, x, y),
+        TileKind::Crop { .. } => crop::render(g, screen, def, lvl, x, y),
+        TileKind::WildCarrot => wild_carrot::render(g, screen, def, lvl, x, y),
         TileKind::InfiniteFall => infinite_fall::render(g, screen, def, lvl, x, y),
         TileKind::Door { .. } => door::render(g, screen, def, lvl, x, y),
         TileKind::Wool => wool::render(g, screen, def, lvl, x, y),
@@ -247,6 +255,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         TileKind::Lava => lava::tick(g, def, lvl, xt, yt),
         TileKind::Farm => farm::tick(g, def, lvl, xt, yt),
         TileKind::Wheat => wheat::tick(g, def, lvl, xt, yt),
+        TileKind::Crop { .. } => crop::tick(g, def, lvl, xt, yt),
         TileKind::HardRock => hard_rock::tick(g, def, lvl, xt, yt),
         TileKind::Wall { .. } => wall::tick(g, def, lvl, xt, yt),
         TileKind::SnowTree => snow_tree::tick(g, def, lvl, xt, yt),
@@ -357,6 +366,8 @@ pub fn hurt_by(
         TileKind::Pumpkin { .. } => pumpkin::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Ore { .. } => ore::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Wheat => wheat::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::Crop { .. } => crop::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::WildCarrot => wild_carrot::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::HardRock => hard_rock::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::CloudCactus => cloud_cactus::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Wall { .. } => wall::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
@@ -409,6 +420,7 @@ pub fn stepped_on(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32, e: 
         TileKind::Exploded => exploded::stepped_on(g, def, lvl, xt, yt, e),
         TileKind::Farm => farm::stepped_on(g, def, lvl, xt, yt, e),
         TileKind::Wheat => wheat::stepped_on(g, def, lvl, xt, yt, e),
+        TileKind::Crop { .. } => crop::stepped_on(g, def, lvl, xt, yt, e),
         TileKind::Sand => sand::stepped_on(g, def, lvl, xt, yt, e),
         TileKind::Snow => snow::stepped_on(g, def, lvl, xt, yt, e),
         _ => {}
@@ -444,6 +456,7 @@ pub fn interact(
         TileKind::Ore { .. } => ore::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Farm => farm::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Wheat => wheat::interact(g, def, lvl, xt, yt, player, item, attack_dir),
+        TileKind::Crop { .. } => crop::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::HardRock => hard_rock::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Heath => heath::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Cloud => cloud::interact(g, def, lvl, xt, yt, player, item, attack_dir),

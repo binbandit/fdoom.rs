@@ -107,7 +107,10 @@ fn age_markers_overgrowth_gardens_and_lantern_counts() {
         "settled village only lights {settled_lanterns} lanterns"
     );
 
-    // WEATHERED: the classic look — one lantern per house, no garden
+    // WEATHERED: the classic look — one lantern per house, no *tended* garden.
+    // (Bare Farmland is allowed: the farming wave gives aged villages a field
+    // gone to seed. The kitchen garden's marker is its berry bush at the picket
+    // gap, which only `stamp_garden` writes.)
     let (s3, p3) = find_town(StructureKind::Village, TownAge::Weathered);
     let weathered = lantern_positions(s3, p3).len();
     assert!(
@@ -115,9 +118,9 @@ fn age_markers_overgrowth_gardens_and_lantern_counts() {
         "weathered village lights {weathered} lanterns"
     );
     assert_eq!(
-        count_of(s3, p3, &|t| t == id("Farmland")),
+        count_of(s3, p3, &|t| t == id("Berry Bush")),
         0,
-        "weathered village should not keep a tended plot"
+        "weathered village should not keep a tended kitchen garden"
     );
 
     // and hamlets ride the same axis
