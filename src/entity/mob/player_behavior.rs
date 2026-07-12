@@ -103,10 +103,14 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         e.player_mut().cooldowninfo -= 1;
     }
 
+    // P opens the survival screen on SELF (which absorbed the old effects overlay)
     if g.input.get_key("potionEffects").clicked && e.player().cooldowninfo == 0 {
-        let pd = e.player_mut();
-        pd.cooldowninfo = 10;
-        pd.showpotioneffects = !pd.showpotioneffects;
+        e.player_mut().cooldowninfo = 10;
+        g.set_menu(crate::screen::survival_display::SurvivalDisplay::on_tab(
+            g,
+            e,
+            crate::screen::survival_display::Tab::SelfPane,
+        ));
     }
 
     // First-day thread, cue 1: brand-new worlds (world.rs arms the delay) point at
@@ -438,26 +442,22 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             g.set_menu(crate::screen::map_menu::MapMenu::new(g));
         }
 
-        // !use() = no furniture in front of the player; this prevents the player inventory
-        // from opening (will open furniture inventory instead)
+        // !use() = no furniture in front of the player; this prevents the survival
+        // screen from opening (will open furniture inventory instead — L4 folds
+        // stations/containers into the survival shell)
         if g.input.get_key("inventory").clicked && !player_use(g, e) {
-            g.set_menu(crate::screen::player_inv_display::PlayerInvDisplay::new(
-                g, e,
-            ));
+            g.set_menu(crate::screen::survival_display::SurvivalDisplay::new(g, e));
         }
         if g.input.get_key("pause").clicked {
             g.set_menu(crate::screen::pause_display::PauseDisplay::new(g));
         }
+        // Z jumps straight to the CRAFT tab (keeps the first-day cue truthful)
         if g.input.get_key("craft").clicked && !player_use(g, e) {
-            g.set_menu(
-                crate::screen::crafting_display::CraftingDisplay::with_personal(
-                    g,
-                    g.recipes.craft.clone(),
-                    "Crafting",
-                    e,
-                    true,
-                ),
-            );
+            g.set_menu(crate::screen::survival_display::SurvivalDisplay::on_tab(
+                g,
+                e,
+                crate::screen::survival_display::Tab::Craft,
+            ));
         }
 
         if g.input.get_key("info").clicked {

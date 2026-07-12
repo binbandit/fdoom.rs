@@ -23,6 +23,7 @@ pub mod recipe_menu;
 pub mod rel_pos;
 pub mod settings_widgets;
 pub mod splash_menu;
+pub mod survival_display;
 pub mod title_display;
 pub mod world_gen_display;
 pub mod world_select;
