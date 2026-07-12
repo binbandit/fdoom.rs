@@ -113,10 +113,11 @@ pub fn die(g: &mut Game, e: &mut Entity) {
         EntityKind::StoneGolem(_) => super::mob::stone_golem::die(g, e),
         EntityKind::NightWisp(_) => super::mob::night_wisp::die(g, e),
         EntityKind::Ghost(_) => super::mob::ghost::die(g, e),
-        // a dying chest spills its inventory
-        EntityKind::Chest(_) | EntityKind::DeathChest(_) | EntityKind::DungeonChest(_) => {
-            super::furniture::chest_behavior::die(g, e)
-        }
+        // a dying chest (or unsearched scavenge container) spills its inventory
+        EntityKind::Chest(_)
+        | EntityKind::DeathChest(_)
+        | EntityKind::DungeonChest(_)
+        | EntityKind::ScavContainer(_) => super::furniture::chest_behavior::die(g, e),
         _ => remove_entity(g, e),
     }
 }
@@ -436,6 +437,7 @@ pub fn entity_tick(g: &mut Game, e: &mut Entity) {
         EntityKind::TextParticle(_) => super::particle_behavior::text_tick(g, e),
         EntityKind::Furniture(_)
         | EntityKind::Chest(_)
+        | EntityKind::ScavContainer(_)
         | EntityKind::Bed(_)
         | EntityKind::Crafter(_)
         | EntityKind::Lantern(_) => super::furniture::behavior::tick(g, e),
@@ -473,6 +475,9 @@ pub fn entity_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         EntityKind::DeathChest(_) => super::furniture::death_chest_behavior::render(g, screen, e),
         EntityKind::DungeonChest(_) => {
             super::furniture::dungeon_chest_behavior::render(g, screen, e)
+        }
+        EntityKind::ScavContainer(_) => {
+            super::furniture::scav_container_behavior::render(g, screen, e)
         }
         EntityKind::Tnt(_) => super::furniture::tnt_behavior::render(g, screen, e),
         EntityKind::Campfire(_) => super::furniture::campfire_behavior::render(g, screen, e),

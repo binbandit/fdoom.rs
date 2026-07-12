@@ -15,6 +15,8 @@ pub mod death_chest_behavior;
 pub mod dungeon_chest;
 pub mod dungeon_chest_behavior;
 pub mod lantern;
+pub mod scav_container;
+pub mod scav_container_behavior;
 pub mod spawner;
 pub mod spawner_behavior;
 pub mod tnt;

@@ -181,6 +181,10 @@ impl Recipes {
             r("Throwing Knife", "Sharp Stone + Stick + Cord"),
             r("Slingshot", "Stick*2 + Cord*2"),
             r("Bandage", "Cord*2 + Grass Fibers*2"),
+            // temperature wave: cheap thematic mitigation, no station needed —
+            // you're cold NOW (straw shades the desert sun, furs blunt the tundra)
+            r("Straw Hat", "Grass Fibers*6 + Cord"),
+            r("Fur Coat", "Fur*5 + Cord*2"),
             r("Fishing Rod", "Stick + Cord*2"),
             // fossicking: pan the creeks, shore up the tunnels
             r("Prospector's Pan", "Stick*3 + Cord + Stone"),
@@ -205,6 +209,12 @@ impl Recipes {
         let workbench = vec![
             r("Torch*2", "Wood + coal"),
             r("Lantern", "Wood*8 + slime*4 + glass*3"),
+            // the scavenger's alternative: town-tin instead of slime hunting
+            r("Lantern", "Wood*4 + Tin*3 + glass*3"),
+            // a hammered-tin pail — the pre-anvil bucket for can hoarders
+            r("Empty Bucket", "Tin*5"),
+            // blown vials; refill at any open water for a modest stamina drink
+            r("Empty Bottle*2", "glass*3"),
             r("Stone Brick*2", "Stone*2"),
             r("Stone Wall", "Stone Brick*3"),
             r("Stone Door", "Stone Brick*5"),
@@ -301,6 +311,8 @@ impl Recipes {
             // an early-house build, not a late-game luxury; coal is the fuel, as in
             // the ore smelts above
             r("glass", "sand*2 + coal"),
+            // scavenge wave: melt down hoarded ration cans into workable tin
+            r("Tin", "Empty Can*3 + coal"),
             // roast forage — available at either heat station (also in the oven list)
             r("Cooked Mushroom", "Mushroom + coal"),
         ];

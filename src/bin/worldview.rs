@@ -71,15 +71,17 @@ fn structure_color(kind: StructureKind) -> u32 {
         StructureKind::Cemetery => 0xBE5CFF,
         StructureKind::StandingStones => 0x00E5FF,
         StructureKind::Camp => 0xFFE12E,
+        StructureKind::Hamlet => 0xFF7ABF,
         StructureKind::Village => 0xFF3030,
     }
 }
 
-const STRUCTURE_LEGEND: [(StructureKind, &str); 5] = [
+const STRUCTURE_LEGEND: [(StructureKind, &str); 6] = [
     (StructureKind::Ruins, "RUINS"),
     (StructureKind::Cemetery, "CEMETERY"),
     (StructureKind::StandingStones, "STONES"),
     (StructureKind::Camp, "CAMP"),
+    (StructureKind::Hamlet, "HAMLET"),
     (StructureKind::Village, "VILLAGE"),
 ];
 

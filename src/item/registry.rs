@@ -63,6 +63,13 @@ fn icon(cell: (i32, i32), colors: i32) -> Sprite {
     Sprite::new1x1(cell.0, cell.1, colors)
 }
 
+/// An item icon from a named (auto-allocated) sprite file under `assets/sprites/`,
+/// e.g. `icon_named("items/pan", ...)` — for post-decomposition art with no pinned
+/// cell address.
+fn icon_named(name: &str, colors: i32) -> Sprite {
+    Sprite::from_pos(crate::assets::sprite_pos(name), colors)
+}
+
 /// Java `new ToolItem(type, level)`.
 pub fn new_tool_item(ttype: ToolType, level: i32) -> Item {
     let name = match ttype.flat_name() {
@@ -149,6 +156,47 @@ pub fn new_unknown_item(req_name: &str) -> Item {
 
 fn stackable(name: &str, cell: (i32, i32), colors: i32) -> Item {
     Item::new(name, icon(cell, colors), ItemKind::Stackable { count: 1 })
+}
+
+/// `stackable` for a named (auto-allocated) sprite file.
+fn stackable_named(name: &str, sprite: &str, colors: i32) -> Item {
+    Item::new(
+        name,
+        icon_named(sprite, colors),
+        ItemKind::Stackable { count: 1 },
+    )
+}
+
+/// `food` for a named (auto-allocated) sprite file.
+fn food_named(name: &str, sprite: &str, colors: i32, heal: i32) -> Item {
+    Item::new(
+        name,
+        icon_named(sprite, colors),
+        ItemKind::Food {
+            count: 1,
+            heal,
+            stamina_cost: 5,
+        },
+    )
+}
+
+/// `tile_item` for a named (auto-allocated) sprite file.
+fn tile_item_named(
+    name: &str,
+    sprite: &str,
+    colors: i32,
+    model: &str,
+    valid_tiles: &[&str],
+) -> Item {
+    Item::new(
+        name,
+        icon_named(sprite, colors),
+        ItemKind::TileItem {
+            count: 1,
+            model: model.to_uppercase(),
+            valid_tiles: valid_tiles.iter().map(|t| t.to_uppercase()).collect(),
+        },
+    )
 }
 
 /// Restores `heal` hunger points when eaten.
@@ -271,6 +319,10 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         items.push(new_furniture_item(furniture::tnt::new()));
         items.push(new_furniture_item(furniture::bed::new()));
         items.push(new_furniture_item(furniture::campfire::new()));
+        // scavenge containers (towns wave) — placeable as decor once glove-carried
+        for kind in furniture::scav_container::ScavKind::VALUES {
+            items.push(new_furniture_item(furniture::scav_container::new(kind)));
+        }
     }
 
     // TorchItem.getAllInstances()
@@ -306,6 +358,14 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         get4(-1, 100, 300, 500),
         Some(crate::assets::ANTIDOUS_TXT),
         true,
+    ));
+    // Scavenge lore find: a dead prospector's field notes — reads as a treasure map
+    // for the fossicking systems (seep-stains, panning, props). Container loot only.
+    items.push(book(
+        "Prospector's Note",
+        get4(-1, 210, 432, 543),
+        Some(crate::assets::PROSPECTORS_NOTE_TXT),
+        false,
     ));
 
     // TileItem.getAllInstances()
@@ -395,12 +455,10 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     ));
     // Light & shelter: a glass pane in a wall segment — solid like a wall, but
     // light and sight pass straight through (the tile's blocks_light stays false).
-    // TODO(art): dedicated window icon (frame + pane); placeholder reuses the wall
-    // cell in pale glass tones.
-    items.push(tile_item(
+    items.push(tile_item_named(
         "Window",
-        (16, 4),
-        get4(-1, 111, 344, 455),
+        "items/window",
+        get4(-1, 210, 321, 455),
         "Window",
         &["Wood Planks", "Stone Bricks", "Obsidian"],
     ));
@@ -489,12 +547,11 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         &["Infinite Fall"],
     ));
     // Fossicking: mine-ceiling support; while one stands within 3 tiles, breaking
-    // rock never triggers a cave-in (level/tile/fossick.rs).
-    // TODO(art): dedicated prop icon (two uprights + header beam) - placeholder
-    // reuses the wall cell in raw-timber tones.
-    items.push(tile_item(
+    // rock never triggers a cave-in (level/tile/fossick.rs). The icon is a header
+    // beam over two uprights — a doorframe, deliberately not a solid block.
+    items.push(tile_item_named(
         "Timber Prop",
-        (16, 4),
+        "items/timber_prop",
         get4(-1, 100, 310, 431),
         "Timber Prop",
         &["dirt"],
@@ -527,12 +584,30 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     // Fishing wave (player_behavior::go_fishing): Big Fish is the Deep Water prize,
     // Cave Eel comes out of underground pools. Raw heals sit on the raw=1..2 scale;
     // Cooked Big Fish is the fisherman's payoff at 5.
-    // TODO(art): dedicated cells (a fatter fish, a long pale eel) — placeholders
-    // reuse the fish cell (24,4) recolored.
-    items.push(food("Big Fish", (24, 4), get4(-1, 320, 430, 540), 2));
-    items.push(food("Cooked Big Fish", (24, 4), get4(-1, 210, 330, 440), 5));
-    items.push(food("Cave Eel", (24, 4), get4(-1, 112, 334, 445), 1));
-    items.push(food("Cooked Cave Eel", (24, 4), get4(-1, 211, 333, 444), 3));
+    items.push(food_named(
+        "Big Fish",
+        "items/big_fish",
+        get4(-1, 123, 345, 555),
+        2,
+    ));
+    items.push(food_named(
+        "Cooked Big Fish",
+        "items/big_fish",
+        get4(-1, 210, 433, 554),
+        5,
+    ));
+    items.push(food_named(
+        "Cave Eel",
+        "items/cave_eel",
+        get4(-1, 233, 445, 550),
+        1,
+    ));
+    items.push(food_named(
+        "Cooked Cave Eel",
+        "items/cave_eel",
+        get4(-1, 210, 432, 554),
+        3,
+    ));
     // Forage foods (world spawning lives with the flora work; these are the item
     // prototypes it drops). Heal values sit on the existing raw=1..2 / cooked=3 scale.
     // TODO(art): final icons — placeholders reuse nearby cells recolored.
@@ -544,6 +619,11 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     // Jack-O-Lantern ingredient; the pumpkin tile needs a drop path (flora work).
     items.push(food("Pumpkin", (2, 4), get4(-1, 210, 530, 550), 2));
     items.push(food("Fruit Medley", (8, 4), get4(-1, 102, 304, 525), 3));
+    // Scavenge find: aged tin rations. Decent hunger for a found item, but the name
+    // is the warning — roughly one can in four has turned and knocks some stamina
+    // out of you (mild, telegraphed at the bite; interact.rs). Leaves an Empty Can.
+    // TODO(art): dedicated can icon (placeholder recolors the bucket cell).
+    items.push(food("Old Food Can", (21, 4), get4(-1, 100, 322, 433), 2));
 
     // Post-port first-aid: heals health (not hunger), hand-crafted from cord + fibers.
     items.push(medical("Bandage", (1, 4), get4(-1, 300, 444, 555), 3));
@@ -561,11 +641,9 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items.push(stackable("Sharp Stone", (23, 4), get4(-1, 111, 333, 444)));
     // Fossicking: swirl creek mud / exposed tidal flats / wet banks for flecks and
     // nuggets; find odds scale with the land's hidden richness field.
-    // TODO(art): dedicated pan icon (shallow dish with a glint) - placeholder reuses
-    // the bucket cell in beaten-tin gray.
-    items.push(stackable(
+    items.push(stackable_named(
         "Prospector's Pan",
-        (21, 4),
+        "items/pan",
         get4(-1, 111, 333, 444),
     ));
     // Lets the player cross Deep Water while it's in the inventory (multi-level terrain).
@@ -603,6 +681,18 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         (11, 4),
         get4(-1, 100, 222, 433),
     ));
+    // Scavenge wave. The bottle pair: drink a full one for a modest stamina refresh,
+    // refill the empty at open water (interact.rs; name-matched like Throwing Knife).
+    // TODO(art): dedicated bottle icons (placeholders recolor the potion cell).
+    items.push(stackable("Water Bottle", (27, 4), get4(-1, 222, 115, 555)));
+    items.push(stackable("Empty Bottle", (27, 4), get4(-1, 222, 444, 555)));
+    // What's left after the rations: melts down at the furnace into Tin, the
+    // scavenger's minor metal (tin lantern / hammered pail at the workbench).
+    // TODO(art): dedicated crushed-can + tin-ingot icons.
+    items.push(stackable("Empty Can", (21, 4), get4(-1, 111, 333, 444)));
+    items.push(stackable("Tin", (11, 4), get4(-1, 211, 433, 554)));
+    // A dead settlement's pocket change — worthless, pocketed anyway (lore find).
+    items.push(stackable("Old Coin", (10, 4), get4(-1, 110, 321, 442)));
 
     // ClothingItem.getAllInstances()
     items.push(clothing("Red Clothes", get4(-1, 100, 400, 500), 400));
@@ -621,6 +711,16 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items.push(armor("Iron Armor", get4(-1, 100, 322, 544), 0.5, 3));
     items.push(armor("Gold Armor", get4(-1, 110, 330, 553), 0.7, 4));
     items.push(armor("Gem Armor", get4(-1, 101, 404, 545), 1.0, 5));
+
+    // ---- Temperature wave (core::temperature) — appended block, do not reorder ----
+    // Fur drops off cows and feral hounds; the coat and hat ride the worn-armor slot
+    // (leather-grade and token protection respectively), and temperature.rs reads
+    // them by name for the cold/heat band shifts.
+    // TODO(art): dedicated icons — Fur reuses the leather cell recolored warm, the
+    // coat/hat reuse the armor chestplate cell recolored.
+    items.push(stackable("Fur", (19, 4), get4(-1, 100, 321, 543)));
+    items.push(armor("Fur Coat", get4(-1, 100, 210, 432), 0.3, 1));
+    items.push(armor("Straw Hat", get4(-1, 110, 330, 552), 0.1, 0));
 
     // PotionItem.getAllInstances()
     for ptype in PotionType::VALUES {

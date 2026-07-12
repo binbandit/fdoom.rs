@@ -187,6 +187,21 @@ pub fn item_interact_on_tile(
                 success = true;
             }
 
+            // scavenge wave: aged tin rations always leave the can behind, and
+            // roughly one can in four has turned — a mild stamina knock and a
+            // notification, never damage (pressure teaches, never punishes)
+            if success && item.get_name().eq_ignore_ascii_case("Old Food Can") {
+                player
+                    .player_mut()
+                    .inventory
+                    .add(registry::get(g, "Empty Can"));
+                if g.random.next_int_bound(4) == 0 {
+                    let pd = player.player_mut();
+                    pd.stamina = (pd.stamina - 4).max(0);
+                    g.notifications.push("Your stomach churns...".to_string());
+                }
+            }
+
             stackable_interact_on(g, item, success)
         }
 
@@ -296,9 +311,51 @@ pub fn item_interact_on_tile(
             false
         }
 
+        // Scavenge-wave bottles: plain stackables with bespoke uses, name-matched
+        // like the Throwing Knife in attack(). A full bottle is a modest drink...
+        ItemKind::Stackable { .. } if item.get_name().eq_ignore_ascii_case("Water Bottle") => {
+            use crate::entity::mob::player::MAX_STAMINA;
+            if player.player().stamina >= MAX_STAMINA {
+                return false; // already fresh — don't waste the water
+            }
+            let pd = player.player_mut();
+            pd.stamina = (pd.stamina + 4).min(MAX_STAMINA);
+            if !g.is_mode("creative") {
+                swap_named_stack(g, item, player, "Empty Bottle");
+            }
+            g.notifications.push("Refreshing.".to_string());
+            true
+        }
+        // ...and the empty refills at any open water.
+        ItemKind::Stackable { .. } if item.get_name().eq_ignore_ascii_case("Empty Bottle") => {
+            let tile = g.tile_at(lvl, xt, yt);
+            if tile.id != g.tiles.get("water").id && tile.id != g.tiles.get("Deep Water").id {
+                return false;
+            }
+            if !g.is_mode("creative") {
+                swap_named_stack(g, item, player, "Water Bottle");
+            }
+            true
+        }
+
         // Item.interactOn default (PowerGlove, plain stackables, unknown items).
         _ => false,
     }
+}
+
+/// Swap one unit of the active stack for a different registry item (the bottle
+/// fill/drain pair) — the same split-one-off-the-stack mechanics as [`edit_bucket`].
+fn swap_named_stack(g: &Game, item: &mut Item, player: &mut Entity, to: &str) {
+    let count = item.count();
+    if count == 0 {
+        return; // shouldn't happen; a count of 0 already marks the item depleted
+    }
+    if count == 1 {
+        *item = registry::get(g, to);
+        return;
+    }
+    item.set_count(count - 1);
+    player.player_mut().inventory.add(registry::get(g, to));
 }
 
 /// Java `Furniture.clone()` (`getClass().newInstance()`) and its Crafter/Spawner
@@ -309,6 +366,8 @@ fn furniture_clone(g: &mut Game, f: &Entity) -> Entity {
         EntityKind::Chest(_) => furniture::chest::new(),
         EntityKind::DeathChest(_) => furniture::death_chest::new(g),
         EntityKind::DungeonChest(_) => furniture::dungeon_chest::new(g),
+        // a fresh scavenge container is shut but holds nothing (worldgen fills them)
+        EntityKind::ScavContainer(sc) => furniture::scav_container::new(sc.kind),
         EntityKind::Bed(_) => furniture::bed::new(),
         // fire wave: a fresh clone is fully fueled and lit
         EntityKind::Campfire(_) => furniture::campfire::new(),

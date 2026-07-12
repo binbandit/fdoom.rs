@@ -107,6 +107,8 @@ pub enum EntityKind {
     Chest(furniture::chest::ChestData),
     DeathChest(furniture::death_chest::DeathChestData),
     DungeonChest(furniture::dungeon_chest::DungeonChestData),
+    /// One-time searchable scavenge container (supply crate / barrel / cupboard).
+    ScavContainer(furniture::scav_container::ScavContainerData),
     Bed(furniture::bed::BedData),
     Crafter(furniture::crafter::CrafterData),
     Lantern(furniture::lantern::LanternData),
@@ -163,7 +165,10 @@ impl Entity {
     pub fn is_chest(&self) -> bool {
         matches!(
             self.kind,
-            EntityKind::Chest(_) | EntityKind::DeathChest(_) | EntityKind::DungeonChest(_)
+            EntityKind::Chest(_)
+                | EntityKind::DeathChest(_)
+                | EntityKind::DungeonChest(_)
+                | EntityKind::ScavContainer(_)
         )
     }
 
@@ -293,6 +298,7 @@ impl Entity {
             EntityKind::Chest(c) => &c.furniture,
             EntityKind::DeathChest(c) => &c.chest.furniture,
             EntityKind::DungeonChest(c) => &c.chest.furniture,
+            EntityKind::ScavContainer(c) => &c.chest.furniture,
             EntityKind::Bed(b) => &b.furniture,
             EntityKind::Crafter(c) => &c.furniture,
             EntityKind::Lantern(l) => &l.furniture,
@@ -309,6 +315,7 @@ impl Entity {
             EntityKind::Chest(c) => &mut c.furniture,
             EntityKind::DeathChest(c) => &mut c.chest.furniture,
             EntityKind::DungeonChest(c) => &mut c.chest.furniture,
+            EntityKind::ScavContainer(c) => &mut c.chest.furniture,
             EntityKind::Bed(b) => &mut b.furniture,
             EntityKind::Crafter(c) => &mut c.furniture,
             EntityKind::Lantern(l) => &mut l.furniture,
@@ -324,6 +331,7 @@ impl Entity {
             EntityKind::Chest(c) => c,
             EntityKind::DeathChest(c) => &c.chest,
             EntityKind::DungeonChest(c) => &c.chest,
+            EntityKind::ScavContainer(c) => &c.chest,
             _ => return None,
         })
     }
@@ -333,6 +341,7 @@ impl Entity {
             EntityKind::Chest(c) => c,
             EntityKind::DeathChest(c) => &mut c.chest,
             EntityKind::DungeonChest(c) => &mut c.chest,
+            EntityKind::ScavContainer(c) => &mut c.chest,
             _ => return None,
         })
     }

@@ -5,9 +5,9 @@
 use fdoom::level::chunk::{CHUNK_SIZE, chunk_coord};
 use fdoom::level::infinite_gen::{self, Biome, biome_at};
 use fdoom::level::structures_gen::{
-    ALL_KINDS, MAX_RADIUS, Placement, StructureKind, TRAIL_JITTER, TRAIL_RANGE, boulder_at,
-    chest_positions, kind_radius, placement_in_cell, placements_in_rect, structure_writes,
-    trail_writes, trails_in_rect, variant_count, variant_of,
+    ALL_KINDS, MAX_RADIUS, Placement, StructureKind, TRAIL_JITTER, TRAIL_RANGE, TownAge,
+    boulder_at, chest_positions, kind_radius, placement_in_cell, placements_in_rect,
+    structure_writes, town_age, trail_writes, trails_in_rect, variant_count, variant_of,
 };
 use fdoom::level::tile::Tiles;
 use std::collections::{HashMap, HashSet};
@@ -179,12 +179,18 @@ const VARIANT_SEEDS: [i64; 4] = [SEED, 1, 99, 4242];
 
 /// First placement of `kind` with layout `variant` across the seed sweep.
 fn find_variant(kind: StructureKind, variant: u32) -> (i64, Placement) {
+    // towns also roll an age axis; pin the signature checks to the classic
+    // (Weathered) look — the age markers get their own tests in towns_scavenge.rs
+    let is_town = matches!(kind, StructureKind::Village | StructureKind::Hamlet);
     VARIANT_SEEDS
         .iter()
         .find_map(|&s| {
             scan_placements(s, kind, 16384)
                 .into_iter()
-                .find(|p| variant_of(s, *p) == variant)
+                .find(|p| {
+                    variant_of(s, *p) == variant
+                        && (!is_town || town_age(s, *p) == TownAge::Weathered)
+                })
                 .map(|p| (s, p))
         })
         .unwrap_or_else(|| panic!("{kind:?} variant {variant}: none across the seed sweep"))
@@ -327,6 +333,26 @@ fn every_variant_occurs_with_its_signature_tiles() {
                     let down = (-17..=17).filter(|&d| rel(0, d).is_some()).count();
                     assert!(across >= 24, "{ctx}: east-west road only {across} tiles");
                     assert!(down >= 24, "{ctx}: north-south road only {down} tiles");
+                }
+                // towns wave: crossroads hamlet — two short road arms + houses
+                (StructureKind::Hamlet, 0) => {
+                    let across = (-9..=9).filter(|&d| rel(d, 0).is_some()).count();
+                    let down = (-9..=9).filter(|&d| rel(0, d).is_some()).count();
+                    assert!(across >= 12, "{ctx}: east-west lane only {across} tiles");
+                    assert!(down >= 12, "{ctx}: north-south lane only {down} tiles");
+                    assert!(count(planks) >= 6, "{ctx}: too few plank floors");
+                }
+                // ring green: a grassy round with a flower heart, houses about it
+                (StructureKind::Hamlet, 1) => {
+                    assert_eq!(rel(0, 0), Some(flower), "{ctx}: no green-heart flower");
+                    assert!(count(planks) >= 6, "{ctx}: too few plank floors");
+                    assert!(count(wall) >= 6, "{ctx}: too few walls");
+                }
+                // straggle: houses strung along a worn lane
+                (StructureKind::Hamlet, 2) => {
+                    assert!(count(planks) >= 6, "{ctx}: too few plank floors");
+                    let dirt_n = count(id("dirt"));
+                    assert!(dirt_n >= 10, "{ctx}: lane too faint ({dirt_n} dirt)");
                 }
                 _ => unreachable!("unexpected variant {v} for {kind:?}"),
             }
@@ -473,7 +499,10 @@ fn trails_link_nearby_structures_deterministically() {
             assert!(
                 matches!(
                     p.kind,
-                    StructureKind::Ruins | StructureKind::Cemetery | StructureKind::Camp
+                    StructureKind::Ruins
+                        | StructureKind::Cemetery
+                        | StructureKind::Camp
+                        | StructureKind::Hamlet
                 ),
                 "{:?} is not a trail endpoint kind",
                 p.kind

@@ -393,6 +393,7 @@ fn entity_class_name(e: &Entity) -> &'static str {
         EntityKind::Chest(_) => "Chest",
         EntityKind::DeathChest(_) => "DeathChest",
         EntityKind::DungeonChest(_) => "DungeonChest",
+        EntityKind::ScavContainer(_) => "ScavContainer",
         EntityKind::Bed(_) => "Bed",
         EntityKind::Crafter(_) => "Crafter",
         EntityKind::Lantern(_) => "Lantern",
@@ -446,6 +447,14 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
         }
         if let EntityKind::DungeonChest(dc) = &e.kind {
             extradata.push_str(&format!(":{}", dc.is_locked));
+        }
+        if let EntityKind::ScavContainer(sc) = &e.kind {
+            // ScavKind ordinal + searched flag (lantern-style ordinal scheme)
+            let ordinal = crate::entity::furniture::scav_container::ScavKind::VALUES
+                .iter()
+                .position(|k| *k == sc.kind)
+                .unwrap_or(0);
+            extradata.push_str(&format!(":{}:{}", ordinal, sc.searched));
         }
     }
 

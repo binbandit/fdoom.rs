@@ -967,11 +967,14 @@ pub fn load_entity(
     } else if new_entity.is_chest() {
         let is_death_chest = matches!(new_entity.kind, EntityKind::DeathChest(_));
         let is_dungeon_chest = matches!(new_entity.kind, EntityKind::DungeonChest(_));
+        let is_scav_container = matches!(new_entity.kind, EntityKind::ScavContainer(_));
         let chest_info: Vec<String> = info[2..info.len() - 1].to_vec();
 
         let end_idx = chest_info.len()
             - if is_death_chest || is_dungeon_chest {
                 1
+            } else if is_scav_container {
+                2 // trailing ScavKind ordinal + searched flag
             } else {
                 0
             };
@@ -1016,6 +1019,21 @@ pub fn load_entity(
                 let lvl: usize = info[info.len() - 1].parse().unwrap();
                 g.level_mut(lvl).chest_count += 1;
             }
+        } else if is_scav_container {
+            use crate::entity::furniture::scav_container::ScavKind;
+            let ordinal: usize = chest_info[chest_info.len() - 2].parse().unwrap_or(0);
+            let searched = parse_bool(&chest_info[chest_info.len() - 1]);
+            let kind = ScavKind::VALUES
+                .get(ordinal)
+                .copied()
+                .unwrap_or(ScavKind::Crate);
+            if let EntityKind::ScavContainer(sc) = &mut new_entity.kind {
+                sc.kind = kind;
+                sc.searched = searched;
+                sc.chest.furniture.name = kind.title().to_string();
+                sc.chest.furniture.sprite = kind.sprite(searched);
+            }
+            new_entity.c.col = kind.col(searched);
         }
     } else if matches!(new_entity.kind, EntityKind::Spawner(_)) {
         let mob_name = info[2].rsplit('.').next().unwrap_or(&info[2]).to_string();
@@ -1148,6 +1166,10 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
         "Chest" => Some(furniture::chest::new()),
         "DeathChest" => Some(furniture::death_chest::new(g)),
         "DungeonChest" => Some(furniture::dungeon_chest::new(g)),
+        // kind + searched state are restored from the trailing save fields
+        "ScavContainer" => Some(furniture::scav_container::new(
+            furniture::scav_container::ScavKind::Crate,
+        )),
         "Anvil" => Some(furniture::crafter::new(
             furniture::crafter::CrafterType::Anvil,
         )),

@@ -1,6 +1,9 @@
 //! Deterministic surface structures for infinite worlds: ruins, cemeteries, standing
-//! stones, abandoned camps, destroyed villages — plus the connective tissue between
-//! them: worn trails, and boulder scatter in the open biomes.
+//! stones, abandoned camps, and the towns — little hamlets and full villages — plus
+//! the connective tissue between them: worn trails, and boulder scatter in the open
+//! biomes. Towns additionally roll an AGE ([`town_age`]): Overgrown (walls down,
+//! floors reclaimed by flora, lamps out, time-capsule loot), the classic Weathered
+//! look, or Settled (sound walls, tended garden, every lamp lit — just nobody home).
 //!
 //! Placement follows the same hash-grid pattern as `infinite_gen::gate_in_cell`: each
 //! structure type gets its own coarse cell grid, and each cell holds at most one
@@ -9,7 +12,8 @@
 //! the placement hash ([`variant_of`]): ruins come as square rooms, L-shaped two-room
 //! builds, or round towers; cemeteries are fenced, overgrown, or stone-walled; standing
 //! stones form rings, straight avenues, or dolmen clusters; camps pitch a lean-to or go
-//! cold (fire ring + bedroll); villages center on a round plaza or a crossroads.
+//! cold (fire ring + bedroll); hamlets come as a crossroads, a ring around a green,
+//! or a straggle along a lane; villages center on a round plaza or a crossroads.
 //! Chunks stamp every structure whose footprint
 //! could overlap them (rect query padded by [`MAX_RADIUS`]), so a structure straddling a
 //! chunk border comes out identical from both sides.
@@ -26,14 +30,16 @@
 //!    replace soft ground (grass/sand/snow/trees/...), never water or rock, so they
 //!    fade out at fords and outcrops like real old routes.
 //! 3. **Structures** ([`structure_writes`]): the blueprints proper, stamped last so
-//!    their footprints always win. Villages come last in [`ALL_KINDS`] so a rare
-//!    single-structure overlap resolves in the village's favor.
+//!    their footprints always win. The towns come last in [`ALL_KINDS`] so a rare
+//!    single-structure overlap resolves in the town's favor (villages over hamlets).
 //!
 //! Tiles are stamped during `infinite_gen::generate_chunk` (before the gate set-pieces,
-//! so a rare overlap always leaves the gate intact). Loot chests are entities and can't
-//! live in the pure tile pass; they are spawned by [`spawn_chunk_entities`] when
-//! `level::ensure_chunks_at` generates a chunk *fresh* (not loaded from disk), and the
-//! chunk is marked dirty so it persists and the chest never duplicates.
+//! so a rare overlap always leaves the gate intact). Loot chests, scavenge containers
+//! (crates/barrels/cupboards — one-time searchable, [`container_positions`]), ember
+//! campfires and house lanterns are entities and can't live in the pure tile pass;
+//! they are spawned by [`spawn_chunk_entities`] when `level::ensure_chunks_at`
+//! generates a chunk *fresh* (not loaded from disk), and the chunk is marked dirty so
+//! it persists and the entities never duplicate.
 
 use super::chunk::{CHUNK_SIZE, Chunk, chunk_coord};
 use super::infinite_gen::{Biome, biome_at, hash, unit};
@@ -50,16 +56,19 @@ pub enum StructureKind {
     Cemetery,
     StandingStones,
     Camp,
+    Hamlet,
     Village,
 }
 
 /// Fixed iteration order — stamping order must be identical from every chunk.
-/// Villages stamp last so they win the (rare) overlap with a single structure.
-pub const ALL_KINDS: [StructureKind; 5] = [
+/// The towns (hamlets, then villages) stamp last so they win the (rare) overlap
+/// with a single structure; villages win even over a hamlet.
+pub const ALL_KINDS: [StructureKind; 6] = [
     StructureKind::Ruins,
     StructureKind::Cemetery,
     StructureKind::StandingStones,
     StructureKind::Camp,
+    StructureKind::Hamlet,
     StructureKind::Village,
 ];
 
@@ -68,6 +77,8 @@ pub const ALL_KINDS: [StructureKind; 5] = [
 pub fn kind_radius(kind: StructureKind) -> i32 {
     match kind {
         StructureKind::Village => 24,
+        // the straggle variant strings houses ~14 tiles out along its lane
+        StructureKind::Hamlet => 18,
         // the avenue variant runs 7 stones out along an axis, plus its cleared verge
         StructureKind::StandingStones => 7,
         _ => 6,
@@ -85,8 +96,82 @@ pub fn variant_count(kind: StructureKind) -> u32 {
         StructureKind::StandingStones => 3,
         // lean-to camp / cold camp
         StructureKind::Camp => 2,
+        // crossroads / ring around a green / straggle along a lane
+        StructureKind::Hamlet => 3,
         // round plaza / crossroads
         StructureKind::Village => 2,
+    }
+}
+
+/// How far gone a town is — a third generation axis for the two town kinds, pure
+/// like the layout variant. OVERGROWN towns are the oldest (walls mostly down,
+/// floors reclaimed by grass, lanterns burnt out, but the untouched holds carry
+/// time-capsule loot); WEATHERED is the classic razed look; SETTLED reads freshly
+/// kept — sound walls, tended plots, every lamp still burning — just nobody home.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TownAge {
+    Overgrown,
+    Weathered,
+    Settled,
+}
+
+/// The age of a town placement (only meaningful for `Hamlet`/`Village`). Pure, so
+/// every chunk stamping a piece of the town agrees on its state of decay.
+pub fn town_age(seed: i64, p: Placement) -> TownAge {
+    match hash(seed, 0xA6ED_70B1_0007, p.x, p.y) % 3 {
+        0 => TownAge::Overgrown,
+        1 => TownAge::Weathered,
+        _ => TownAge::Settled,
+    }
+}
+
+/// The per-tile decay dials one [`TownAge`] rolls with. `Weathered` is pinned to the
+/// pre-age-axis constants, so classic villages generate byte-identically.
+struct AgeParams {
+    /// A perimeter wall tile crumbles when its detail roll lands under this.
+    crumble: f64,
+    /// Odds a standing (non-corner) wall run keeps a glazed pane.
+    window: f64,
+    /// Interior rubble / floor-worn-through-to-earth odds.
+    rubble: f64,
+    worn: f64,
+    /// Odds an interior floor tile is reclaimed by flora (Overgrown only).
+    overgrow: f64,
+    /// Odds a plaza/road ground tile keeps its paving stones.
+    paving: f64,
+    /// Odds a stretch of door-path is worn away entirely.
+    path_gap: f64,
+}
+
+fn age_params(age: TownAge) -> AgeParams {
+    match age {
+        TownAge::Overgrown => AgeParams {
+            crumble: 0.62,
+            window: 0.10,
+            rubble: 0.08,
+            worn: 0.30,
+            overgrow: 0.26,
+            paving: 0.04,
+            path_gap: 0.42,
+        },
+        TownAge::Weathered => AgeParams {
+            crumble: 0.35,
+            window: 0.25,
+            rubble: 0.05,
+            worn: 0.18,
+            overgrow: 0.0,
+            paving: 0.15,
+            path_gap: 0.15,
+        },
+        TownAge::Settled => AgeParams {
+            crumble: 0.08,
+            window: 0.30,
+            rubble: 0.01,
+            worn: 0.05,
+            overgrow: 0.0,
+            paving: 0.30,
+            path_gap: 0.04,
+        },
     }
 }
 
@@ -117,6 +202,9 @@ fn spec(kind: StructureKind) -> (i32, u64, f64) {
         StructureKind::Cemetery => (288, 0x4752_4156_4553_0002, 0.60),
         StructureKind::StandingStones => (320, 0x53_544F_4E45_0003, 0.62),
         StructureKind::Camp => (256, 0x43_414D_5046_0004, 0.80),
+        // towns wave: hamlets are the common find between rare set-piece villages —
+        // a modest density bump carried entirely by the new small footprint
+        StructureKind::Hamlet => (320, 0x484D_4C45_5421_0006, 0.55),
         StructureKind::Village => (512, 0x56_494C_4C41_0005, 0.40),
     }
 }
@@ -134,7 +222,9 @@ fn biome_ok(kind: StructureKind, b: Biome) -> bool {
         }
         StructureKind::StandingStones => matches!(b, Biome::Plains | Biome::Savanna),
         StructureKind::Camp => matches!(b, Biome::Forest | Biome::Tundra | Biome::Desert),
-        StructureKind::Village => matches!(b, Biome::Plains | Biome::Forest | Biome::Savanna),
+        StructureKind::Hamlet | StructureKind::Village => {
+            matches!(b, Biome::Plains | Biome::Forest | Biome::Savanna)
+        }
     }
 }
 
@@ -203,6 +293,9 @@ struct StructIds {
     wool: u8,
     torch_dirt: u8,
     jack_o: u8,
+    /// Settled-town garden plots (towns wave).
+    farmland: u8,
+    berry_bush: u8,
     /// Flora-wave scatter tiles trails may wear through (species trees, bushes, reeds).
     soft_flora: [u8; 9],
 }
@@ -233,6 +326,8 @@ impl StructIds {
             wool: tiles.get("Wool").id,
             torch_dirt: tiles.get("torch dirt").id,
             jack_o: tiles.get("Jack-O-Lantern").id,
+            farmland: tiles.get("Farmland").id,
+            berry_bush: tiles.get("Berry Bush").id,
             soft_flora: [
                 tiles.get("Pine Tree").id,
                 tiles.get("Dead Tree").id,
@@ -362,6 +457,197 @@ fn village_lantern_offset(ox: i32, oy: i32, bx: i32, by: i32, hw: i32, hh: i32) 
     }
 }
 
+/// Where a house keeps its scavenge containers, relative to the building center:
+/// the cupboard in the interior corner diagonally opposite the lantern (never the
+/// chest's center tile, never the door line), and a rain barrel *outside*, flanking
+/// the doorway against the wall — one step out and one step aside, so it never
+/// blocks the walk-in tile.
+fn house_container_offsets(
+    ox: i32,
+    oy: i32,
+    bx: i32,
+    by: i32,
+    hw: i32,
+    hh: i32,
+) -> ((i32, i32), (i32, i32)) {
+    let (lx, ly) = village_lantern_offset(ox, oy, bx, by, hw, hh);
+    let cupboard = (-lx, -ly);
+    let (ddx, ddy) = village_door_offset(ox, oy, bx, by, hw, hh);
+    let barrel = if ddy == 0 {
+        (ddx + ddx.signum(), 1)
+    } else {
+        (1, ddy + ddy.signum())
+    };
+    (cupboard, barrel)
+}
+
+/// The four integer lane directions a straggle hamlet can string out along.
+const LANE_DIRS: [(i32, i32); 4] = [(1, 0), (0, 1), (1, 1), (1, -1)];
+
+/// The houses of a hamlet as `(center x, center y, half width, half height)`.
+/// Three layouts (crossroads / ring green / straggle) at two sizes (a coin-flip of
+/// the placement hash picks compact or sprawling). Pure; shared by the blueprint,
+/// [`lantern_positions`] and [`container_positions`], like [`village_buildings`].
+fn hamlet_buildings(seed: i64, ox: i32, oy: i32, variant: u32) -> Vec<(i32, i32, i32, i32)> {
+    let h = hash(seed, 0x484D_0001, ox, oy);
+    let big = h & (1 << 50) != 0; // the two size classes
+    let mut out = Vec::new();
+    let mut house = |k: i32, bx: i32, by: i32| {
+        let bh = hash(seed, 0x484D_0002_u64.wrapping_add(k as u64), ox, oy);
+        let hw = 2 + ((bh >> 32) % 2) as i32; // half-extents 2..=3 (5x5 .. 7x7)
+        let hh = 2 + ((bh >> 40) % 2) as i32;
+        let jx = ((bh >> 16) % 3) as i32 - 1;
+        let jy = ((bh >> 24) % 3) as i32 - 1;
+        out.push((bx + jx, by + jy, hw, hh));
+    };
+    match variant {
+        // crossroads: one house per road quadrant, close in
+        0 => {
+            let n = if big { 4 } else { 2 };
+            let rot = ((h >> 8) % 4) as i32;
+            for k in 0..n {
+                let (qx, qy) = QUADRANT_DIRS[(rot + k).rem_euclid(4) as usize];
+                let dist = 7 + (hash(seed, 0x484D_0003, ox + k, oy) % 2) as i32;
+                house(k, ox + qx * dist / 4, oy + qy * dist / 4);
+            }
+        }
+        // ring around a green: compass slots at an even spread
+        1 => {
+            let n = if big { 5 } else { 3 };
+            let len = VILLAGE_DIRS.len() as i32;
+            let rot = ((h >> 8) % 8) as i32;
+            for k in 0..n {
+                let slot = (rot + k * len / n).rem_euclid(len) as usize;
+                let (dx4, dy4) = VILLAGE_DIRS[slot];
+                let dist = 9 + (hash(seed, 0x484D_0003, ox + k, oy) % 2) as i32;
+                house(k, ox + dx4 * dist / 4, oy + dy4 * dist / 4);
+            }
+        }
+        // straggle: houses strung along a lane, alternating sides
+        _ => {
+            let n = if big { 4 } else { 2 };
+            let (sx, sy) = LANE_DIRS[((h >> 8) % 4) as usize];
+            let (px, py) = (-sy, sx); // lane perpendicular
+            for k in 0..n {
+                let off = k * 7 - 7 * (n - 1) / 2; // spacing 7, centered on the origin
+                let side = if k % 2 == 0 { 4 } else { -4 };
+                house(k, ox + sx * off + px * side, oy + sy * off + py * side);
+            }
+        }
+    }
+    out
+}
+
+/// The houses of either town kind (dispatch shared by the blueprint and the entity
+/// position functions).
+fn town_buildings(seed: i64, p: Placement) -> Vec<(i32, i32, i32, i32)> {
+    match p.kind {
+        StructureKind::Village => village_buildings(seed, p.x, p.y, variant_of(seed, p)),
+        StructureKind::Hamlet => hamlet_buildings(seed, p.x, p.y, variant_of(seed, p)),
+        _ => Vec::new(),
+    }
+}
+
+/// Stamp one town house shell: perimeter walls (age-dependent standing odds, some
+/// runs keeping a glazed pane), a doorway facing the town center, and an interior
+/// floor that decays with age — sound planks when Settled, worn and rubbly when
+/// Weathered, and reclaimed by grass and tufts when Overgrown. `keep` lists interior
+/// offsets guaranteed sound plank floor (loot chest, lantern, cupboard spots).
+#[allow(clippy::too_many_arguments)]
+fn stamp_house(
+    w: &mut Vec<(i32, i32, u8)>,
+    seed: i64,
+    ids: &StructIds,
+    ap: &AgeParams,
+    (ox, oy): (i32, i32),
+    (bx, by, hw, hh): (i32, i32, i32, i32),
+    keep: &[(i32, i32)],
+) {
+    let detail = |salt: u64, x: i32, y: i32| unit(hash(seed, salt, x, y));
+    let door = village_door_offset(ox, oy, bx, by, hw, hh);
+    for dy in -hh..=hh {
+        for dx in -hw..=hw {
+            let (x, y) = (bx + dx, by + dy);
+            let perimeter = dx.abs() == hw || dy.abs() == hh;
+            let corner = dx.abs() == hw && dy.abs() == hh;
+            let doorway = (dx, dy) == door;
+            let standing = detail(0x56C4_0003, x, y) >= ap.crumble;
+            let t = if perimeter && !doorway && standing {
+                // some standing wall runs keep a glazed pane — at night the house
+                // lantern glows through it (never a corner: wall runs stay solid
+                // where they turn)
+                if !corner && detail(0x56C4_000F, x, y) < ap.window {
+                    ids.window
+                } else {
+                    ids.stone_wall
+                }
+            } else if keep.contains(&(dx, dy)) {
+                // sound plank floor under the loot chest, the house lantern and
+                // any scavenge container — never rubble under the furniture
+                ids.planks
+            } else if !perimeter && detail(0x6F76_0001, x, y) < ap.overgrow {
+                // Overgrown: the floor lost to grass pushing through the boards
+                if detail(0x6F76_0002, x, y) < 0.30 {
+                    ids.tall_grass[(hash(seed, 0x6F76_0002, x, y) % 3) as usize]
+                } else {
+                    ids.grass
+                }
+            } else if detail(0x56C4_0004, x, y) < ap.rubble {
+                ids.rock // rubble
+            } else if detail(0x56C4_0005, x, y) < ap.worn {
+                // floor worn through — bare earth, or turf once truly Overgrown
+                if ap.overgrow > 0.0 {
+                    ids.grass
+                } else {
+                    ids.dirt
+                }
+            } else {
+                ids.planks
+            };
+            w.push((x, y, t));
+        }
+    }
+}
+
+/// Stamp a Settled house's kitchen garden: a small fenced plot of tended farmland
+/// off the wall opposite the doorway, a berry bush at the gap. The freshest age
+/// marker there is — Weathered and Overgrown towns lost theirs long ago.
+fn stamp_garden(
+    w: &mut Vec<(i32, i32, u8)>,
+    seed: i64,
+    ids: &StructIds,
+    (ox, oy): (i32, i32),
+    (bx, by, hw, hh): (i32, i32, i32, i32),
+) {
+    let detail = |salt: u64, x: i32, y: i32| unit(hash(seed, salt, x, y));
+    let (ddx, ddy) = village_door_offset(ox, oy, bx, by, hw, hh);
+    // plot center: 3 tiles out from the back wall (the side away from the door)
+    let (gx, gy) = if ddy == 0 {
+        (bx - ddx.signum() * (hw + 3), by)
+    } else {
+        (bx, by - ddy.signum() * (hh + 3))
+    };
+    for dy in -1..=1i32 {
+        for dx in -2..=2i32 {
+            let (x, y) = (gx + dx, gy + dy);
+            let edge = dx.abs() == 2 || dy.abs() == 1;
+            let t = if edge {
+                // a picket ring that mostly still stands, one bush at the SE gap
+                if (dx, dy) == (2, 1) {
+                    ids.berry_bush
+                } else if detail(0x6F76_0003, x, y) < 0.90 {
+                    ids.fence
+                } else {
+                    ids.dirt
+                }
+            } else {
+                ids.farmland
+            };
+            w.push((x, y, t));
+        }
+    }
+}
+
 /// The full tile footprint of one structure as `(global x, global y, tile id)` writes,
 /// in stamping order. Pure function of `(seed, placement)` — this is what guarantees a
 /// border-straddling structure looks the same from every chunk that stamps a piece of it.
@@ -463,9 +749,12 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
                     }
                 }
             }
-            // the chest tile is always sound floor, whatever the shape rolled
+            // the chest and container tiles are always sound floor, whatever the
+            // shape rolled (the container offsets mirror `container_positions`)
             let (cdx, cdy) = ruins_chest_offset(variant);
             w.push((ox + cdx, oy + cdy, ids.stone_floor));
+            let (sdx, sdy) = if variant == 1 { (-2, -3) } else { (1, -1) };
+            w.push((ox + sdx, oy + sdy, ids.stone_floor));
         }
         StructureKind::Cemetery => {
             // dirt plot with graves spaced 2 apart; the edge comes in three states:
@@ -619,13 +908,18 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
             }
         }
         StructureKind::Village => {
-            // a razed hamlet around a rubble well: broken buildings ring a round
-            // plaza (variant 0) or sit in the quadrants of two crossing worn roads
-            // (variant 1); worn paths link the center to every doorway
+            // a village around a well: buildings ring a round plaza (variant 0) or
+            // sit in the quadrants of two crossing worn roads (variant 1); paths
+            // link the center to every doorway. How far gone it all is — walls,
+            // paving, paths, flora — comes from the town's age axis ([`town_age`]).
             let variant = variant_of(seed, p);
+            let ap = age_params(town_age(seed, p));
             let ground = |x: i32, y: i32| {
-                if detail(0x56C4_0006, x, y) < 0.15 {
+                if detail(0x56C4_0006, x, y) < ap.paving {
                     ids.stone_floor // surviving paving stones
+                } else if ap.overgrow > 0.0 && detail(0x6F76_0001, x, y) < ap.overgrow * 0.6 {
+                    // Overgrown: tufts reclaiming the plaza and roads
+                    ids.tall_grass[(hash(seed, 0x6F76_0002, x, y) % 3) as usize]
                 } else {
                     ids.dirt
                 }
@@ -676,46 +970,34 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
                 let mut line = Vec::new();
                 raster_line(ox, oy, bx, by, &mut line);
                 for (x, y) in line {
-                    if detail(0x56C4_0009, x, y) < 0.15 {
+                    if detail(0x56C4_0009, x, y) < ap.path_gap {
                         continue; // worn away
                     }
                     w.push((x, y, ids.dirt));
                 }
             }
-            for &(bx, by, hw, hh) in &buildings {
-                // doorway on the wall facing the plaza
-                let door = village_door_offset(ox, oy, bx, by, hw, hh);
+            for &b in &buildings {
+                let (bx, by, hw, hh) = b;
                 let lantern = village_lantern_offset(ox, oy, bx, by, hw, hh);
-                for dy in -hh..=hh {
-                    for dx in -hw..=hw {
-                        let (x, y) = (bx + dx, by + dy);
-                        let perimeter = dx.abs() == hw || dy.abs() == hh;
-                        let corner = dx.abs() == hw && dy.abs() == hh;
-                        let doorway = (dx, dy) == door;
-                        let standing = detail(0x56C4_0003, x, y) >= 0.35;
-                        let t = if perimeter && !doorway && standing {
-                            // some standing wall runs keep a glazed pane — at night
-                            // the house lantern glows through it (never a corner:
-                            // wall runs stay solid where they turn)
-                            if !corner && detail(0x56C4_000F, x, y) < 0.25 {
-                                ids.window
-                            } else {
-                                ids.stone_wall
-                            }
-                        } else if (dx == 0 && dy == 0) || (dx, dy) == lantern {
-                            // sound plank floor where the loot chest (center) and
-                            // the house lantern stand — never rubble under either
-                            ids.planks
-                        } else if detail(0x56C4_0004, x, y) < 0.05 {
-                            ids.rock // rubble
-                        } else if detail(0x56C4_0005, x, y) < 0.18 {
-                            ids.dirt // floor worn through to earth
-                        } else {
-                            ids.planks
-                        };
-                        w.push((x, y, t));
-                    }
-                }
+                let (cupboard, barrel) = house_container_offsets(ox, oy, bx, by, hw, hh);
+                // sound floor under the loot chest (center), lantern and cupboard
+                stamp_house(
+                    &mut w,
+                    seed,
+                    ids,
+                    &ap,
+                    (ox, oy),
+                    b,
+                    &[(0, 0), lantern, cupboard],
+                );
+                // packed ground where the rain barrel stands, flanking the door
+                w.push((bx + barrel.0, by + barrel.1, ids.dirt));
+            }
+            // a Settled village keeps a tended kitchen garden by its first house,
+            // and solid footing for its plaza lamp (entity via `lantern_positions`)
+            if ap.overgrow == 0.0 && ap.crumble < 0.1 {
+                stamp_garden(&mut w, seed, ids, (ox, oy), buildings[0]);
+                w.push((ox - 3, oy - 2, ids.dirt));
             }
             // rarely, a Jack-O-Lantern still burns at the plaza edge of a razed
             // village — someone (or something) keeps lighting it (outside the 3x3
@@ -723,19 +1005,119 @@ pub fn structure_writes(seed: i64, p: Placement, tiles: &Tiles) -> Vec<(i32, i32
             if unit(hash(seed, 0x56C4_000A, ox, oy)) < 0.20 {
                 w.push((ox + 3, oy + 2, ids.jack_o));
             }
-            // the rubble well, last so it always crowns the plaza center
+            // the rubble well, last so it always crowns the plaza center; how much
+            // of the ring has collapsed tracks the town's age
+            let well_rubble = match town_age(seed, p) {
+                TownAge::Overgrown => 0.70,
+                TownAge::Weathered => 0.40,
+                TownAge::Settled => 0.10,
+            };
             for dy in -1..=1i32 {
                 for dx in -1..=1i32 {
                     let (x, y) = (ox + dx, oy + dy);
                     let t = if dx == 0 && dy == 0 {
                         ids.water
-                    } else if detail(0x56C4_0007, x, y) < 0.40 {
+                    } else if detail(0x56C4_0007, x, y) < well_rubble {
                         ids.rock // collapsed ring
                     } else {
                         ids.stone_wall
                     };
                     w.push((x, y, t));
                 }
+            }
+        }
+        StructureKind::Hamlet => {
+            // the little towns between the set-piece villages: 2-5 houses in one of
+            // three footprints — crossroads, ring around a green, or a straggle
+            // along a lane — again on the age axis from time-lost to freshly kept
+            let variant = variant_of(seed, p);
+            let ap = age_params(town_age(seed, p));
+            let buildings = hamlet_buildings(seed, ox, oy, variant);
+            let ground = |x: i32, y: i32| {
+                if detail(0x484D_0004, x, y) < ap.paving * 0.5 {
+                    ids.stone_floor // hamlets were never as grandly paved
+                } else if ap.overgrow > 0.0 && detail(0x6F76_0001, x, y) < ap.overgrow * 0.6 {
+                    ids.tall_grass[(hash(seed, 0x6F76_0002, x, y) % 3) as usize]
+                } else {
+                    ids.dirt
+                }
+            };
+            match variant {
+                // two short worn roads crossing at the center
+                0 => {
+                    for d in -9..=9i32 {
+                        let (hx, hy) = (ox + d, oy);
+                        if detail(0x484D_0005, hx, hy) >= ap.path_gap * 0.8 {
+                            w.push((hx, hy, ground(hx, hy)));
+                        }
+                        let (vx, vy) = (ox, oy + d);
+                        if detail(0x484D_0006, vx, vy) >= ap.path_gap * 0.8 {
+                            w.push((vx, vy, ground(vx, vy)));
+                        }
+                    }
+                }
+                // the green: a grassy round with a flower heart, tufts on the edge
+                1 => {
+                    for dy in -3..=3i32 {
+                        for dx in -3..=3i32 {
+                            if dx * dx + dy * dy > 11 {
+                                continue;
+                            }
+                            let (x, y) = (ox + dx, oy + dy);
+                            let t = if dx == 0 && dy == 0 {
+                                ids.flower
+                            } else if detail(0x484D_0007, x, y) < 0.12 {
+                                ids.tall_grass[(hash(seed, 0x484D_0007, x, y) % 3) as usize]
+                            } else {
+                                ids.grass
+                            };
+                            w.push((x, y, t));
+                        }
+                    }
+                }
+                // the straggle: a winding lane through the strung-out houses
+                _ => {
+                    let h = hash(seed, 0x484D_0001, ox, oy);
+                    let (sx, sy) = LANE_DIRS[((h >> 8) % 4) as usize];
+                    for d in -14..=14i32 {
+                        let (x, y) = (ox + sx * d, oy + sy * d);
+                        if detail(0x484D_0005, x, y) >= ap.path_gap * 0.8 {
+                            w.push((x, y, ground(x, y)));
+                        }
+                    }
+                }
+            }
+            // paths from the center to every doorway, then the houses over them
+            for &(bx, by, _, _) in &buildings {
+                let mut line = Vec::new();
+                raster_line(ox, oy, bx, by, &mut line);
+                for (x, y) in line {
+                    if detail(0x56C4_0009, x, y) < ap.path_gap {
+                        continue; // worn away
+                    }
+                    w.push((x, y, ids.dirt));
+                }
+            }
+            for &b in &buildings {
+                let (bx, by, hw, hh) = b;
+                let lantern = village_lantern_offset(ox, oy, bx, by, hw, hh);
+                let (cupboard, barrel) = house_container_offsets(ox, oy, bx, by, hw, hh);
+                // hamlets keep no loot chest — their cupboards and barrels are the
+                // find — so only the lantern and cupboard tiles are guaranteed
+                stamp_house(&mut w, seed, ids, &ap, (ox, oy), b, &[lantern, cupboard]);
+                // packed ground where the rain barrel stands, flanking the door
+                w.push((bx + barrel.0, by + barrel.1, ids.dirt));
+            }
+            // a Settled hamlet tends a garden and keeps its center lamp on solid
+            // ground (the lamp entity spawns via `lantern_positions`)
+            if ap.overgrow == 0.0 && ap.crumble < 0.1 {
+                stamp_garden(&mut w, seed, ids, (ox, oy), buildings[0]);
+                w.push((ox - 2, oy - 2, ids.dirt));
+            }
+            // the green's flower heart goes last, so the door-path pass never
+            // tramples it (the village does the same with its well)
+            if variant == 1 {
+                w.push((ox, oy, ids.flower));
             }
         }
     }
@@ -752,11 +1134,15 @@ pub const TRAIL_RANGE: i32 = 200;
 /// (jitter amplitude caps at `TRAIL_RANGE * 0.22` but never above this, +rounding).
 pub const TRAIL_JITTER: i32 = 16;
 
-/// Structure kinds that anchor trails (villages keep their paths internal).
+/// Structure kinds that anchor trails (villages keep their paths internal; hamlets
+/// join the trail net — the straggle variant literally lives along one).
 fn trail_endpoint(kind: StructureKind) -> bool {
     matches!(
         kind,
-        StructureKind::Ruins | StructureKind::Cemetery | StructureKind::Camp
+        StructureKind::Ruins
+            | StructureKind::Cemetery
+            | StructureKind::Camp
+            | StructureKind::Hamlet
     )
 }
 
@@ -1026,30 +1412,117 @@ pub fn campfire_positions(seed: i64, p: Placement) -> Vec<(i32, i32)> {
     }
 }
 
-/// Where a placement spawns lit lantern entities: one per village house, in the
+/// Where a placement spawns lit lantern entities: one per town house, in the
 /// interior corner away from the doorway (see [`village_lantern_offset`] — same
 /// lore as the plaza Jack-O-Lantern: someone, or something, keeps them burning).
 /// At night the glow leaves through the window panes and wall gaps, which is what
-/// makes village houses read as destinations instead of dead shells (playtest #8).
+/// makes town houses read as destinations instead of dead shells (playtest #8).
+///
+/// The town's age bends the count: OVERGROWN towns burnt out ages ago (at most one
+/// stubborn flame survives), WEATHERED keeps the classic one-per-house, SETTLED adds
+/// a lamp by the town center on top — the lit-up skyline IS the freshness read.
 /// Pure, like [`chest_positions`], so exactly one chunk owns each spawn.
 pub fn lantern_positions(seed: i64, p: Placement) -> Vec<(i32, i32)> {
     match p.kind {
-        StructureKind::Village => village_buildings(seed, p.x, p.y, variant_of(seed, p))
-            .into_iter()
-            .map(|(bx, by, hw, hh)| {
-                let (dx, dy) = village_lantern_offset(p.x, p.y, bx, by, hw, hh);
-                (bx + dx, by + dy)
-            })
-            .collect(),
+        StructureKind::Village | StructureKind::Hamlet => {
+            let mut out: Vec<(i32, i32)> = town_buildings(seed, p)
+                .into_iter()
+                .map(|(bx, by, hw, hh)| {
+                    let (dx, dy) = village_lantern_offset(p.x, p.y, bx, by, hw, hh);
+                    (bx + dx, by + dy)
+                })
+                .collect();
+            match town_age(seed, p) {
+                TownAge::Overgrown => {
+                    let one_survives = hash(seed, 0x0A6E_D001, p.x, p.y) & 1 == 0;
+                    out.truncate(if one_survives { 1 } else { 0 });
+                }
+                TownAge::Weathered => {}
+                TownAge::Settled => {
+                    // the town-center lamp (its footing is stamped by the blueprint)
+                    let off = if p.kind == StructureKind::Village {
+                        (-3, -2)
+                    } else {
+                        (-2, -2)
+                    };
+                    out.push((p.x + off.0, p.y + off.1));
+                }
+            }
+            out
+        }
         _ => Vec::new(),
     }
 }
 
-/// Spawn structure entities (loot chests, cold-camp ember campfires, village house
-/// lanterns) for a chunk that was just generated fresh. Marks the chunk dirty so it
-/// persists to disk and never generates fresh again — that's what prevents duplicate
-/// spawns. Chunks explored before a structure feature shipped are NOT retrofitted:
-/// they were saved to disk and never re-run through this path.
+/// Where a placement spawns scavenge containers (supply crates, barrels, cupboards)
+/// and which kind each spot holds. Towns carry most of them — a cupboard in the
+/// house corner opposite the lantern, a rain barrel flanking the doorway — with the
+/// density leaning on the town's age: SETTLED holds the most intact stock, OVERGROWN
+/// keeps only the odd untouched hold (whose loot leans time-capsule instead — see
+/// [`fill_scav_container`]). Camps sometimes keep a supply crate by the fire, ruins
+/// a barrel in the rubble. Pure, like [`chest_positions`], so exactly one chunk owns
+/// each spawn.
+pub fn container_positions(
+    seed: i64,
+    p: Placement,
+) -> Vec<(i32, i32, crate::entity::furniture::scav_container::ScavKind)> {
+    use crate::entity::furniture::scav_container::ScavKind;
+    let mut out = Vec::new();
+    match p.kind {
+        StructureKind::Village | StructureKind::Hamlet => {
+            // (cupboard odds, doorway-barrel odds) by age
+            let (cup_odds, barrel_odds) = match town_age(seed, p) {
+                TownAge::Overgrown => (0.40, 0.10),
+                TownAge::Weathered => (0.65, 0.25),
+                TownAge::Settled => (0.90, 0.60),
+            };
+            for (i, (bx, by, hw, hh)) in town_buildings(seed, p).into_iter().enumerate() {
+                let (cup, barrel) = house_container_offsets(p.x, p.y, bx, by, hw, hh);
+                let h = hash(seed, 0x5CAF_0001_u64.wrapping_add(i as u64), p.x, p.y);
+                if unit(h) < cup_odds {
+                    out.push((bx + cup.0, by + cup.1, ScavKind::Cupboard));
+                }
+                if unit(hash(seed, 0x5CAF_0002_u64.wrapping_add(i as u64), p.x, p.y)) < barrel_odds
+                {
+                    out.push((bx + barrel.0, by + barrel.1, ScavKind::Barrel));
+                }
+            }
+        }
+        StructureKind::Camp => {
+            // half the camps kept their supply crate, on the clearing's south edge
+            if unit(hash(seed, 0x5CAF_0003, p.x, p.y)) < 0.50 {
+                out.push((p.x - 2, p.y + 2, ScavKind::Crate));
+            }
+        }
+        StructureKind::Ruins => {
+            let h = hash(seed, 0x5CAF_0004, p.x, p.y);
+            if unit(h) < 0.45 {
+                // interior floor in every ruin shape (the L-shape's interior lies
+                // up-left of the origin, like its chest)
+                let (dx, dy) = if variant_of(seed, p) == 1 {
+                    (-2, -3)
+                } else {
+                    (1, -1)
+                };
+                let kind = if h & (1 << 40) != 0 {
+                    ScavKind::Barrel
+                } else {
+                    ScavKind::Crate
+                };
+                out.push((p.x + dx, p.y + dy, kind));
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// Spawn structure entities (loot chests, scavenge containers, cold-camp ember
+/// campfires, town house lanterns) for a chunk that was just generated fresh. Marks
+/// the chunk dirty so it persists to disk and never generates fresh again — that's
+/// what prevents duplicate spawns (and what makes container loot strictly one-time).
+/// Chunks explored before a structure feature shipped are NOT retrofitted: they were
+/// saved to disk and never re-run through this path.
 pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
     if g.level(lvl).depth != 0 || !g.level(lvl).is_infinite() {
         return;
@@ -1077,6 +1550,21 @@ pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
             let mut chest = crate::entity::furniture::chest::new();
             fill_structure_chest(g, &mut chest, p.kind, hash(seed, 0x100D_0006, tx, ty));
             g.level_mut(lvl).add_at(chest, tx, ty, true, lvl);
+            touch(g, tx, ty);
+        }
+        for (tx, ty, kind) in container_positions(seed, p) {
+            if chunk_coord(tx) != cx || chunk_coord(ty) != cy {
+                continue; // another chunk owns this container
+            }
+            let mut container = crate::entity::furniture::scav_container::new(kind);
+            fill_scav_container(
+                g,
+                &mut container,
+                kind,
+                town_age(seed, p),
+                hash(seed, 0x5CAF_100D, tx, ty),
+            );
+            g.level_mut(lvl).add_at(container, tx, ty, true, lvl);
             touch(g, tx, ty);
         }
         for (tx, ty) in campfire_positions(seed, p) {
@@ -1153,5 +1641,83 @@ fn fill_structure_chest(
     if inventory.inv_size() < 1 {
         inventory.add_num(get(g, "Wood"), 4);
         inventory.add_num(get(g, "Torch"), 2);
+    }
+}
+
+/// Seed a scavenge container's one-time finds, deterministic per world position.
+/// The base table follows the furniture (cupboards keep pantry goods, barrels
+/// stores, crates gear); the structure's age leans it — an OVERGROWN hold is a time
+/// capsule (old coins, metal, the odd prospector's note), a SETTLED one still has
+/// useful supplies on the shelf. Camps and ruins draw whatever age their spot hashes
+/// to: some caches are simply older than others.
+fn fill_scav_container(
+    g: &mut Game,
+    container: &mut crate::entity::Entity,
+    kind: crate::entity::furniture::scav_container::ScavKind,
+    age: TownAge,
+    h: u64,
+) {
+    use crate::entity::furniture::scav_container::ScavKind;
+    use crate::item::registry::get;
+    let mut rnd = Rng::new(h as i64);
+
+    // (1-in-chance, item, count) — same convention as the structure chests
+    let base: &[(i32, &str, i32)] = match kind {
+        ScavKind::Cupboard => &[
+            (2, "Old Food Can", 2),
+            (2, "Bread", 1),
+            (3, "Water Bottle", 1),
+            (3, "Apple", 2),
+            (4, "Empty Can", 2),
+            (4, "Mushroom", 2),
+        ],
+        ScavKind::Barrel => &[
+            (2, "Water Bottle", 2),
+            (2, "Cord", 3),
+            (3, "Grass Fibers", 4),
+            (3, "Apple", 2),
+            (4, "Coal", 3),
+            (5, "Old Food Can", 1),
+        ],
+        ScavKind::Crate => &[
+            (2, "Torch", 3),
+            (2, "arrow", 5),
+            (3, "Cord", 2),
+            (3, "Bandage", 1),
+            (4, "Coal", 4),
+            (4, "Throwing Knife", 2),
+            (6, "Iron", 2),
+        ],
+    };
+    let lean: &[(i32, &str, i32)] = match age {
+        // untouched for generations: worth the hunt through the bracken
+        TownAge::Overgrown => &[
+            (2, "Old Coin", 3),
+            (3, "Iron", 2),
+            (4, "Prospector's Note", 1),
+            (5, "Gold", 1),
+            (8, "gem", 2),
+        ],
+        TownAge::Weathered => &[
+            (3, "Empty Can", 1),
+            (5, "Old Coin", 1),
+            (10, "Prospector's Note", 1),
+        ],
+        TownAge::Settled => &[
+            (2, "Bread", 1),
+            (3, "Torch", 2),
+            (4, "Water Bottle", 1),
+            (8, "Old Coin", 1),
+        ],
+    };
+    let inventory = &mut container.chest_mut().expect("scav container").inventory;
+    for &(chance, name, num) in base.iter().chain(lean) {
+        let item = get(g, name);
+        inventory.try_add_num(&mut rnd, chance, Some(item), num);
+    }
+    // a rummage should never come up completely dry
+    if inventory.inv_size() < 1 {
+        inventory.add_num(get(g, "Empty Can"), 1);
+        inventory.add_num(get(g, "Cord"), 2);
     }
 }

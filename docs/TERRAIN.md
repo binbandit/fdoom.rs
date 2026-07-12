@@ -174,6 +174,13 @@ temperature field and the moisture field are decorrelated even though they share
 | `0x5EE9` | stain | `mineral_stain_at` | n/a (raw `hash`) | n/a | per-tile mineral-seep stain roll on rich surface rock |
 | `0x5EA0` | skerry | `skerry_at` | n/a (raw `hash`, 2x2 cells) | n/a | ocean rock stacks (sea stacks in open water) |
 | `0xC4AC_4ED0` | rock character | `fossick::rock_character` | n/a (raw `hash`) | n/a | runtime field (not gen): cracked/dense rock per position (§4.5) |
+| `0x484D_4C45_5421_0006` | hamlet placement | `structures_gen::spec(Hamlet)` | n/a (raw `hash`, 320-tile cells) | n/a | towns wave: the little-town placement grid between the rare villages |
+| `0xA6ED_70B1_0007` | town age | `structures_gen::town_age` | n/a (raw `hash`, per placement) | n/a | Overgrown / Weathered / Settled axis for hamlets + villages |
+| `0x484D_0001`..`0x484D_0007` | hamlet detail | `hamlet_buildings` + Hamlet blueprint | n/a (raw `hash`) | n/a | house slots/sizes, lane wear, green tufts, hamlet paving |
+| `0x6F76_0001`..`0x6F76_0003` | overgrowth / garden | `stamp_house` / town ground / `stamp_garden` | n/a (raw `hash`) | n/a | flora reclaiming Overgrown floors + Settled picket rot |
+| `0x0A6E_D001` | surviving lantern | `lantern_positions` | n/a (raw `hash`, per placement) | n/a | whether one lamp still burns in an Overgrown town |
+| `0x5CAF_0001`..`0x5CAF_0004` | scavenge containers | `container_positions` | n/a (raw `hash`, per placement/house) | n/a | cupboard/barrel/crate presence per house, camp, ruin |
+| `0x5CAF_100D` | container loot | `spawn_chunk_entities` → `fill_scav_container` | n/a (raw `hash`, per tile) | n/a | seeded one-time rummage loot per container position |
 
 If you add a new noise field, **pick an unused salt** (anything not in the table) —
 reusing a salt correlates two fields that should be independent and will look wrong (e.g.

@@ -63,6 +63,7 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
         EntityKind::Chest(_) | EntityKind::DeathChest(_) => {
             super::chest_behavior::use_furniture(g, e, player)
         }
+        EntityKind::ScavContainer(_) => super::scav_container_behavior::use_furniture(g, e, player),
         EntityKind::Crafter(_) => super::crafter_behavior::use_furniture(g, e, player),
         EntityKind::Bed(_) => super::bed_behavior::use_furniture(g, e, player),
         EntityKind::Spawner(_) => super::spawner_behavior::use_furniture(g, e, player),
