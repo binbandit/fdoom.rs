@@ -4,6 +4,7 @@
 
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
+use crate::core::temperature;
 use crate::core::updater::Time;
 use crate::core::weather;
 use crate::entity::behavior::{
@@ -291,6 +292,9 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         }
     }
 
+    // temperature wave: ambient heat/cold effects (see core::temperature)
+    temperature_tick(g, e);
+
     if g.save_cooldown > 0 && !g.saving {
         g.save_cooldown -= 1;
     }
@@ -496,6 +500,92 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         }
         if pd.swing_flash > 0 {
             pd.swing_flash -= 1;
+        }
+    }
+}
+
+// ---- Temperature wave tuning (see core::temperature for the band model) ----
+/// One heart per this many ticks while in an extreme band (~6s at normal speed):
+/// full health to the 3-heart floor takes about 40 seconds of ignored warnings.
+const TEMP_DAMAGE_PERIOD: i32 = 360;
+/// Temperature damage stops here unless the score passes `temperature::DEADLY_SCORE`.
+const TEMP_DAMAGE_FLOOR: i32 = 3;
+/// Shiver/sweat puff cadence in the second-band-out states.
+const TEMP_PUFF_PERIOD: i32 = 60;
+/// Minimum spacing between temperature cues (band-boundary flicker guard).
+const TEMP_CUE_COOLDOWN: i32 = 240;
+
+/// Per-tick heat/cold effects. Everything is derived fresh from
+/// `temperature::score_for`, so nothing here needs saving. Shape (taste rule:
+/// survival pressure teaches, it doesn't punish):
+/// - one band out (Chilly/Warm): nothing — the HUD dot alone carries it;
+/// - two bands out (Cold/Hot): stamina recharges at ~2/3 speed, an ambient cue,
+///   and a small shiver/sweat puff above the head;
+/// - extreme (Freezing/Scorching): a loud warning plus slow damage that stops at
+///   [`TEMP_DAMAGE_FLOOR`] hearts unless the score is truly extreme.
+fn temperature_tick(g: &mut Game, e: &mut Entity) {
+    if g.is_mode("creative") || bed_behavior::in_bed(g, e.c.eid) {
+        return;
+    }
+    let score = temperature::score_for(g, e);
+    apply_temperature_effects(g, e, score);
+}
+
+/// The effects mechanism, split from the world-derived score so tests can drive it
+/// directly with pinned scores (and pinned `game_time`/cue fields) instead of
+/// simulating thousands of real ticks.
+pub fn apply_temperature_effects(g: &mut Game, e: &mut Entity, score: f64) {
+    let steps = temperature::Band::from_score(score).steps();
+
+    // Cues fire on band changes, spaced by a cooldown; the remembered band only
+    // advances when the cooldown is open, so a crossing blocked mid-cooldown
+    // retries (and still cues) once it expires.
+    if e.player().temp_cue_cooldown > 0 {
+        e.player_mut().temp_cue_cooldown -= 1;
+    } else if steps != e.player().temp_prev_band {
+        let prev = e.player().temp_prev_band;
+        match steps {
+            -3 => g.push_warning("The cold bites deep!"),
+            3 => g.push_warning("The sun hammers down!"),
+            -2 if prev > -2 => g.push_ambient("Your breath fogs."),
+            2 if prev < 2 => g.push_ambient("The heat presses down."),
+            -1..=1 if prev <= -2 => g.push_ambient("The chill eases."),
+            -1..=1 if prev >= 2 => g.push_ambient("The heat eases."),
+            _ => {}
+        }
+        e.player_mut().temp_prev_band = steps;
+        e.player_mut().temp_cue_cooldown = TEMP_CUE_COOLDOWN;
+    }
+
+    // second band out: stamina recharges slower, and the body shows it
+    if steps.abs() >= 2 {
+        if g.game_time % 3 == 0 {
+            let pd = e.player_mut();
+            if pd.stamina_recharge > 0 {
+                pd.stamina_recharge -= 1; // ~2/3 recharge speed
+            }
+        }
+        if g.game_time % TEMP_PUFF_PERIOD == 0 {
+            if let Some(lvl) = e.c.level {
+                // shiver: an icy breath-fog puff; sweat: a watery one (tiny overlay
+                // above the head — the sprite itself is never touched)
+                let palette = if steps < 0 {
+                    color::get4(-1, -1, 445, 555)
+                } else {
+                    color::get4(-1, -1, 115, 335)
+                };
+                let jx = g.random.next_int_bound(9) - 4;
+                let puff = new_material_puff(e.c.x + jx, e.c.y - 12, palette, &mut g.random);
+                g.level_mut(lvl).add(puff, lvl);
+            }
+        }
+    }
+
+    // extreme band: slow damage with the mercy floor
+    if steps.abs() >= 3 && g.game_time % TEMP_DAMAGE_PERIOD == 0 {
+        let deadly = score.abs() >= temperature::DEADLY_SCORE;
+        if deadly || e.player().mob.health > TEMP_DAMAGE_FLOOR {
+            do_hurt(g, e, 1, Direction::None);
         }
     }
 }

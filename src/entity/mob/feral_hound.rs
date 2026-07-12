@@ -50,6 +50,10 @@ pub fn die(g: &mut Game, e: &mut Entity) {
     let leather = registry::get(g, "Leather");
     mobai_drop_items(g, e, 0, 1, &[leather]);
 
+    // temperature wave: a shaggy pelt — the pack hunter is the reliable fur source
+    let fur = registry::get(g, "Fur");
+    mobai_drop_items(g, e, 1, 2, &[fur]);
+
     if g.random.next_int_bound(20) == 0 {
         let beef = registry::get(g, "raw beef");
         mobai_drop_items(g, e, 1, 1, &[beef]);

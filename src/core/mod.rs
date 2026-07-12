@@ -8,6 +8,7 @@ pub mod game;
 pub mod io;
 pub mod my_utils;
 pub mod renderer;
+pub mod temperature;
 pub mod updater;
 pub mod weather;
 pub mod world;

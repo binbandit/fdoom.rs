@@ -107,6 +107,11 @@ pub struct PlayerData {
     pub grass_cue_delay: i32,
     pub fiber_cue_done: bool,
     pub cord_cue_done: bool,
+
+    /// Temperature wave (session-only, never saved — body temperature is recomputed
+    /// from the world): the last band that fired a cue, and the spacing between cues.
+    pub temp_prev_band: i32,
+    pub temp_cue_cooldown: i32,
 }
 
 impl PlayerData {
@@ -214,6 +219,8 @@ pub fn new(g: &Game, previous: Option<&PlayerData>) -> Entity {
         grass_cue_delay: 0,
         fiber_cue_done: false,
         cord_cue_done: false,
+        temp_prev_band: 0,
+        temp_cue_cooldown: 0,
     };
 
     if let Some(prev) = previous {

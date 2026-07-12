@@ -53,5 +53,9 @@ pub fn die(g: &mut Game, e: &mut Entity) {
     let raw_beef = registry::get(g, "raw beef");
     crate::entity::behavior::mobai_drop_items(g, e, min, max, &[leather, raw_beef]);
 
+    // temperature wave: the hide comes with fur (Fur Coat material)
+    let fur = registry::get(g, "Fur");
+    crate::entity::behavior::mobai_drop_items(g, e, 1, 2, &[fur]);
+
     crate::entity::behavior::passive_mob_die(g, e);
 }

@@ -483,6 +483,39 @@ impl Renderer {
                 };
                 screen.render(i * 8 + 4, 8 + 5 + 8, 2 + 12 * 32, col, 0);
             }
+
+            // TEMPERATURE dot (temperature wave, core::temperature): one small
+            // indicator pinned to the frame edge at the end of the stamina row —
+            // blue grading into amber, pulsing in the extreme bands, and not drawn
+            // at all inside the comfort band (no meter when everything's fine).
+            let steps = crate::core::temperature::band_for(g, g.player()).steps();
+            if steps != 0 {
+                let pulse = (g.tick_count / 15) % 2 == 0;
+                let rgb = match steps {
+                    -1 => 0x5E8FD4,
+                    -2 => 0x3E6FE0,
+                    i32::MIN..=-3 => {
+                        if pulse {
+                            0x8FB4FF
+                        } else {
+                            0x2B4FF0
+                        }
+                    }
+                    1 => 0xD9A85A,
+                    2 => 0xE07E33,
+                    _ => {
+                        if pulse {
+                            0xFF9A66
+                        } else {
+                            0xE0491F
+                        }
+                    }
+                };
+                // on the frame-border seam at the end of the stamina row (x 84..91
+                // sits past the last bolt at x<=83 and clear of both frames' content)
+                fill_rect_screen(screen, 84, 13, 7, 7, 0x000000);
+                fill_rect_screen(screen, 85, 14, 5, 5, rgb);
+            }
         }
 
         // CURRENT ITEM — name clipped to the held-item frame (tiles 11..=25, inner
