@@ -42,17 +42,20 @@ DayZ/7DtD north star + Minecraft approachability + world-coherence rules).
 - Fog (morning mist / afternoon haze / regional banks) — weather.rs + gfx.
 - Farming & cooking merge (worktree agent-ab88391e82abab248: 4 crops, campfire/oven
   cooking, Queasy; rebasing onto main tip — tile ids renumber past heath's 67).
-- UI L1 (frameless HUD, renderer.rs) + L2 (survival screen shell, screen/).
-- Forest canopy clusters (tree.rs/tree_species.rs render-side connectors).
+- (all in-flight lanes above have since LANDED)
 
 ### Queue (dispatch order)
-1. Water-family oddities (O4 swim box, O5 square ponds, waterlines O13-15) — after
-   farming merge frees infinite_gen.rs.
-2. UI L3 (wear/equip slots) -> L4 (craft pane + container restyle + placement
-   feedback ticket) -> L5 (THE BENCH) per UI_REDESIGN.md section 5.
-3. ODDITIES.md noticeable tier (14 items), then nitpicks.
-4. UI L6: gentle thirst (water bottles exist; HUD slot reserved at y=182).
-5. Field-notes recipe VARIANTS layer (additive only — never gates progress).
+1. ODDITIES.md noticeable tier (14 items), then nitpicks (O1-O5 + waterlines DONE).
+2. UI L6: gentle thirst (water bottles exist; HUD slot reserved at y=182).
+3. Field-notes recipe VARIANTS layer (additive only — never gates progress).
+4. Armor free-repair loophole (re-equip refreshes hits; needs item-data change —
+   flagged by L3).
+5. Bench nice-to-haves: dedicated bench/module art (TODO(art) marks), fit-from-
+   screen (hold-to-fit shipped), in-game sprite reload key (studio v3 note).
+
+### UI redesign program: COMPLETE (design 634dbbd; L1 5fb146c; L2 2e553cd;
+### L3 4ba7f3e; L4 deb066c incl. text-overflow rule; L5 14dfa5c THE BENCH).
+### README + hero shots: b1609fe. Fog: bbc59ed. Farming: 8aec45c.
 
 ## 4. GOTCHAS
 - Never two agents on one file; registry.rs is the classic collision.
