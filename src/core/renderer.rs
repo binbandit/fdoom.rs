@@ -381,6 +381,9 @@ impl Renderer {
         }
 
         crate::level::render_background(g, &mut self.screen, lvl, x_scroll, y_scroll);
+        // ground tint/seam treatment before anything stands on the ground — sprites
+        // must never pick up seam stipple (see lighting::ground_pass)
+        crate::gfx::lighting::ground_pass(&mut self.screen, g, lvl, x_scroll, y_scroll);
         // contact shadows sit on the ground, under the y-sorted sprite pass
         crate::gfx::ambience::contact_shadows(&mut self.screen, g, lvl, x_scroll, y_scroll);
         crate::level::render_sprites(g, &mut self.screen, lvl, x_scroll, y_scroll);

@@ -97,10 +97,25 @@ impl WorldGenDisplay {
             let name_field = name_field.clone();
             CreateWorldEntry {
                 inner: SelectEntry::new("Create World", move |g: &mut Game| {
-                    if !name_field.borrow().is_valid() {
-                        return;
-                    }
-                    let name = name_field.borrow().get_user_input();
+                    let typed = name_field.borrow().get_user_input();
+                    // An empty name must never fail silently (the field just sat
+                    // red): auto-claim the next free "claim N" — fossicking flavor,
+                    // and a new player gets into the world on the first ENTER.
+                    let name = if typed.trim().is_empty() {
+                        let taken = super::world_select::get_world_names(g);
+                        (1..)
+                            .map(|n| format!("claim {n}"))
+                            .find(|c| !taken.iter().any(|t| t.eq_ignore_ascii_case(c)))
+                            .expect("some claim number is free")
+                    } else {
+                        if !name_field.borrow().is_valid() {
+                            // a real conflict (name already taken): say so instead
+                            // of swallowing the press
+                            g.push_ambient("That name is taken - pick another.");
+                            return;
+                        }
+                        typed
+                    };
                     super::world_select::set_world_name(g, &name, false);
                     // world gen reads g.world_seed, so capture the typed seed now
                     g.world_seed = get_seed(g);

@@ -250,6 +250,16 @@ fn is_underground(lvl: usize) -> bool {
 /// The whole pipeline: grade + radiance + event sky + scene ambience. `screen` is the
 /// freshly drawn world frame; `light` is the scratch light buffer (raw 0-255
 /// brightness).
+/// The ground-treatment half of the pipeline: biome tint blend + seam carry +
+/// corner rounding. Runs right after `render_background` and BEFORE the sprite
+/// pass — ground stipple must never speckle entities standing on a seam (found
+/// playing: the swim ring picked up grass carry on a tidal flat).
+pub fn ground_pass(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_scroll: i32) {
+    if lvl == 3 && g.levels[lvl].as_ref().is_some_and(|l| l.is_infinite()) {
+        ground_blend_pass(screen, g, lvl, x_scroll, y_scroll);
+    }
+}
+
 pub fn render_pass(
     screen: &mut Screen,
     light: &mut Screen,
@@ -258,12 +268,6 @@ pub fn render_pass(
     x_scroll: i32,
     y_scroll: i32,
 ) {
-    // Ground blend first: it shifts the *base* image the grade then operates on, and
-    // must apply even at neutral noon (it is how biomes read at midday).
-    if lvl == 3 && g.levels[lvl].as_ref().is_some_and(|l| l.is_infinite()) {
-        ground_blend_pass(screen, g, lvl, x_scroll, y_scroll);
-    }
-
     let ctx = frame_ctx(g, lvl);
 
     // Ambient fog (surface, fair weather only): sampled once at the screen center —
@@ -539,6 +543,11 @@ const NEUTRAL_F: [i32; 3] = [256; 3];
 /// interiors look exactly as before and beach/oasis sand grades toward the same hue.
 const SAND_F: [i32; 3] = [271, 256, 230]; // 1.06, 1.00, 0.90
 
+/// Intertidal damp sand: same family as dry sand, factor a shade duller — the
+/// bilinear blend then grades the wet/dry tint across ~2 tiles (the dampness
+/// itself lives in the wet-sand art; a strong factor here dims swim rings).
+const TIDAL_F: [i32; 3] = [262, 250, 226]; // 1.02, 0.98, 0.88 — a shade duller
+
 /// Snow family: bright frost, a touch cooler and lighter than the Tundra grass tint —
 /// the small difference is what makes snow edges grade into a frosty fringe.
 const SNOW_F: [i32; 3] = [256, 264, 281]; // 1.00, 1.03, 1.10
@@ -620,6 +629,10 @@ fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], 
         TileKind::Sand | TileKind::Cactus | TileKind::FruitingCactus | TileKind::QuickSand => {
             (SAND_F, GroundFam::Sand)
         }
+        // The intertidal band is damp sand — same family as the dry beach above,
+        // darker factor. It classified as Other and got NO treatment at all: the
+        // wet/dry boundary was a razor staircase (found playing, session 2).
+        TileKind::TidalFlat => (TIDAL_F, GroundFam::Sand),
         TileKind::Snow | TileKind::SnowTree => (SNOW_F, GroundFam::Snow),
         TileKind::Mud => (MUD_F, GroundFam::Mud),
         // Heath keeps its painted look everywhere: under a desert-side biome tint
@@ -883,6 +896,7 @@ fn seam_carry(
             && fam[gj * tw + gi + 1] != f
     };
 
+    let mut corners_to_round: Vec<(i32, i32, i32, i32, i32)> = Vec::new();
     for tj in 0..ny {
         for ti in 0..nx {
             let f = fam[(tj + 1) * tw + ti + 1];
@@ -911,6 +925,71 @@ fn seam_carry(
                 // halve the carry toward one-tile freckles: soft edge, no glow halo
                 let s = if lone(gi, gj) { scale / 2 } else { scale };
                 strip(tx, ty, dx, dy, fam_color(n), s);
+            }
+
+            // Corner rounding (found playing: sand islands in savanna grass met the
+            // meadow in perfect squares). Where BOTH orthogonal neighbors flanking a
+            // corner are the same foreign family, this tile is an intruding corner:
+            // dither its corner triangle toward that family at FULL strength — the
+            // one place the edge-count thinning above must not apply, because the
+            // interleave zones are exactly where the square corners live. (Collected
+            // here, drawn after the loop: `strip` holds the screen borrow.)
+            const CORNERS: [(i32, i32); 4] = [(-1, -1), (1, -1), (-1, 1), (1, 1)];
+            for &(hdx, vdy) in &CORNERS {
+                let vn = fam[(tj as i32 + 1 + vdy) as usize * tw + ti + 1];
+                let hn = fam[(tj + 1) * tw + (ti as i32 + 1 + hdx) as usize];
+                if vn != hn || vn == f || vn == GroundFam::Other {
+                    continue;
+                }
+                corners_to_round.push((tx, ty, hdx, vdy, fam_color(vn)));
+            }
+        }
+    }
+    let _ = &strip; // closure's screen borrow ends here (corner draws follow)
+    for (tx, ty, hdx, vdy, ncol) in corners_to_round {
+        corner(screen, tx, ty, hdx, vdy, ncol, x_scroll, y_scroll);
+    }
+}
+
+/// Dither one tile-corner triangle toward a neighbor family's color: pixels whose
+/// taxicab distance from the corner is under [`CORNER_DEPTH`] get Bayer-masked
+/// coverage falling off with that distance. Rounds intruding squares into blobs.
+#[allow(clippy::too_many_arguments)]
+fn corner(
+    screen: &mut Screen,
+    tx: i32,
+    ty: i32,
+    hdx: i32, // -1 = left corner column, 1 = right
+    vdy: i32, // -1 = top corner row, 1 = bottom
+    ncol: i32,
+    x_scroll: i32,
+    y_scroll: i32,
+) {
+    const CORNER_DEPTH: i32 = 7;
+    // coverage by taxicab distance from the corner pixel (of 16)
+    const CORNER_COV: [i32; CORNER_DEPTH as usize] = [15, 13, 11, 8, 6, 3, 1];
+    let (cx, cy) = (
+        tx * 16 + if hdx < 0 { 0 } else { 15 },
+        ty * 16 + if vdy < 0 { 0 } else { 15 },
+    );
+    for dy in 0..CORNER_DEPTH {
+        for dx in 0..CORNER_DEPTH - dy {
+            let cov = CORNER_COV[(dx + dy) as usize];
+            let x = (if hdx < 0 { cx + dx } else { cx - dx }) - x_scroll;
+            let y = (if vdy < 0 { cy + dy } else { cy - dy }) - y_scroll;
+            if !(0..screen.w).contains(&x) || !(0..screen.h).contains(&y) {
+                continue;
+            }
+            let bx = ((x + x_scroll) & 3) as usize;
+            let by = (((y + y_scroll) & 3) << 2) as usize;
+            if BAYER[bx + by] < cov {
+                let p = &mut screen.pixels[(y * screen.w + x) as usize];
+                let (pr, pg, pb) = ((*p >> 16) & 0xFF, (*p >> 8) & 0xFF, *p & 0xFF);
+                let (tr, tg, tb) = ((ncol >> 16) & 0xFF, (ncol >> 8) & 0xFF, ncol & 0xFF);
+                let r = pr + (((tr - pr) * CARRY_LERP) >> 8);
+                let g = pg + (((tg - pg) * CARRY_LERP) >> 8);
+                let b = pb + (((tb - pb) * CARRY_LERP) >> 8);
+                *p = (r << 16) | (g << 8) | b;
             }
         }
     }
