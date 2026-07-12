@@ -16,6 +16,7 @@ use std::io::Write as _;
 use std::path::Path;
 
 use crate::core::game::Game;
+use crate::entity::mob::player::{WearSlot, wear_slot_for};
 use crate::entity::{Entity, EntityKind};
 use crate::item::Inventory;
 use crate::level::Level;
@@ -656,6 +657,21 @@ impl Load {
                 let cur_armor = crate::item::registry::get(g, &data.remove(0));
                 player.player_mut().cur_armor = Some(cur_armor);
             }
+
+            // Saves from before the wear-slot split wore hats on the lone armor
+            // slot; migrate them to HEAD (their token hit meter retires with the
+            // move — head gear has none).
+            let is_head = player
+                .player()
+                .cur_armor
+                .as_ref()
+                .is_some_and(|a| wear_slot_for(a) == Some(WearSlot::Head));
+            if is_head {
+                let pd = player.player_mut();
+                pd.worn_head = pd.cur_armor.take();
+                pd.armor = 0;
+                pd.armor_damage_buffer = 0;
+            }
         }
         player
             .player_mut()
@@ -710,6 +726,22 @@ impl Load {
         }
 
         player.player_mut().skinon = parse_bool(&data.remove(0));
+
+        // HEAD wear slot: a tagged trailing entry (save::WORN_HEAD_MARKER). Old
+        // saves have no entry. A payload that isn't head-class gear (a hand-edited
+        // or future save) skips with a warning — never a panic, never a bad slot.
+        if let Some(name) = data
+            .first()
+            .and_then(|d| d.strip_prefix(crate::saveload::save::WORN_HEAD_MARKER))
+        {
+            let head = crate::item::registry::get(g, name);
+            if wear_slot_for(&head) == Some(WearSlot::Head) {
+                player.player_mut().worn_head = Some(head);
+            } else {
+                println!("WARNING: ignoring non-head worn item {name:?} in player save");
+            }
+            data.remove(0);
+        }
 
         let cur = g.current_level;
         if g.levels[cur].is_some() {

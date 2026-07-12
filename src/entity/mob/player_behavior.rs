@@ -1344,19 +1344,46 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
         yo += 4; // y offset is moved up by 4
         let lvl = e.c.level.expect("swimming player must be on a level");
         let tick_time = e.player().mob.tick_time;
-        let mut liquid_color = 0; // color of water / lava circle
         let standing = g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4);
-        if standing.id == g.tiles.get("water").id {
-            liquid_color = color::get4(-1, -1, 115, 335);
-            if tick_time / 8 % 2 == 0 {
-                liquid_color = color::get4(-1, 335, 5, 115);
+        // Half-submerged ring, colored per liquid *kind* — matching on the exact
+        // "water" tile id left every other water-family tile (deep water, submerged
+        // tidal flats, reef weed) with color 0: an opaque black box around the
+        // swimmer (ODDITIES O4). The shimmer alternation swaps shades every 8 ticks.
+        let shimmer = tick_time / 8 % 2 == 0;
+        let liquid_color = match standing.kind {
+            TileKind::Lava => {
+                if shimmer {
+                    color::get4(-1, 300, 400, 500)
+                } else {
+                    color::get4(-1, -1, 500, 300)
+                }
             }
-        } else if standing.id == g.tiles.get("lava").id {
-            liquid_color = color::get4(-1, -1, 500, 300);
-            if tick_time / 8 % 2 == 0 {
-                liquid_color = color::get4(-1, 300, 400, 500);
+            TileKind::DeepWater => {
+                if shimmer {
+                    color::get4(-1, 225, 4, 104)
+                } else {
+                    color::get4(-1, -1, 104, 225)
+                }
             }
-        }
+            // the flooded intertidal flat: shallow shore water, a shade duller
+            // than open water
+            TileKind::TidalFlat => {
+                if shimmer {
+                    color::get4(-1, 324, 4, 114)
+                } else {
+                    color::get4(-1, -1, 114, 324)
+                }
+            }
+            // open water — and any other swimmable tile (seaweed, coral, flooded
+            // pits are literal water tiles): default to the water ring, never black
+            _ => {
+                if shimmer {
+                    color::get4(-1, 335, 5, 115)
+                } else {
+                    color::get4(-1, -1, 115, 335)
+                }
+            }
+        };
 
         screen.render(xo, yo + 3, 5 + 13 * 32, liquid_color, 0); // render the water graphic
         screen.render(xo + 8, yo + 3, 5 + 13 * 32, liquid_color, 1); // render the mirrored water graphic to the right.
@@ -1625,6 +1652,9 @@ pub fn die(g: &mut Game, e: &mut Entity) {
     }
     if let Some(armor) = e.player().cur_armor.clone() {
         dc.chest_mut().expect("death chest").inventory.add(armor);
+    }
+    if let Some(head) = e.player().worn_head.clone() {
+        dc.chest_mut().expect("death chest").inventory.add(head);
     }
 
     g.play_sound(Sound::PlayerDeath);

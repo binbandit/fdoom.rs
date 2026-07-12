@@ -340,7 +340,18 @@ pub fn write_player(g: &Game, player: &Entity, data: &mut Vec<String>) {
 
     data.push(pd.shirt_color.to_string());
     data.push(pd.skinon.to_string());
+
+    // The HEAD wear slot rides a tagged trailing entry (same tolerant-marker scheme
+    // as HELD_MARKER): old saves simply lack it and load unchanged, and the entry
+    // is only written while something is worn, so slot-less saves stay byte-
+    // identical to the classic format.
+    if let Some(head) = &pd.worn_head {
+        data.push(format!("{WORN_HEAD_MARKER}{}", head.get_name()));
+    }
 }
+
+/// Tag of the Player-file entry carrying the HEAD wear slot (see `write_player`).
+pub const WORN_HEAD_MARKER: &str = "WornHead:";
 
 /// Marks the held item's entry in the Inventory file so loading can re-equip it.
 /// Saves from before the marker load fine (their first entry just stays in the

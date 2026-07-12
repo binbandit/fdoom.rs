@@ -130,12 +130,12 @@ fn pack_categorizes_items_without_baked_in_counts() {
 }
 
 #[test]
-fn pack_hold_action_equips_and_swaps_without_item_loss() {
+fn pack_hold_action_swaps_without_item_loss() {
     let mut tw = TestWorld::infinite().name("ss_hold").build();
+    tw.give("Torch", 8);
     tw.give("Apple", 2);
-    tw.give("Leather Armor", 1);
 
-    // first item row is the apple (FOOD sorts before GEAR)
+    // first item row is the torch stack (MATERIALS sorts before FOOD)
     tw.press("E");
     tw.press("ENTER");
     assert!(
@@ -143,17 +143,17 @@ fn pack_hold_action_equips_and_swaps_without_item_loss() {
         "holding an item closes the screen"
     );
     let held = tw.player().player().active_item.clone().expect("held item");
-    assert_eq!(held.get_name(), "Apple", "ENTER should hold the food item");
+    assert_eq!(held.get_name(), "Torch", "ENTER should hold the torches");
 
-    // holding the armor stashes the apple back into the pack (nothing is lost)
+    // holding the apples stashes the torches back into the pack (nothing is lost)
     tw.press("E");
     tw.press("ENTER");
     let held = tw.player().player().active_item.clone().expect("held item");
-    assert_eq!(held.get_name(), "Leather Armor");
-    let apple = registry::get(&tw, "Apple");
+    assert_eq!(held.get_name(), "Apple");
+    let torch = registry::get(&tw, "Torch");
     assert_eq!(
-        tw.player().player().inventory.count(&apple),
-        2,
+        tw.player().player().inventory.count(&torch),
+        8,
         "the previously held stack must return to the pack"
     );
 }
@@ -265,18 +265,23 @@ fn self_pane_shows_temperature_band_and_active_effects() {
 }
 
 #[test]
-fn wear_tab_renders_read_only_summary() {
+fn wear_tab_renders_the_slot_list() {
+    // the WEAR pane is real equip slots since L3; the deep coverage lives in
+    // tests/wear_equip.rs — this pins the tab into the shell and the eyeball frame
     let mut tw = TestWorld::infinite().name("ss_wear").build();
-    let armor = registry::get(&tw, "Leather Armor");
-    {
-        let pd = tw.player_mut().player_mut();
-        pd.cur_armor = Some(armor);
-        pd.armor = 30;
-    }
-
+    tw.give("Leather Armor", 1);
     tw.press("E");
+    tw.press("ENTER"); // instant equip from the pack
     tw.press("RIGHT"); // PACK -> WEAR
     assert!(tw.display.menu_active());
+    assert_eq!(
+        tw.player()
+            .player()
+            .cur_armor
+            .as_ref()
+            .map(|a| a.get_name()),
+        Some("Leather Armor")
+    );
     tw.screenshot("survival_wear.png");
 }
 

@@ -189,10 +189,19 @@ fn precip_at(g: &Game, xt: i32, yt: i32) -> Precip {
     }
 }
 
-/// The worn item's name, if the entity is a player wearing one.
+/// The BODY-worn item's name, if the entity is a player wearing one.
 fn worn(e: &Entity) -> Option<&str> {
     match &e.kind {
         EntityKind::Player(pd) => pd.cur_armor.as_ref().map(|a| a.get_name()),
+        _ => None,
+    }
+}
+
+/// The HEAD-worn item's name (the wear-slot split moved hats off the armor slot;
+/// the body reads stay on `cur_armor`).
+fn worn_head(e: &Entity) -> Option<&str> {
+    match &e.kind {
+        EntityKind::Player(pd) => pd.worn_head.as_ref().map(|a| a.get_name()),
         _ => None,
     }
 }
@@ -273,7 +282,7 @@ pub fn modifiers_for(g: &Game, e: &Entity) -> Modifiers {
         snow_underfoot: on_surface && matches!(g.tile_at(lvl, xt, yt).kind, TileKind::Snow),
         swimming: crate::entity::behavior::is_swimming(g, e),
         shaded: shaded(g, lvl, xt, yt),
-        straw_hat: worn(e) == Some("Straw Hat"),
+        straw_hat: worn_head(e) == Some("Straw Hat") || worn(e) == Some("Straw Hat"),
         fur_coat: worn(e) == Some("Fur Coat"),
         near_fire: crate::entity::furniture::campfire_behavior::near_lit_campfire(g, e),
     }

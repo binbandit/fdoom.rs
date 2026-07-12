@@ -1,8 +1,10 @@
 //! The survival screen — one panel on E with four tabs: PACK / WEAR / CRAFT / SELF
-//! (docs/UI_REDESIGN.md §3). Lane L2 ships the shell plus the PACK and SELF panes.
-//! WEAR is a read-only summary until L3 lands wear slots; CRAFT hosts the existing
-//! personal recipe list (with a cost card in the detail column) until L4 restyles
-//! crafting and adds station context.
+//! (docs/UI_REDESIGN.md §3). L2 shipped the shell plus the PACK and SELF panes; L3
+//! landed WEAR as real equip slots (HEAD / BODY / HELD, CHARM reserved): ENTER on a
+//! wearable in PACK or on a WEAR slot equips/unequips instantly — no world
+//! interaction, no silent failure. CRAFT hosts the existing personal recipe list
+//! (with a cost card in the detail column) until L4 restyles crafting and adds
+//! station context.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -12,9 +14,9 @@ use crate::core::io::sound::Sound;
 use crate::core::temperature;
 use crate::core::updater::NORM_SPEED;
 use crate::entity::Entity;
-use crate::entity::mob::player::PlayerData;
+use crate::entity::mob::player::{MAX_ARMOR, PlayerData, SPRITES, WearSlot, wear_slot_for};
 use crate::gfx::{Rectangle, Screen, color, font};
-use crate::item::{Item, ItemKind, PotionType, Recipe, registry};
+use crate::item::{Inventory, Item, ItemKind, PotionType, Recipe, registry};
 use crate::level::{self, infinite_gen};
 
 use super::display::{Display, DisplayBase};
@@ -49,6 +51,9 @@ const LEGEND_Y: i32 = 170;
 
 /// Category headers, dim gold (reads as a label, not a row).
 const COL_HEADER: i32 = color::get(-1, 431);
+/// Warmth/shade stat lines, the mock's indigo (readable on the dark glass —
+/// `color::BLUE` is too deep there).
+const COL_WARMTH: i32 = color::get(-1, 225);
 /// The active tab's underline (raw RGB — drawn as a pixel fill).
 const GOLD_RGB: i32 = 0xE0C84A;
 const DIVIDER_RGB: i32 = 0x4A4A4A;
@@ -126,15 +131,14 @@ fn bare_name(g: &Game, item: &Item) -> String {
     }
 }
 
-/// One plain-words line for the detail card: what the item is for and how it's used
-/// today (the instant-equip flow is L3's; this stays truthful until then).
+/// One plain-words line for the detail card: what the item is for and how it's used.
 fn info_line(item: &Item) -> String {
     match &item.kind {
         ItemKind::Tool { .. } => "A TOOL. HOLD IT TO USE IT.".to_string(),
         ItemKind::Food { heal, .. } => format!("EAT WHILE HELD: +{heal} FOOD."),
         ItemKind::Medical { heal, .. } => format!("USE WHILE HELD: +{heal} HEALTH."),
-        ItemKind::Armor { .. } => "HOLD IT, THEN USE IT ON OPEN GROUND TO WEAR.".to_string(),
-        ItemKind::Clothing { .. } => "USE WHILE HELD TO DYE YOUR SHIRT.".to_string(),
+        ItemKind::Armor { .. } => "PROTECTIVE GEAR. ENTER WEARS IT.".to_string(),
+        ItemKind::Clothing { .. } => "SHIRT DYE. ENTER APPLIES IT.".to_string(),
         ItemKind::Potion { ptype, .. } => {
             format!(
                 "DRINK WHILE HELD: {} EFFECT.",
@@ -149,6 +153,60 @@ fn info_line(item: &Item) -> String {
         ItemKind::Book { .. } => "READ IT WHILE HELD.".to_string(),
         _ => "CRAFTING MATERIAL.".to_string(),
     }
+}
+
+/* --------------------------------- the wear model --------------------------------- */
+// UI_REDESIGN §3.2: the slot list is HEAD / BODY / HELD / CHARM (CHARM reserved,
+// ships disabled). Slot classes come from `player::wear_slot_for`; clothing is not
+// a slot — it stays an instant shirt dye offered from the pack.
+
+/// The navigable wear rows (CHARM is rendered but never selectable).
+const WEAR_ROWS: i32 = 3;
+const WEAR_HEAD: usize = 0;
+const WEAR_BODY: usize = 1;
+const WEAR_HELD: usize = 2;
+
+fn wear_row_slot(row: usize) -> Option<WearSlot> {
+    match row {
+        WEAR_HEAD => Some(WearSlot::Head),
+        WEAR_BODY => Some(WearSlot::Body),
+        _ => None,
+    }
+}
+
+/// Split one unit off a pack stack (or take the whole item when it's the last one).
+fn take_one(inv: &mut Inventory, idx: i32) -> Item {
+    let item = inv.get_mut(idx);
+    if item.is_stackable() && item.count() > 1 {
+        let mut one = item.clone();
+        one.set_count(1);
+        let left = item.count() - 1;
+        item.set_count(left);
+        one
+    } else {
+        inv.remove(idx)
+    }
+}
+
+/// The FITS-ON list's one-line effect. The by-name warmth/shade values mirror
+/// `core::temperature`'s COAT_SHIFT / HAT_SHIFT band shifts.
+fn wear_effect_line(item: &Item) -> String {
+    match &item.kind {
+        ItemKind::Armor { armor, .. } => match item.get_name() {
+            "Fur Coat" => "+2 WARMTH".to_string(),
+            "Straw Hat" => "+1 SHADE".to_string(),
+            _ => format!("{} HITS", (armor * MAX_ARMOR as f32) as i32),
+        },
+        ItemKind::Clothing { .. } => "DYES SHIRT".to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Does this pack item belong on the FITS ON list for a slot? BODY also lists
+/// clothing (dye is applied from PACK, but the list shows the option).
+fn fits_slot(item: &Item, slot: WearSlot) -> bool {
+    wear_slot_for(item) == Some(slot)
+        || (slot == WearSlot::Body && matches!(item.kind, ItemKind::Clothing { .. }))
 }
 
 /* ------------------------------------ helpers ------------------------------------ */
@@ -241,6 +299,9 @@ pub struct SurvivalDisplay {
     pack_sel: usize,
     pack_off: usize,
 
+    // WEAR: the selected slot row (HEAD / BODY / HELD)
+    wear_sel: usize,
+
     // CRAFT (the personal recipe list; stations stay on the old display until L4)
     recipes: Vec<Rc<RefCell<Recipe>>>,
     craft_menu: Menu,
@@ -284,6 +345,7 @@ impl SurvivalDisplay {
             pack_rows: Vec::new(),
             pack_sel: 0,
             pack_off: 0,
+            wear_sel: 0,
             recipes,
             craft_menu,
         };
@@ -461,22 +523,88 @@ impl SurvivalDisplay {
         }
     }
 
-    /// ENTER — HOLD IT: the selected item becomes the held item, and the screen
-    /// closes so it can be used. The previously held item goes back into the pack
-    /// (never silently dropped).
+    /// ENTER on a pack row. Wearables equip instantly and clothing dyes instantly
+    /// (UI_REDESIGN §3.2 — no more attack-the-ground ritual), both keeping the
+    /// screen open so the result is visible. Everything else is HOLD IT: the item
+    /// becomes the held item and the screen closes so it can be used. Displaced
+    /// items always go back into the pack (never silently dropped).
     fn hold_selected(&mut self, g: &mut Game) {
         let Some(idx) = self.selected_inv_idx() else {
             return;
         };
+        enum Act {
+            Wear,
+            Dye(i32),
+            Hold,
+        }
+        let act = match g
+            .entities
+            .get(self.player_eid)
+            .map(|p| &p.player().inventory.get(idx).kind)
+        {
+            Some(ItemKind::Armor { .. }) => Act::Wear,
+            Some(ItemKind::Clothing { player_col, .. }) => Act::Dye(*player_col),
+            Some(_) => Act::Hold,
+            None => return,
+        };
+        match act {
+            Act::Wear => self.equip_from_pack(g, idx),
+            Act::Dye(col) => self.dye_from_pack(g, idx, col),
+            Act::Hold => {
+                if let Some(player) = g.entities.get_mut(self.player_eid) {
+                    let pd = player.player_mut();
+                    let item = pd.inventory.remove(idx);
+                    if let Some(prev) = pd.active_item.take() {
+                        pd.inventory.add_at(0, prev);
+                    }
+                    pd.active_item = Some(item);
+                }
+                g.clear_menu();
+            }
+        }
+    }
+
+    /// Instant equip from the pack: one unit off the selected stack goes onto its
+    /// slot; whatever that slot wore returns to the pack. No stamina toll, no fail
+    /// state — the WEAR pane is the primary flow (the legacy use-to-wear ritual in
+    /// `item::interact` keeps its classic cost).
+    fn equip_from_pack(&mut self, g: &mut Game, idx: i32) {
         if let Some(player) = g.entities.get_mut(self.player_eid) {
             let pd = player.player_mut();
-            let item = pd.inventory.remove(idx);
-            if let Some(prev) = pd.active_item.take() {
+            let item = take_one(&mut pd.inventory, idx);
+            if let Some(prev) = pd.equip(item) {
                 pd.inventory.add_at(0, prev);
             }
-            pd.active_item = Some(item);
         }
-        g.clear_menu();
+        g.play_sound(Sound::Craft);
+        self.rebuild_pack_from_arena(g);
+    }
+
+    /// Instant shirt dye from the pack (the same rules as the classic
+    /// `ClothingItem.interactOn`: no-op on the current color, creative keeps the dye).
+    fn dye_from_pack(&mut self, g: &mut Game, idx: i32, player_col: i32) {
+        let creative = g.is_mode("creative");
+        let mut dyed = false;
+        if let Some(player) = g.entities.get_mut(self.player_eid) {
+            let pd = player.player_mut();
+            if pd.shirt_color != player_col {
+                pd.shirt_color = player_col;
+                dyed = true;
+                if !creative {
+                    let item = pd.inventory.get_mut(idx);
+                    if item.count() > 1 {
+                        let left = item.count() - 1;
+                        item.set_count(left);
+                    } else {
+                        pd.inventory.remove(idx);
+                    }
+                }
+            }
+        }
+        if dyed {
+            g.play_sound(Sound::Craft);
+            self.rebuild_pack_from_arena(g);
+        }
     }
 
     /// Q / SHIFT-Q — drop one / drop the stack (same rules as `inventory_menu::
@@ -511,6 +639,68 @@ impl SurvivalDisplay {
             level::drop_item(g, lvl, hx, hy, drop);
         }
         self.rebuild_pack_from_arena(g);
+    }
+
+    /* --------------------------------- wear input --------------------------------- */
+
+    /// UP/DOWN pick a slot; ENTER equips/unequips it instantly; Q takes off.
+    /// ENTER on an empty HEAD/BODY wears the first fitting pack item (choosing
+    /// among several is PACK's job — ENTER there equips too); on the HELD row both
+    /// keys stow the held item back into the pack.
+    fn tick_wear(&mut self, g: &mut Game) {
+        let mut next = self.wear_sel as i32;
+        if g.input.get_key("up").clicked {
+            next -= 1;
+        }
+        if g.input.get_key("down").clicked {
+            next += 1;
+        }
+        if next != self.wear_sel as i32 {
+            self.wear_sel = next.rem_euclid(WEAR_ROWS) as usize;
+            g.play_sound(Sound::Select);
+        }
+
+        let enter = g.input.get_key("select").clicked || g.input.get_key("attack").clicked;
+        let take_off = g.input.get_key("drop-one").clicked || g.input.get_key("drop-stack").clicked;
+        if !enter && !take_off {
+            return;
+        }
+
+        let mut acted = false;
+        if let Some(player) = g.entities.get_mut(self.player_eid) {
+            let pd = player.player_mut();
+            match wear_row_slot(self.wear_sel) {
+                None => {
+                    // HELD: stow the held item (the pack-stash idiom — never lost)
+                    if let Some(held) = pd.active_item.take() {
+                        pd.inventory.add_at(0, held);
+                        acted = true;
+                    }
+                }
+                Some(slot) => {
+                    if pd.worn(slot).is_some() {
+                        if let Some(prev) = pd.unequip(slot) {
+                            pd.inventory.add_at(0, prev);
+                            acted = true;
+                        }
+                    } else if enter {
+                        let fit = (0..pd.inventory.inv_size())
+                            .find(|&j| wear_slot_for(pd.inventory.get(j)) == Some(slot));
+                        if let Some(j) = fit {
+                            let item = take_one(&mut pd.inventory, j);
+                            if let Some(prev) = pd.equip(item) {
+                                pd.inventory.add_at(0, prev);
+                            }
+                            acted = true;
+                        }
+                    }
+                }
+            }
+        }
+        if acted {
+            g.play_sound(Sound::Craft);
+            self.rebuild_pack_from_arena(g);
+        }
     }
 
     /* --------------------------------- craft input --------------------------------- */
@@ -704,10 +894,15 @@ impl SurvivalDisplay {
             y += font::text_height() + 1;
         }
 
-        // action legend (bottom of the card)
+        // action legend (bottom of the card) — wearables equip/dye from right here
+        let action = match &item.kind {
+            ItemKind::Armor { .. } => "WEAR IT",
+            ItemKind::Clothing { .. } => "DYE SHIRT",
+            _ => "HOLD IT",
+        };
         font::draw("ENTER", screen, DETAIL_X, BODY_BOTTOM - 26, color::WHITE);
         font::draw(
-            "HOLD IT",
+            action,
             screen,
             DETAIL_X + 56,
             BODY_BOTTOM - 26,
@@ -730,73 +925,180 @@ impl SurvivalDisplay {
         };
         let pd = player.player();
 
-        font::draw("WORN", screen, LIST_X + 2, BODY_Y + 2, COL_HEADER);
-        match &pd.cur_armor {
-            Some(a) => {
-                a.sprite.render(screen, LIST_X + 8, BODY_Y + 12);
-                font::draw(
-                    &bare_name(g, a),
-                    screen,
-                    LIST_X + 17,
-                    BODY_Y + 12,
-                    color::WHITE,
-                );
+        // ---- left: the slot list (mock_wear geometry) ----
+        const BOX_X: i32 = LIST_X + 14;
+        const SLOT_Y0: i32 = BODY_Y + 5;
+        const SLOT_PITCH: i32 = 26;
+        const LABEL_X: i32 = BOX_X + 22;
+
+        let slots: [(&str, Option<&Item>, bool); 4] = [
+            ("HEAD", pd.worn_head.as_ref(), true),
+            ("BODY", pd.cur_armor.as_ref(), true),
+            ("HELD", pd.active_item.as_ref(), true),
+            ("CHARM", None, false), // reserved slot, ships disabled
+        ];
+        for (i, (label, item, live)) in slots.iter().enumerate() {
+            let y = SLOT_Y0 + i as i32 * SLOT_PITCH;
+            let selected = *live && i == self.wear_sel;
+            let border = if selected {
+                0xFFFFFF
+            } else if *live {
+                0x8A8A8A
+            } else {
+                0x4A4A4A
+            };
+            fill_rect(screen, BOX_X, y, 16, 1, border);
+            fill_rect(screen, BOX_X, y + 15, 16, 1, border);
+            fill_rect(screen, BOX_X, y, 1, 16, border);
+            fill_rect(screen, BOX_X + 15, y, 1, 16, border);
+            if selected {
+                font::draw(">", screen, LIST_X, y + 5, color::YELLOW);
             }
-            None => font::draw("NOTHING", screen, LIST_X + 8, BODY_Y + 12, color::DARK_GRAY),
+            font::draw(
+                label,
+                screen,
+                LABEL_X,
+                y + 1,
+                if *live { COL_HEADER } else { color::DARK_GRAY },
+            );
+            match item {
+                Some(it) => {
+                    it.sprite.render(screen, BOX_X + 4, y + 4);
+                    let mut name = bare_name(g, it);
+                    if it.count() > 1 {
+                        name.push_str(&format!(" X{}", it.count()));
+                    }
+                    font::draw(&name, screen, LABEL_X, y + 10, color::WHITE);
+                }
+                None => {
+                    font::draw("-", screen, BOX_X + 6, y + 5, color::DARK_GRAY);
+                    let empty = if i == WEAR_HELD {
+                        "EMPTY HANDS"
+                    } else {
+                        "NOTHING"
+                    };
+                    font::draw(empty, screen, LABEL_X, y + 10, color::DARK_GRAY);
+                }
+            }
         }
+
+        // ---- left: totals ----
+        let armor_col = if pd.armor > 0 {
+            color::WHITE
+        } else {
+            color::DARK_GRAY
+        };
+        // totals sit clear of the HUD's armor badge row (y=158, renderer.rs)
         font::draw(
-            &format!(
-                "ARMOR {}/{}",
-                pd.armor,
-                crate::entity::mob::player::MAX_ARMOR
-            ),
+            &format!("ARMOR {} HITS", pd.armor),
             screen,
-            LIST_X + 8,
-            BODY_Y + 24,
-            color::GRAY,
+            LIST_X + 2,
+            BODY_Y + 104,
+            armor_col,
+        );
+        let coat = pd
+            .cur_armor
+            .as_ref()
+            .is_some_and(|a| a.get_name() == "Fur Coat");
+        font::draw(
+            &format!("WARMTH +{}", if coat { 2 } else { 0 }),
+            screen,
+            LIST_X + 2,
+            BODY_Y + 113,
+            COL_WARMTH,
+        );
+        if pd
+            .worn_head
+            .as_ref()
+            .is_some_and(|a| a.get_name() == "Straw Hat")
+        {
+            font::draw("SHADE +1", screen, LIST_X + 2, BODY_Y + 122, COL_WARMTH);
+        }
+
+        // ---- right: the player portrait (real sprite, palette-correct) ----
+        const PORT_X: i32 = 196;
+        const PORT_Y: i32 = BODY_Y + 2;
+        const PORT_W: i32 = 36;
+        const PORT_H: i32 = 28;
+        screen.darken_rect_screen(PORT_X, PORT_Y, PORT_W, PORT_H, 60);
+        fill_rect(screen, PORT_X, PORT_Y, PORT_W, 1, 0x8A8A8A);
+        fill_rect(screen, PORT_X, PORT_Y + PORT_H - 1, PORT_W, 1, 0x8A8A8A);
+        fill_rect(screen, PORT_X, PORT_Y, 1, PORT_H, 0x8A8A8A);
+        fill_rect(screen, PORT_X + PORT_W - 1, PORT_Y, 1, PORT_H, 0x8A8A8A);
+        let shirt = color::get4(-1, 100, pd.shirt_color, 532);
+        SPRITES[0][0].render_color(screen, PORT_X + (PORT_W - 16) / 2, PORT_Y + 6, shirt);
+
+        // ---- right: FITS ON <slot> ----
+        let slot = wear_row_slot(self.wear_sel);
+        let slot_name = ["HEAD", "BODY", "HELD"][self.wear_sel];
+        let fits_y = BODY_Y + 40;
+        font::draw(
+            &format!("FITS ON {slot_name}"),
+            screen,
+            DETAIL_X,
+            fits_y,
+            COL_HEADER,
         );
 
-        font::draw("HELD", screen, LIST_X + 2, BODY_Y + 42, COL_HEADER);
-        match &pd.active_item {
-            Some(a) => {
-                a.sprite.render(screen, LIST_X + 8, BODY_Y + 52);
-                font::draw(
-                    &bare_name(g, a),
-                    screen,
-                    LIST_X + 17,
-                    BODY_Y + 52,
-                    color::WHITE,
-                );
-            }
-            None => font::draw(
-                "EMPTY HANDS",
+        let Some(slot) = slot else {
+            // HELD: the pack is the picker
+            font::draw(
+                "PICK FROM THE PACK TAB.",
                 screen,
-                LIST_X + 8,
-                BODY_Y + 52,
+                DETAIL_X,
+                fits_y + 12,
                 color::DARK_GRAY,
-            ),
-        }
+            );
+            return;
+        };
 
-        // read-only until L3's wear slots land; the hint states today's real flow
-        let mut y = BODY_Y + 4;
-        for line in font::get_lines(
-            "WEAR SLOTS ARRIVE WITH A LATER UPDATE.",
-            DETAIL_RIGHT - DETAIL_X,
-            40,
-            1,
-        ) {
-            font::draw(&line, screen, DETAIL_X, y, color::DARK_GRAY);
-            y += font::text_height() + 1;
+        // the worn item leads the list (marked), then every fitting pack item
+        let mut rows: Vec<(&Item, bool)> = Vec::new();
+        if let Some(worn) = pd.worn(slot) {
+            rows.push((worn, true));
         }
-        y += 6;
-        for line in font::get_lines(
-            "TO WEAR ARMOR NOW: HOLD IT, FACE OPEN GROUND, AND USE IT.",
-            DETAIL_RIGHT - DETAIL_X,
-            60,
-            1,
-        ) {
-            font::draw(&line, screen, DETAIL_X, y, color::GRAY);
-            y += font::text_height() + 1;
+        let inv = &pd.inventory;
+        for j in 0..inv.inv_size() {
+            let it = inv.get(j);
+            if fits_slot(it, slot) {
+                rows.push((it, false));
+            }
+        }
+        if rows.is_empty() {
+            let mut y = fits_y + 12;
+            for line in font::get_lines("NOTHING IN THE PACK FITS.", DETAIL_RIGHT - DETAIL_X, 30, 1)
+            {
+                font::draw(&line, screen, DETAIL_X, y, color::DARK_GRAY);
+                y += font::text_height() + 1;
+            }
+            return;
+        }
+        const FIT_PITCH: i32 = 20;
+        let max_fit = 4;
+        let mut y = fits_y + 12;
+        for (it, worn) in rows.iter().take(max_fit) {
+            if *worn {
+                font::draw(">", screen, DETAIL_X, y, color::YELLOW);
+            }
+            it.sprite.render(screen, DETAIL_X + 8, y);
+            font::draw(&bare_name(g, it), screen, DETAIL_X + 18, y, color::WHITE);
+            let effect = wear_effect_line(it);
+            let ecol = if effect.contains("WARMTH") || effect.contains("SHADE") {
+                COL_WARMTH
+            } else {
+                color::GRAY
+            };
+            font::draw(&effect, screen, DETAIL_X + 18, y + 9, ecol);
+            y += FIT_PITCH;
+        }
+        if rows.len() > max_fit {
+            font::draw(
+                &format!("+{} MORE IN THE PACK", rows.len() - max_fit),
+                screen,
+                DETAIL_X,
+                y,
+                color::DARK_GRAY,
+            );
         }
     }
 
@@ -1011,8 +1313,9 @@ impl Display for SurvivalDisplay {
 
         match self.tab {
             Tab::Pack => self.tick_pack(g),
+            Tab::Wear => self.tick_wear(g),
             Tab::Craft => self.tick_craft(g),
-            Tab::Wear | Tab::SelfPane => {}
+            Tab::SelfPane => {}
         }
     }
 
@@ -1021,7 +1324,11 @@ impl Display for SurvivalDisplay {
         screen.darken_rect_screen(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 55);
         self.shell_menu.render(screen, g);
         self.render_tabs(screen);
-        font::draw_centered("< > SWITCH TAB   ESC CLOSE", screen, LEGEND_Y, color::GRAY);
+        let legend = match self.tab {
+            Tab::Wear => "ENTER WEAR   Q TAKE OFF   ESC CLOSE",
+            _ => "< > SWITCH TAB   ESC CLOSE",
+        };
+        font::draw_centered(legend, screen, LEGEND_Y, color::GRAY);
 
         match self.tab {
             Tab::Pack => self.render_pack(screen, g),

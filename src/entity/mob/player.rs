@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use crate::core::game::Game;
 use crate::entity::{Direction, Entity, EntityCommon, EntityKind};
 use crate::gfx::sprite::{MobAnims, compile_mob_sprite_animations};
-use crate::item::{Inventory, Item, PotionType};
+use crate::item::{Inventory, Item, ItemKind, PotionType};
 
 use super::MobData;
 
@@ -37,6 +37,26 @@ pub const HUNGER_TICK_COUNT: [i32; 3] = [120, 30, 10];
 pub const HUNGER_STEP_COUNT: [i32; 3] = [8, 3, 1];
 /// min hearts required for hunger to hurt you, by difficulty.
 pub const MIN_STARVE_HEALTH: [i32; 3] = [5, 3, 0];
+
+/// The visible wear slots (UI redesign §3.2). BODY is the classic `cur_armor` slot
+/// (damage absorption, armor meter); HEAD is warmth/shade gear with no hit meter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WearSlot {
+    Head,
+    Body,
+}
+
+/// Slot classification. HEAD takes hat-class gear — every `ItemKind::Armor` whose
+/// name ends in " Hat" (today: the Straw Hat, a token-protection armor item);
+/// BODY takes every other `ItemKind::Armor` (the plate armors and the Fur Coat).
+/// `ItemKind::Clothing` maps to no slot: it stays an instant shirt dye.
+pub fn wear_slot_for(item: &Item) -> Option<WearSlot> {
+    match item.kind {
+        ItemKind::Armor { .. } if item.get_name().ends_with(" Hat") => Some(WearSlot::Head),
+        ItemKind::Armor { .. } => Some(WearSlot::Body),
+        _ => None,
+    }
+}
 
 pub static SPRITES: LazyLock<MobAnims> = LazyLock::new(|| compile_mob_sprite_animations(0, 14));
 pub static CARRY_SPRITES: LazyLock<MobAnims> =
@@ -82,8 +102,12 @@ pub struct PlayerData {
     pub stamina: i32,
     pub armor: i32,
     pub armor_damage_buffer: i32,
-    /// the color/type of armor being worn (Java `curArmor: ArmorItem`).
+    /// the BODY wear slot: the armor being worn (Java `curArmor: ArmorItem`).
+    /// Damage absorption and the armor meter read this slot only.
     pub cur_armor: Option<Item>,
+    /// the HEAD wear slot (hat-class gear; see [`wear_slot_for`]). No hit meter —
+    /// head gear contributes warmth/shade (`core::temperature` reads it by name).
+    pub worn_head: Option<Item>,
 
     pub stamina_recharge: i32,
     pub stamina_recharge_delay: i32,
@@ -170,6 +194,56 @@ impl PlayerData {
     pub fn get_debug_hunger(&self) -> String {
         format!("{}_{}", self.hunger_stam_cnt, self.stam_hunger_ticks)
     }
+
+    /// What's worn in a slot.
+    pub fn worn(&self, slot: WearSlot) -> Option<&Item> {
+        match slot {
+            WearSlot::Head => self.worn_head.as_ref(),
+            WearSlot::Body => self.cur_armor.as_ref(),
+        }
+    }
+
+    /// Put a wearable on, routed by [`wear_slot_for`]. Returns the displaced item
+    /// (the caller stashes it back into the pack — nothing is ever lost) — or the
+    /// item itself if it fits no slot. Wearing body armor resets the hit meter to
+    /// the item's full protection, exactly like the classic equip.
+    pub fn equip(&mut self, item: Item) -> Option<Item> {
+        match wear_slot_for(&item) {
+            Some(WearSlot::Head) => {
+                let prev = self.worn_head.take();
+                self.worn_head = Some(item);
+                prev
+            }
+            Some(WearSlot::Body) => {
+                let prev = self.cur_armor.take();
+                let frac = match item.kind {
+                    ItemKind::Armor { armor, .. } => armor,
+                    _ => 0.0,
+                };
+                self.armor = (frac * MAX_ARMOR as f32) as i32;
+                self.armor_damage_buffer = 0;
+                self.cur_armor = Some(item);
+                prev
+            }
+            None => Some(item),
+        }
+    }
+
+    /// Take a slot's item off (the caller returns it to the pack). Emptying BODY
+    /// zeroes the hit meter and the damage buffer.
+    pub fn unequip(&mut self, slot: WearSlot) -> Option<Item> {
+        match slot {
+            WearSlot::Head => self.worn_head.take(),
+            WearSlot::Body => {
+                let prev = self.cur_armor.take();
+                if prev.is_some() {
+                    self.armor = 0;
+                    self.armor_damage_buffer = 0;
+                }
+                prev
+            }
+        }
+    }
 }
 
 /// Java `new Player(previousInstance, input)`. Copies the spawn point from the previous
@@ -204,6 +278,7 @@ pub fn new(g: &Game, previous: Option<&PlayerData>) -> Entity {
         armor: 0,
         armor_damage_buffer: 0,
         cur_armor: None,
+        worn_head: None,
         stamina_recharge: 0,
         stamina_recharge_delay: 0,
         hunger_stam_cnt: MAX_HUNGER_STAMS[diff_idx as usize],

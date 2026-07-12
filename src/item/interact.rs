@@ -3,7 +3,7 @@
 
 use crate::core::game::Game;
 use crate::entity::furniture;
-use crate::entity::mob::player::{MAX_ARMOR, MAX_HUNGER};
+use crate::entity::mob::player::MAX_HUNGER;
 use crate::entity::mob::player_behavior::pay_stamina;
 use crate::entity::{Direction, Entity, EntityKind};
 use crate::item::{Fill, Item, ItemKind, PotionType, ToolType, registry};
@@ -236,22 +236,31 @@ pub fn item_interact_on_tile(
             stackable_interact_on(g, item, success)
         }
 
-        // ArmorItem.interactOn: put on the armor.
-        ItemKind::Armor {
-            armor,
-            stamina_cost,
-            ..
-        } => {
-            let (armor, stamina_cost) = (*armor, *stamina_cost);
-            let mut success = false;
-            if player.player().cur_armor.is_none() && pay_stamina(player, stamina_cost) {
-                let pd = player.player_mut();
-                pd.cur_armor = Some(item.clone()); // set the current armor being worn to this.
-                pd.armor = (armor * MAX_ARMOR as f32) as i32; // armor is how many hits are left
-                success = true;
+        // ArmorItem.interactOn — the legacy use-to-wear path (attack with the armor
+        // held). It keeps working for muscle memory, but now routes through the same
+        // slot model as the WEAR pane (`PlayerData::equip`), swaps instead of
+        // requiring an empty slot, and answers both ways (the audit's silent
+        // failures, UI_REDESIGN §1.3). The WEAR pane's instant equip is the primary
+        // flow and skips the stamina toll; this ritual keeps its classic cost.
+        ItemKind::Armor { stamina_cost, .. } => {
+            let stamina_cost = *stamina_cost;
+            if !pay_stamina(player, stamina_cost) {
+                g.notifications
+                    .push("Too tired to put that on.".to_string());
+                return stackable_interact_on(g, item, false);
             }
-
-            stackable_interact_on(g, item, success)
+            // wear one unit off the held stack; the count decrement below pays it
+            let mut worn = item.clone();
+            if worn.count() > 1 {
+                worn.set_count(1);
+            }
+            let name = worn.get_name().to_string();
+            let pd = player.player_mut();
+            if let Some(prev) = pd.equip(worn) {
+                pd.inventory.add_at(0, prev); // displaced gear returns to the pack
+            }
+            g.notifications.push(format!("Worn - {name}."));
+            stackable_interact_on(g, item, true)
         }
 
         // ClothingItem.interactOn: put on clothes.
