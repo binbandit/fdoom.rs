@@ -1,106 +1,129 @@
 # Fossickers Doom (fdoom.rs)
 
-A Minicraft-Plus-style 2D top-down survival game, written in pure Rust: software
-renderer, infinite procedurally generated worlds (surface, three mine layers, and a
-dungeon set-piece), gather-chain crafting,
-potions, and an Air Wizard to kill. No engine, no GPU — just `winit` + `softbuffer` +
-`rodio` and a 288x192 pixel framebuffer.
+An original open-sandbox survival game in pure Rust — no engine, no GPU, just
+`winit` + `softbuffer` + `rodio` and a 288x192 software-rendered framebuffer.
+Infinite deterministic worlds, dig-based descent, fossicking, weather that
+matters, and places with mood: think scavenge-and-survive in the DayZ /
+7-Days-to-Die family, kept approachable enough that a kid can bumble through
+day one. No win condition — the world is the game.
 
-The project began as a faithful 1:1 port of the Java game
-[Fossicker](https://github.com/binbandit/Fossicker). **Tag `v0.1.0` is the pure port**
-(byte-identical rendering and world gen versus the JVM). Everything after that tag
-evolves the game on its own terms: modernized controls, a new RNG, inherited bugs fixed.
-`PORTING.md` documents the port-era architecture decisions; they still describe the code.
+![A campfire holding back a rainy night in the forest](assets/readme/campfire-rainy-night.png)
+
+| | |
+|---|---|
+| ![Fireflies over the marsh pools at dusk](assets/readme/marsh-fireflies.png) | ![A settled hamlet at dusk, windows lit](assets/readme/hamlet-dusk.png) |
+| ![Ghosts among the graves on a Hollow Night](assets/readme/hollow-night.png) | ![Snowfall over tundra pines and stone golems](assets/readme/tundra-snowfall.png) |
+
+*All shots are in-engine renders from seed 1 at 3x — worlds are infinite and
+fully described by their seed.*
+
+## The world
+
+- **Infinite, deterministic terrain** streamed in chunks around you: everything
+  derives from `(seed, depth, x, y)`, chunk-border exact, no global state.
+- **Climate-coherent biomes** — canopied forests, marshes, heath highlands,
+  tundra, savanna, desert — with flora on its true ground and blended seams.
+- **Structures with history**: towns age from overgrown ruins to settled
+  hamlets with lit windows; cemeteries decay; ruins, camps, standing stones and
+  old trails thread the wilds. Containers are searchable — the scavenge chain
+  (bottles, cans, tin) starts there.
+- **Five layers, no stairs**: surface, three mine layers, and a dungeon
+  set-piece. You dig down and climb back on the ladder you leave.
+- **Tides** on the coasts, and rare world events on their own calendar:
+  Hollow Night, Aurora, Ember Rain, Whisper Fog, the Caravan.
+
+## Survival
+
+![The farm plot at golden hour: wheat, carrots, potatoes, corn, pumpkins](assets/readme/farm-golden-hour.png)
+
+- **Gather-chain crafting from bare hands**: punch grass for fibers, twist
+  cord, knap stone sharp, lash your first crude tools — then workbench, oven,
+  furnace, anvil.
+- **Farming and cooking**: till, plant world-sourced seeds (wheat, carrots,
+  potatoes, corn, pumpkins), let the rain water the field, cook at a campfire
+  or oven.
+- **Temperature that matters**: hot and cold bands push you toward fur coats,
+  straw hats, shade, and fire — telegraphed early, mitigated cheaply.
+- **Weather with consequences**: rain douses flames and waters crops, snow
+  settles and thaws, morning mist rises off the marshes, golden-hour haze.
+- **Fossicking identity**: pan the creeks, chase ore veins through cracked and
+  dense rock, prop your tunnels with timber — or gamble with cave-ins.
+  Excavation merges pits into channels; channels flood into pools.
+- **An original mob roster**: snakes, stamina-draining ghosts, marsh lurkers,
+  feral hounds, stone golems, night wisps, fireflies, glow worms — plus
+  invisible fish that only bubbles betray.
+- **Day/night lighting with occlusion**, a frameless HUD, one E-key survival
+  screen (pack / wear / craft / self), and a map drawn from explored chunks.
 
 ## Quickstart
 
 ```sh
-cargo run                # play the game
-cargo run -- --debug     # play with cheat keys enabled (see docs/DEV_GUIDE.md)
-cargo test               # unit + headless render tests
-just --list              # all dev tasks (build checks, scripted demo runs, ...)
+cargo run                # play
+cargo run -- --debug     # cheat keys + dev console (see docs/DEV_GUIDE.md)
+just check               # fmt + clippy -D warnings + full test suite
+just --list              # every dev verb (worldview, studio, soak, shots...)
 ```
 
-Requires stable Rust 1.85+. No system dependencies beyond a working audio output
-(the game runs fine without one — it just logs and goes silent).
+Requires stable Rust 1.85+. No system dependencies beyond audio output — and
+the game runs fine (silently) without one.
 
 ## Controls
 
-Defaults live in `init_key_map` in `src/core/io/input_handler.rs`; rebind in-game under
-Options → Change Key Bindings.
+Defaults live in `init_key_map` (`src/core/io/input_handler.rs`); rebind
+in-game under Options → Change Key Bindings.
 
 | Action | Key(s) |
 |---|---|
-| Move | `W A S D` or arrow keys |
-| Attack / use item | `SPACE` or `C` |
-| Inventory | `E` or `I` |
-| Craft (personal crafting) | `Z` or `SHIFT-E` |
-| Stash held item (back into inventory) | `X` |
-| Pick up furniture (power glove) | `V` |
+| Move | `W A S D` / arrows |
+| Attack / use held item | `SPACE` / `C` |
+| Survival screen (pack, wear, craft, self) | `E` / `I` |
+| Jump straight to the craft tab | `Z` / `SHIFT-E` |
+| Stash held item | `X` |
+| Pick up furniture | `V` |
 | Drop one / drop stack | `Q` / `SHIFT-Q` |
+| Map (explored chunks) | `M` |
 | Save world | `R` |
-| Map | `M` |
-| Potion-effects readout | `P` |
-| Player info screen | `SHIFT-I` |
-| Pause / close menu | `ESCAPE` |
-| Menu select / accept | `ENTER` |
-| FPS + debug overlay | `F3` |
+| Potion effects / player info | `P` / `SHIFT-I` |
+| Pause / menus | `ESCAPE`, `ENTER` |
+| FPS overlay | `F3` |
 
-Debug-gated bindings (only active with `--debug`): `N` skip to night,
-`SHIFT-S`/`SHIFT-1` survival mode, `SHIFT-C`/`SHIFT-2` creative mode — plus a set of
-unmapped cheat keys (time of day, game speed, give items, ...) listed in
-[docs/DEV_GUIDE.md](docs/DEV_GUIDE.md#debug-cheat-keys).
+With `--debug` only: `F4` info overlay, `/` dev console (`give`, `tp`, `time`,
+`heal`), `N` skip to night, `SHIFT-S`/`SHIFT-C` survival/creative — plus the
+cheat keys in [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md#debug-cheat-keys).
 
-> Upgrading from an older build? A stale `Preferences.miniplussave` keeps the *old*
-> keybindings. See [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md#troubleshooting).
+## Dev tooling
 
-## Features
+- **`FDOOM_DEMO` scripted runs** — drive the real windowed game from an env-var
+  script (keys, waits, frame dumps) for hands-off verification.
+- **`cargo run --bin worldview -- <seed>`** — inspect any seed's biomes,
+  structures and trails without playing; headless `--dump` mode for CI.
+- **`cargo run --bin pixel_studio`** — the in-repo pixel-art editor;
+  `assets/sprites/**` PNGs are the art source of truth, stitched into a runtime
+  atlas at boot.
+- **Headless testing** — the core never touches the platform layer;
+  `fdoom::testutil::TestWorld` boots a world, ticks it, and renders PNGs with
+  no window. Long randomized soaks via `just soak`.
+- Saves are versioned text files under `~/fdoom` (macOS), `%APPDATA%\fdoom`
+  (Windows) or `~/.fdoom` (Linux), with autosave and old-save tolerance.
 
-- **Infinite worlds**: Minecraft-style chunked terrain streamed around the player,
-  deterministic per seed, with large natural biomes, world structures (ruins, decaying
-  cemeteries, destroyed villages, old trails), and dig-based descent between layers
-  (no pre-placed stairs — you dig down and climb back on the ladder you leave).
+## Lineage
 
-- Procedural island/box/mountain/irregular worlds, 128–512 tiles square, seedable
-- 5 vertical levels: surface, three mine layers, and a dungeon reached through deep-mine gates
-- Day/night cycle with mob spawning, beds, farming, 46 tile types, ~150 items
-- **Progression**: a 7-Days-style survival start — punch tall grass for fibers and
-  loose stones, punch trees for sticks; twist fibers into cord, knap stone sharp, and
-  lash together your first crude axe and pickaxe with bare hands. Real wood/stone
-  tools then need a workbench (and cord), and the metal tiers an anvil beyond that.
-- Crafting stations: workbench, oven, furnace, anvil, enchanter, loom
-- Open-sandbox survival (Creative remains as a --debug tool), three difficulties,
-  selectable day-cycle pacing up to realtime, rare deterministic world events
-- Save/load in the original Java-compatible text format, autosave
-- Localization (English, Italiano, Norsk)
-- Fully headless-capable core: tests tick the world and render PNGs without a window
-
-## Project layout
-
-```
-src/
-  core/        Game struct (all game state), tick loop, renderer front-end, file paths
-  core/io/     input handler, settings store, sound, localization
-  entity/      EntityCommon + EntityKind; mob/, furniture/, particle/ modules;
-               behavior.rs = dispatch hubs (tick/render/die/...)
-  level/       Level (tile arrays), world gen, structures; tile/ = TileDef/TileKind,
-               per-tile modules, dispatch.rs hubs
-  item/        Item/ItemKind, prototype registry, recipes, inventories
-  screen/      Display trait + ~25 screens, Menu widget, entry/ row types
-  gfx/         software renderer: Screen, Sprite, SpriteSheet, color math, font
-  saveload/    save/load of worlds, player, preferences
-  platform/    the ONLY module touching winit/softbuffer/rodio; also the FDOOM_DEMO
-               scripted-run driver
-  rng.rs       deterministic xoshiro256++ RNG
-assets/        sprite sheet, sounds, localization files (embedded via include_bytes!)
-tests/         headless integration tests
-```
+The project began as a faithful 1:1 port of the Java game
+[Fossicker](https://github.com/binbandit/Fossicker) — **tag `v0.1.0` is the
+pure port** (byte-identical rendering and world gen versus the JVM). Everything
+since evolves the game on its own terms: infinite worlds, the survival systems
+above, an original art pass, and a new deterministic RNG. `PORTING.md` records
+the port-era architecture decisions.
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — guided tour of the codebase (15 min)
-- [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md) — daily commands, scripted demo runs, headless
-  testing, cheat keys, troubleshooting
-- [docs/ADDING_CONTENT.md](docs/ADDING_CONTENT.md) — step-by-step recipes for new items,
-  recipes, tiles, mobs, sounds, sprites
-- [PORTING.md](PORTING.md) — the Java→Rust port design (history + architecture rationale)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 15-minute codebase tour
+- [docs/TERRAIN.md](docs/TERRAIN.md), [docs/ENTITIES.md](docs/ENTITIES.md),
+  [docs/ITEMS_AND_CRAFTING.md](docs/ITEMS_AND_CRAFTING.md),
+  [docs/RENDERING_AND_UI.md](docs/RENDERING_AND_UI.md),
+  [docs/CORE_AND_SAVES.md](docs/CORE_AND_SAVES.md) — per-system references
+- [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md) — daily commands, scripted runs,
+  headless testing, cheat keys, troubleshooting
+- [docs/ADDING_CONTENT.md](docs/ADDING_CONTENT.md) — recipes for new items,
+  tiles, mobs, sprites
+- [docs/ART_GUIDE.md](docs/ART_GUIDE.md) — the house pixel-art style
