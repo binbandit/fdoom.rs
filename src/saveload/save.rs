@@ -497,6 +497,17 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
 
     if let EntityKind::Crafter(c) = &e.kind {
         name = c.crafter_type.name().to_string();
+        // THE BENCH: fitted-module ordinals (campfire-fuel idiom — a trailing
+        // field older loaders never wrote and tolerant loaders skip)
+        if c.crafter_type == crate::entity::furniture::crafter::CrafterType::Bench {
+            let fitted: Vec<String> = crate::entity::furniture::crafter::Module::VALUES
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| c.modules.contains(m))
+                .map(|(i, _)| i.to_string())
+                .collect();
+            extradata.push_str(&format!(":{}", fitted.join(";")));
+        }
     }
 
     if !is_local_save {

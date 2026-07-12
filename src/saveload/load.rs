@@ -1094,6 +1094,22 @@ pub fn load_entity(
                 crate::entity::furniture::campfire::ember_sprite()
             };
         }
+    } else if entity_name == "Bench" && info.len() > 3 {
+        // THE BENCH: refit the saved module ordinals (unknown ordinals skip —
+        // the same old-save tolerance rule as everywhere else)
+        use crate::entity::furniture::crafter::Module;
+        if let EntityKind::Crafter(c) = &mut new_entity.kind {
+            for ord in info[2].split(';').filter(|s| !s.is_empty()) {
+                if let Some(m) = ord
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|i| Module::VALUES.get(i))
+                    && !c.modules.contains(m)
+                {
+                    c.modules.push(*m);
+                }
+            }
+        }
     }
 
     if !is_local_save {
@@ -1216,6 +1232,9 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
         )),
         "Oven" => Some(furniture::crafter::new(
             furniture::crafter::CrafterType::Oven,
+        )),
+        "Bench" => Some(furniture::crafter::new(
+            furniture::crafter::CrafterType::Bench,
         )),
         "Bed" => Some(furniture::bed::new()),
         "Campfire" => Some(furniture::campfire::new()),

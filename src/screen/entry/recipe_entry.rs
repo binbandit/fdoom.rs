@@ -66,8 +66,12 @@ impl ListEntry for RecipeEntry {
                 (true, false) | (false, true) => COL_UNSLCT,
                 (false, false) => COL_DIM,
             };
+            // Recipe entries live in the survival screen's left column: clip at
+            // the divider so long names ellipsize instead of bleeding into the
+            // cost card (the product-owner overflow rule).
             let text = self.to_display_string(g);
-            font::draw(&text, screen, x, y, col);
+            let max_w = crate::screen::survival_display::list_clip_width(x);
+            font::draw_fit(&text, screen, x, y, col, max_w);
             self.item.sprite.render(screen, x, y);
         }
     }

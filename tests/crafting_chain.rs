@@ -58,7 +58,8 @@ fn personal_crafting_offers_the_survival_chain() {
         "Crude Axe",
         "Crude Pickaxe",
         "Fishing Rod",
-        "Workbench",
+        // THE BENCH replaced the standalone workbench in the personal chain (L5)
+        "Bench",
     ] {
         find_recipe(&g.recipes.craft, product);
     }

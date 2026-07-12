@@ -152,6 +152,9 @@ pub struct Recipes {
     pub enchant: Vec<Recipe>,
     pub craft: Vec<Recipe>,
     pub loom: Vec<Recipe>,
+    /// THE BENCH's module recipes — always on the bench list, deliberately
+    /// expensive: finding the module in a ruin is the shortcut, never the gate.
+    pub bench_modules: Vec<Recipe>,
 }
 
 impl Default for Recipes {
@@ -191,7 +194,10 @@ impl Recipes {
             r("Timber Prop", "Wood*2 + Stick*2"),
             // a stone ring around stacked wood; places lit, the 2 Wood as fuel
             r("Campfire", "Stone*5 + Stick*3 + Wood*2"),
-            r("Workbench", "Wood*10 + Stone*2"),
+            // THE BENCH: the modular station — cheap and early, right after the
+            // crude tools (UI_REDESIGN §4; the classic Workbench recipe retired
+            // with the other standalone bench-shaped stations)
+            r("Bench", "plank*8 + Cord*2"),
             // carve a pumpkin around a torch — a placeable ember-light
             r("Jack-O-Lantern", "Pumpkin + Torch"),
             // no-cook trail food: mashed forage
@@ -222,13 +228,14 @@ impl Recipes {
             r("Stone Door", "Stone Brick*5"),
             // a paned wall segment: two panes leaded into a wooden frame
             r("Window", "glass*2 + Wood*2"),
+            // heat stays in the world: the oven and furnace remain buildable
+            // stations. The bench-shaped ones (anvil/enchanter/loom) retired —
+            // their families live on THE BENCH as modules now; legacy placed
+            // stations still work and break down into their module in the pack.
             r("Oven", "Stone*15"),
             r("Furnace", "Stone*20"),
-            r("Enchanter", "Wood*5 + String*2 + Lapis*10"),
             r("Chest", "Wood*20"),
-            r("Anvil", "iron*5"),
             r("Tnt", "Gunpowder*10 + Sand*8"),
-            r("Loom", "Wood*10 + Wool*5"),
             r("Wood Sword", "Wood*5 + Stick*2 + Cord"),
             r("Wood Axe", "Wood*5 + Stick*2 + Cord"),
             // crossing deep water (multi-level terrain)
@@ -358,6 +365,15 @@ impl Recipes {
             r("Health Potion", "potion + GunPowder*2 + Leather Armor"),
         ];
 
+        // THE BENCH's module recipes: deliberately expensive next to the loot
+        // route (found in ruins/dungeons), but always visible on the bench so a
+        // player who never finds one still sees the path and can grind it.
+        let bench_modules = vec![
+            r("Vice", "iron*8 + Stone*5"),
+            r("Spindle", "Wood*8 + Cord*4 + Stick*4"),
+            r("Assay Kit", "gold*5 + Lapis*5 + glass*2"),
+        ];
+
         Recipes {
             anvil,
             oven,
@@ -366,6 +382,7 @@ impl Recipes {
             enchant,
             craft,
             loom,
+            bench_modules,
         }
     }
 }

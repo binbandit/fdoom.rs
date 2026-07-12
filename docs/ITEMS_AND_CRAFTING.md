@@ -463,23 +463,33 @@ across separate `req_items` strings are **summed** into one `(name, amount)` pai
 than kept as separate entries (`if let Some(existing) = costs.iter_mut().find(...) {
 existing.1 += amt } else { costs.push(...) }`).
 
-### 5.2 Stations
+### 5.2 Stations — and THE BENCH
 
 `Recipes` (a plain struct built once in `Recipes::new()`, stored as `g.recipes`) holds
-**seven** lists: `craft` (personal, no furniture, bound to the `Z`/`Shift-E` key — see
-`init_key_map` in `src/core/io/input_handler.rs`), plus one list per `CrafterType`
-variant (`src/entity/furniture/crafter.rs`):
+`craft` (personal, no furniture, bound to the `Z`/`Shift-E` key — see `init_key_map`
+in `src/core/io/input_handler.rs`), one list per legacy `CrafterType` variant, and
+`bench_modules` (the module recipes shown at THE BENCH):
 
 ```rust
-pub enum CrafterType { Workbench, Oven, Furnace, Anvil, Enchanter, Loom }
+pub enum CrafterType { Workbench, Oven, Furnace, Anvil, Enchanter, Loom, Bench }
 ```
 
-Six variants, matching `Recipes`'s `workbench`/`oven`/`furnace`/`anvil`/`enchant`/`loom`
-fields one-to-one (`Recipes.enchant` ↔ `CrafterType::Enchanter`, name mismatch aside).
-`CrafterData { furniture: FurnitureData, crafter_type: CrafterType }` is the whole of a
-placed station's identity — it carries no state beyond which type it is; the recipe list
-itself lives on `Game`, not on the furniture entity. Station → sprite/interaction radius
-mapping (`CrafterType::sprite()`, `CrafterType::radius()`) also lives in `crafter.rs`.
+**THE BENCH** (UI_REDESIGN §4) is the live crafting identity: personally craftable
+(`plank*8 + Cord*2`), it opens with the saw built in (the workbench list) plus the
+three module recipes, and grows by bolting on **modules** — `Module::{Vice, Spindle,
+AssayKit}` absorb the anvil/loom/enchanter families respectively. Fit one by USING
+the bench with the module held (consumed; persisted as trailing ordinals in the
+entity save record, old-save tolerant). Modules are found in ruins/village loot or
+crafted at the bench itself — the loot is a shortcut, never a gate. The standalone
+Anvil/Loom/Enchanter/Workbench **recipes are retired**; legacy placed stations from
+old saves still open their lists, and their furniture items break down into their
+module via ENTER in the pack (`survival_display::hold_selected`). Heat stays in the
+world: Oven and Furnace remain separate, buildable stations.
+
+`CrafterData { furniture, crafter_type, modules }` — `modules` is only meaningful
+for the bench; the recipe lists live on `Game`, assembled per-open by
+`crafter_behavior::bench_recipes`. Station → sprite/interaction radius mapping
+(`CrafterType::sprite()`, `CrafterType::radius()`) also lives in `crafter.rs`.
 
 ### 5.3 Craft flow (end to end)
 

@@ -62,6 +62,12 @@ pub(crate) const GOLD_RGB: i32 = 0xE0C84A;
 pub(crate) const DIVIDER_RGB: i32 = 0x4A4A4A;
 pub(crate) const SCROLLBAR_RGB: i32 = 0x9A9A9A;
 
+/// The pixel width left for a list entry starting at `x` before the craft pane's
+/// divider — recipe entries clip their text here (overflow rule; see font::draw_fit).
+pub(crate) fn list_clip_width(x: i32) -> i32 {
+    (DIVIDER_X - 2 - x).max(8)
+}
+
 /// Fill a screen-space rect with a literal RGB color (bounds-clipped). Same shape as
 /// the renderer's private helper — the gauges here need flat fills, not sprite cells.
 pub(crate) fn fill_rect(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i32) {
@@ -311,6 +317,9 @@ pub struct SurvivalDisplay {
     recipes: Vec<Rc<RefCell<Recipe>>>,
     craft_menu: Menu,
     station: Option<String>,
+    /// THE BENCH's module rack (`Module::VALUES` order), when opened at a bench:
+    /// filled sockets light up, empty ones show a dim `?` with a fit hint.
+    bench_rack: Option<[bool; 3]>,
     craft_y0: i32,
 }
 
@@ -322,7 +331,7 @@ impl SurvivalDisplay {
 
     /// Opens on a specific tab (Z lands on CRAFT, P lands on SELF).
     pub fn on_tab(g: &Game, player: &Entity, tab: Tab) -> SurvivalDisplay {
-        Self::build(g, player, tab, None, g.recipes.craft.clone())
+        Self::build(g, player, tab, None, None, g.recipes.craft.clone())
     }
 
     /// Opens on CRAFT with a station's recipe set and its name as a sub-header —
@@ -334,7 +343,32 @@ impl SurvivalDisplay {
         station: &str,
         recipes: Vec<Recipe>,
     ) -> SurvivalDisplay {
-        Self::build(g, player, Tab::Craft, Some(station.to_uppercase()), recipes)
+        Self::build(
+            g,
+            player,
+            Tab::Craft,
+            Some(station.to_uppercase()),
+            None,
+            recipes,
+        )
+    }
+
+    /// Opens at THE BENCH: station context plus the module rack across the top
+    /// (`mock_bench.png` — filled modules lit, empty sockets dim with a hint).
+    pub fn at_bench(
+        g: &Game,
+        player: &Entity,
+        recipes: Vec<Recipe>,
+        fitted: [bool; 3],
+    ) -> SurvivalDisplay {
+        Self::build(
+            g,
+            player,
+            Tab::Craft,
+            Some("THE BENCH".to_string()),
+            Some(fitted),
+            recipes,
+        )
     }
 
     fn build(
@@ -342,10 +376,17 @@ impl SurvivalDisplay {
         player: &Entity,
         tab: Tab,
         station: Option<String>,
+        bench_rack: Option<[bool; 3]>,
         recipes: Vec<Recipe>,
     ) -> SurvivalDisplay {
         let inventory = &player.player().inventory;
-        let craft_y0 = BODY_Y + if station.is_some() { 12 } else { 0 };
+        // the bench rack needs a second header row under the station name
+        let header_h = match (&station, &bench_rack) {
+            (Some(_), Some(_)) => 36, // name + rack + fit hint
+            (Some(_), None) => 12,
+            _ => 0,
+        };
+        let craft_y0 = BODY_Y + header_h;
 
         let mut recipes: Vec<Rc<RefCell<Recipe>>> = recipes
             .into_iter()
@@ -376,6 +417,7 @@ impl SurvivalDisplay {
             recipes,
             craft_menu,
             station,
+            bench_rack,
             craft_y0,
         };
         display.rebuild_pack(inventory.items());
@@ -579,6 +621,9 @@ impl SurvivalDisplay {
         enum Act {
             Wear,
             Dye(i32),
+            /// A legacy bench-shaped station in the pack breaks down into its
+            /// bench module (your grandfathered anvil becomes the VICE).
+            BreakDown(crate::entity::furniture::crafter::Module),
             Hold,
         }
         let act = match g
@@ -588,12 +633,43 @@ impl SurvivalDisplay {
         {
             Some(ItemKind::Armor { .. }) => Act::Wear,
             Some(ItemKind::Clothing { player_col, .. }) => Act::Dye(*player_col),
+            Some(ItemKind::Furniture { furniture, .. }) => {
+                use crate::entity::furniture::crafter::Module;
+                let legacy = if let crate::entity::EntityKind::Crafter(c) = &furniture.kind {
+                    Module::VALUES
+                        .iter()
+                        .copied()
+                        .find(|m| m.legacy_station() == c.crafter_type)
+                } else {
+                    None
+                };
+                match legacy {
+                    Some(m) => Act::BreakDown(m),
+                    None => Act::Hold,
+                }
+            }
             Some(_) => Act::Hold,
             None => return,
         };
         match act {
             Act::Wear => self.equip_from_pack(g, idx),
             Act::Dye(col) => self.dye_from_pack(g, idx, col),
+            Act::BreakDown(m) => {
+                let module = registry::get(g, m.item_name());
+                if let Some(player) = g.entities.get_mut(self.player_eid) {
+                    let pd = player.player_mut();
+                    let station = pd.inventory.remove(idx);
+                    pd.inventory.add_at(idx, module);
+                    let note = format!(
+                        "The {} breaks down into its {}.",
+                        station.get_name(),
+                        m.item_name()
+                    );
+                    g.push_ambient(&note);
+                    g.play_sound(Sound::Craft);
+                }
+                self.rebuild_pack_from_arena(g);
+            }
             Act::Hold => {
                 if let Some(player) = g.entities.get_mut(self.player_eid) {
                     let pd = player.player_mut();
@@ -1178,6 +1254,46 @@ impl SurvivalDisplay {
         // (mock_bench) — the list and divider start one row lower to make room
         if let Some(name) = &self.station {
             font::draw_centered(name, screen, BODY_Y + 1, color::YELLOW);
+        }
+        // THE BENCH's module rack: SAW built in, then one socket per module —
+        // filled sockets lit, empty ones a dim ? with the next fit hint under it
+        if let Some(fitted) = self.bench_rack {
+            use crate::entity::furniture::crafter::Module;
+            let socket_w = 42; // wide enough for a full 4-char label at 8px
+            let rack_w = socket_w * 4;
+            let rack_x = PANEL_X + (PANEL_W - rack_w) / 2;
+            let rack_y = BODY_Y + 12;
+            let labels = ["SAW", "VICE", "SPND", "ASSY"];
+            let lit = [true, fitted[0], fitted[1], fitted[2]];
+            for i in 0..4 {
+                let x = rack_x + i as i32 * socket_w;
+                let col = if lit[i] { GOLD_RGB } else { DIVIDER_RGB };
+                fill_rect(screen, x, rack_y, socket_w - 4, 1, col);
+                fill_rect(screen, x, rack_y + 9, socket_w - 4, 1, col);
+                if lit[i] {
+                    font::draw_fit(
+                        labels[i],
+                        screen,
+                        x + 1,
+                        rack_y + 2,
+                        color::WHITE,
+                        socket_w - 4,
+                    );
+                } else {
+                    font::draw(
+                        "?",
+                        screen,
+                        x + (socket_w - 12) / 2,
+                        rack_y + 2,
+                        color::DARK_GRAY,
+                    );
+                }
+            }
+            // the hint names the first empty socket ("SPINDLE FITS HERE")
+            if let Some(next) = Module::VALUES.iter().enumerate().find(|(i, _)| !fitted[*i]) {
+                let hint = format!("HOLD A {} AND USE THE BENCH", next.1.item_name());
+                font::draw_centered(&hint, screen, rack_y + 12, color::DARK_GRAY);
+            }
         }
         fill_rect(screen, DIVIDER_X, y0, 1, BODY_BOTTOM - y0, DIVIDER_RGB);
 

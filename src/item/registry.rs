@@ -783,6 +783,15 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     // A dead settlement's pocket change — worthless, pocketed anyway (lore find).
     items.push(stackable("Old Coin", (10, 4), get4(-1, 110, 321, 442)));
 
+    // ---- THE BENCH's modules (UI_REDESIGN §4): physical tool kits that bolt onto
+    // the bench and unlock a recipe family (vice=anvil, spindle=loom, assay
+    // kit=enchanter's list reflavored). Found scavenging or crafted at the bench —
+    // loot is the shortcut, never the gate.
+    // TODO(art): dedicated icons; these recolor the ingot/cord/gem cells.
+    items.push(stackable("Vice", (11, 4), get4(-1, 111, 333, 445)));
+    items.push(stackable("Spindle", (25, 4), get4(-1, 210, 432, 543)));
+    items.push(stackable("Assay Kit", (13, 4), get4(-1, 110, 441, 554)));
+
     // ClothingItem.getAllInstances()
     items.push(clothing("Red Clothes", get4(-1, 100, 400, 500), 400));
     items.push(clothing("Blue Clothes", get4(-1, 1, 4, 5), 4));

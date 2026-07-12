@@ -1673,6 +1673,8 @@ fn fill_structure_chest(
             (2, "Corn Kernels", 3),
             (3, "Carrot Seeds", 2),
             (4, "Pumpkin Seeds", 2),
+            // a village weaver's kit for THE BENCH
+            (8, "Spindle", 1),
         ],
         StructureKind::Ruins => &[
             (2, "Torch", 3),
@@ -1683,6 +1685,10 @@ fn fill_structure_chest(
             (4, "Apple", 2),
             (5, "Coal", 3),
             (10, "Iron", 1),
+            // THE BENCH's loot shortcut: whoever worked this place left their
+            // kit behind (the module recipes at the bench remain the sure path)
+            (9, "Vice", 1),
+            (11, "Assay Kit", 1),
         ],
         _ => &[
             (2, "Torch", 2),
