@@ -29,13 +29,16 @@ use crate::entity::Entity;
 use crate::entity::mob::player_behavior::pay_stamina;
 use crate::entity::particle::new_smash_particle;
 use crate::item::Item;
-use crate::level::infinite_gen::{hash, richness_at, unit};
+use crate::level::infinite_gen::{hash, richness_at, river_zone_at, unit};
 use crate::level::{drop_item, get_entities_in_tiles};
 
 /// The panning dish's item name (a plain stackable; tiles recognize it by name).
 pub const PAN_NAME: &str = "Prospector's Pan";
 /// Stamina cost per pan of gravel.
 const PAN_STAMINA: i32 = 3;
+/// Richness added to the pan roll when the panned tile sits in a river's channel or
+/// bank zone (surface only) — the fossicking-identity payoff of finding a river.
+pub const RIVER_RICHNESS_BONUS: f64 = 0.10;
 
 /// Rock data bit 7: this rock is collapse rubble (weak, fast to clear).
 pub const RUBBLE_FLAG: i32 = 0x80;
@@ -163,7 +166,13 @@ pub fn try_pan(
     g.level_mut(lvl)
         .add(new_smash_particle(xt * 16, yt * 16), lvl);
 
-    let richness = richness_at(g.world_seed, xt, yt);
+    let mut richness = richness_at(g.world_seed, xt, yt);
+    // River gravel pays a shade better: the current sorts the heavy colors into the
+    // channel and its banks. Subtle by design (see `RIVER_RICHNESS_BONUS`) — rivers
+    // sweeten the pan, they don't replace reading the land.
+    if g.level(lvl).depth == 0 && river_zone_at(g.world_seed, xt, yt).is_some() {
+        richness = (richness + RIVER_RICHNESS_BONUS).min(1.0);
+    }
     let roll = g.random.next_double();
     let (name, note) = match pan_outcome(richness, roll) {
         PanFind::Nothing => (None, "Nothing but gray sand."),

@@ -173,6 +173,9 @@ temperature field and the moisture field are decorrelated even though they share
 | `0xF055_1C4E` | richness | `richness_at` | 96 | 2 | fossicking: shared mineral-richness field, every depth (§4.5) |
 | `0x5EE9` | stain | `mineral_stain_at` | n/a (raw `hash`) | n/a | per-tile mineral-seep stain roll on rich surface rock |
 | `0x5EA0` | skerry | `skerry_at` | n/a (raw `hash`, 2x2 cells) | n/a | ocean rock stacks (sea stacks in open water) |
+| `0x21BE_D001` | river course | `river_zone_at` | 512 | 3 | rivers are the `= 0.5` contour band of this field (§3.3.3) |
+| `0x21BE_D002` | river width | `river_zone_at` | 72 | 2 | channel half-width modulation along the course (1.0..2.8 tiles) |
+| `0x21BE_D003` | river region | `river_zone_at` | 1408 | 1 | smooth presence gate: whole stretches of country carry no river |
 | `0xC4AC_4ED0` | rock character | `fossick::rock_character` | n/a (raw `hash`) | n/a | runtime field (not gen): cracked/dense rock per position (§4.5) |
 | `0x484D_4C45_5421_0006` | hamlet placement | `structures_gen::spec(Hamlet)` | n/a (raw `hash`, 320-tile cells) | n/a | towns wave: the little-town placement grid between the rare villages |
 | `0xA6ED_70B1_0007` | town age | `structures_gen::town_age` | n/a (raw `hash`, per placement) | n/a | Overgrown / Weathered / Settled axis for hamlets + villages |
@@ -269,7 +272,9 @@ renders as `Deep Water`, which needs a Raft (§4).
 
 `surface_tile(seed, x, y, ids)` maps a biome to a concrete tile id using a per-tile
 `detail = unit(hash(seed, 3, x, y))` roll (and biome-specific secondary fractals) as
-piecewise thresholds:
+piecewise thresholds. **Rivers preempt every land arm**: before the biome match, any
+tile in a river zone (§3.3.3) returns water (channel) or the climate-aware pond rim
+(bank) — the sea arms (Ocean/DeepOcean/Beach) keep their own water:
 
 | Biome | Rule |
 |---|---|
@@ -374,6 +379,57 @@ Freckle id 76 — pickaxe a freckle for 1-2 Iron Ore/Coal) and the forest Beehiv
 (id 74, data 0 = full / 1 = regrowing on the berry-bush timer family) land in the
 same wave; ids 73-76 follow the flora-wave convention (names are the save contract,
 ids are in-memory only).
+
+#### 3.3.4 Rivers (`river_zone_at`)
+
+Rivers are the mid-contour band of a smooth **course field** (salt `0x21BE_D001`,
+period 512, 3 octaves): every tile where `|course - 0.5|`, divided by the local field
+gradient (central differences — pure per-tile math, chunk-border exact), falls within
+the channel half-width is river water. Contours of smooth noise wind by nature, so
+rivers never trace ruled lines; the third octave gives them ~100-tile wiggle on top
+of the continental sweep. The gradient division holds the channel at a near-constant
+*tile* width wherever the field is steep or shallow; a tiny gradient floor
+(`RIVER_GRAD_FLOOR = 0.0005`, a numerical guard well under the field's typical
+~0.003 slope) lets the rare genuinely-flat basin swell into a billabong-style
+waterhole instead of dividing by zero. Contour geometry occasionally closes a loop
+— a big meander lasso, or a small ring pond with a grass island — both read as
+oxbow/billabong country, which suits the fossicking identity.
+
+A river exists only where its **strength** (0..1) survives three fades, each a
+product term that narrows the channel to nothing (below strength 0.25 the river
+pinches out entirely, so no bank-only ribbons):
+
+- **region** (salt `0x21BE_D003`, one smooth 1408-tile octave, ramp
+  `(p - 0.36) * 10`): whole stretches of country simply have no river — finding one
+  is an event. Tuned to ~1 channel crossing per 1000-1900 land tiles of straight
+  walking (test-pinned band 500-3000), with ~20% of land riverless.
+- **dry country** (re-reads the salt-2 moisture and salt-6 climate fields — the
+  reuse is deliberate: the fade *must* correlate with `biome_at`'s Desert gate):
+  on dry ground (`moisture < 0.42`) strength ramps to zero as climate reaches the
+  Desert threshold `0.70`, so rivers dry up before the deep desert.
+- **lowland** (re-reads `land_at`): strength ramps to zero below `land = 0.448`,
+  just above the Beach top (`0.445`) and the tidal band (`< 0.435`) — river mouths
+  narrow into the shore and hand over to beach/tidal tiles, and the **tide
+  machinery is never touched** (test-pinned: no river zone below `land 0.448`).
+
+Channel half-width is `1.0..2.8` tiles (salt `0x21BE_D002` modulation x strength),
+giving a 2-5 tile channel; the **bank** zone extends `1.2` tiles further and stamps
+the climate-aware pond rim (`pond_rim`): mud in grass country, sand toward hot-dry
+country, snow margins in the cold. Mud banks pan directly and make the neighboring
+sand/dirt pan-eligible (`fossick::water_adjacent` counts Water *and* Mud), so every
+temperate river is a workable creek by construction — and river zones sweeten the
+pan (§4.5).
+
+**Trails bridge rivers**: `trail_writes` suppresses its worn-away-gap rolls over the
+channel, and the `stamp_chunk` trail pass writes **Wood Planks** (instead of
+skipping, as it does for ponds/marsh pools, which stay forded as gaps) wherever a
+trail tile lands on river water — a 1-2 wide plank footbridge spanning bank to bank.
+No new tiles or items; a structure footprint stamped over a crossing still wins the
+tile (pass order unchanged).
+
+Maps need no changes: rivers are ordinary water tiles, so the in-game map and
+worldview's tile mode show the course in water blue; `biome_at` is untouched, so the
+biome map ignores rivers (correct — they cut *through* biomes).
 
 ### 3.4 Mine layers (`mine_tile`, depths -1..-3)
 
@@ -550,7 +606,11 @@ widens with richness: gem `0.001+0.004r` · gold nugget `+0.004+0.026r` · iron 
 `+0.020+0.080r` · coal fleck `+0.040+0.100r` · stone `+0.300` · else nothing. At r=0 a
 pan pays ~36% of the time (almost all stone); at r=1 ~58%, with metal ~27% — some creeks
 are worth working, most aren't. Finds drop as the ordinary ore/stone items with a short
-notification ("A gold nugget winks up at you!").
+notification ("A gold nugget winks up at you!"). **River gravel pays a shade better**:
+on the surface, a panned tile inside a river zone (channel or bank, §3.3.3) adds
+`fossick::RIVER_RICHNESS_BONUS = 0.10` to the richness read (clamped to 1.0) — the
+current sorts the heavy colors into the channel, but subtly: rivers sweeten the pan,
+they don't replace reading the land.
 
 **Surface signs.** Rock outcrops on rich ground (`richness > 0.70`, per-tile hash salt
 `0x5EE9` keeps it to ~35% of qualifying tiles) render a mineral-seep stain: a damp
@@ -898,6 +958,7 @@ a layer means:
 | `tests/underground_gen.rs` (`every_layer_has_stairs_down`) | Classic finite generator places at least one `Stairs Down` at every depth 0..-3 (progression isn't softlocked). |
 | `src/level/infinite_gen.rs` (`ocean_has_skerries`) | Sparse rock stacks generate in open Ocean water, outside the tidal band (skerry cells actually come out as rock). |
 | `tests/mining.rs` | Fossicking overhaul (§4.5): pan table pure + richness-scaled and only wet ground pans; cracked/dense hash distribution (~20%/~10%) and the 30/50/80 break thresholds; vein ping sparkles hidden ore within 2 tiles; collapse arms in a wide unpropped gallery (groan → fuse → rubble) and never with a Timber Prop in radius 3; rubble is weak and never cascades; prop place/break item round-trip; highland rock needs 100 damage and pays ≥3 stone. |
+| `tests/rivers.rs` | Rivers (§3.3.3): crossing frequency inside the notable-find band across seeds; channel tiles generate as water with soft (mud/sand/snow) bank margins; river-chunk determinism; no channel deep in hot-dry Desert; no river zone below `land 0.448` (tidal band untouched); panning a real river bank works through the live `water_adjacent` gate and pays; trail-river crossings carry Wood Planks bridge tiles. Plus an `--ignored` `stats` tuning dump and a `shots` visual harness (`river_*.png` in `target/verify/`). |
 | `tests/flora_gen.rs` | Flora wave (§3.3.1): chunk determinism incl. flora; every species appears in its home biome over a wide ring sweep (incl. snow-capped cold Mountains and the Forest cold-fringe pine); cave mushrooms at every mine depth; jack-o-lanterns present-but-rare in cemetery/village blueprints; berry pick → regrow → re-pick → tear-out cycle; palm fells into Coconuts, dead tree into sticks-only; pumpkin/Jack-O-Lantern drops + light radii; thicket paddock-core-only blocking. |
 
 Run everything terrain-related with `cargo test level` (matches test names/paths

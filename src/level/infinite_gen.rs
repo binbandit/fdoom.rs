@@ -171,6 +171,94 @@ fn pond_rim(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
     ids.mud
 }
 
+/* -------------------------------------- rivers --------------------------------------- */
+
+/// Salts of the river system: the course field whose mid-contour the channel traces,
+/// the width modulation along it, and the region gate deciding which stretches of
+/// country carry a river at all.
+const RIVER_COURSE_SALT: u64 = 0x21BE_D001; // "river"
+const RIVER_WIDTH_SALT: u64 = 0x21BE_D002;
+const RIVER_REGION_SALT: u64 = 0x21BE_D003;
+
+/// Base half-width of the river channel, in tiles (the contour distance is
+/// gradient-normalized, so this really is tiles). Width modulation scales it
+/// 1.0..2.8, giving a 2-5 tile channel.
+const RIVER_HALF_WIDTH: f64 = 1.0;
+/// Bank margin outside the channel, in tiles (~1 tile of mud/sand).
+const RIVER_BANK: f64 = 1.2;
+/// Tiny floor on the course-field gradient used to convert field distance to
+/// tiles — a numerical guard only. Keep it well below the field's typical slope
+/// (~0.003): the gradient division is what holds the channel at a constant tile
+/// width, and a large floor floods every flat stretch of the field into a lake.
+const RIVER_GRAD_FLOOR: f64 = 0.0005;
+
+/// Where a surface tile sits relative to a river.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RiverZone {
+    /// Open river water.
+    Channel,
+    /// The worked bank margin ringing the channel (mud/sand/snow by climate).
+    Bank,
+}
+
+/// The river field: rivers are the mid-contour band of a smooth continental-scale
+/// course field, so they wind for hundreds of tiles without ever tracing a ruled
+/// line. Pure `f(seed, x, y)`; every consumer (surface tiles, trail bridges, the
+/// pan's river bonus) reads this one function.
+///
+/// A river exists only where its *strength* is positive, the product of three fades:
+/// - **region** (salt `0x21BE_D003`, one smooth 1408-tile octave): whole stretches of
+///   country simply have no river, so finding one is an event;
+/// - **dry country** (re-reads the salt-2 moisture and salt-6 climate fields — the
+///   reuse is deliberate, the fade must correlate with `biome_at`'s Desert gate):
+///   rivers narrow to nothing before the climate crosses into Desert;
+/// - **lowland** (re-reads `land_at`): the channel pinches out just above the coast
+///   band (`land` 0.448, above the Beach top at 0.445 and the tidal band below
+///   0.435), so river mouths run into the shore without ever touching the tidal
+///   machinery.
+pub fn river_zone_at(seed: i64, x: i32, y: i32) -> Option<RiverZone> {
+    // fast path: the widest possible channel + bank spans well under 8 tiles from
+    // the contour, and the field's gradient is bounded (~0.003/tile), so almost
+    // every tile exits on the course read alone
+    let course = |x, y| fractal(seed, RIVER_COURSE_SALT, x, y, 512, 3);
+    let d = (course(x, y) - 0.5).abs();
+    if d >= 0.024 {
+        return None;
+    }
+    let region = (fractal(seed, RIVER_REGION_SALT, x, y, 1408, 1) - 0.36) * 10.0;
+    if region <= 0.0 {
+        return None;
+    }
+    let climate = climate_at(seed, x, y);
+    let moisture = fractal(seed, 2, x, y, 448, 2);
+    let dry = if moisture < 0.42 {
+        ((0.70 - climate) * 12.5).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let lowland = ((land_at(seed, x, y) - 0.448) * 55.0).clamp(0.0, 1.0);
+    let strength = region.min(1.0) * dry * lowland;
+    if strength < 0.25 {
+        return None; // pinch out entirely: no bank-only ribbons past the source
+    }
+    // convert the contour distance to approximate tiles by dividing out the local
+    // gradient (central differences — still pure per-tile math, so chunk borders
+    // stay exact). The floor keeps flat stretches as bounded waterholes.
+    let gx = (course(x + 1, y) - course(x - 1, y)) * 0.5;
+    let gy = (course(x, y + 1) - course(x, y - 1)) * 0.5;
+    let grad = (gx * gx + gy * gy).sqrt().max(RIVER_GRAD_FLOOR);
+    let dist = d / grad;
+    let half =
+        RIVER_HALF_WIDTH * (1.0 + 1.8 * fractal(seed, RIVER_WIDTH_SALT, x, y, 72, 2)) * strength;
+    if dist < half {
+        Some(RiverZone::Channel)
+    } else if dist < half + RIVER_BANK {
+        Some(RiverZone::Bank)
+    } else {
+        None
+    }
+}
+
 /* ------------------------------------ tile rules ------------------------------------ */
 
 struct Ids {
@@ -374,7 +462,19 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
         ids.tall_grass[which]
     };
 
-    match biome_at_blended(seed, x, y) {
+    let biome = biome_at_blended(seed, x, y);
+    // rivers cut through every land biome; the sea arms keep their own water. The
+    // bank rim reuses the pond rim so it follows climate: mud in grass country,
+    // sand toward the deserts, snow margins in the cold.
+    if !matches!(biome, Biome::Ocean | Biome::DeepOcean | Biome::Beach) {
+        match river_zone_at(seed, x, y) {
+            Some(RiverZone::Channel) => return ids.water,
+            Some(RiverZone::Bank) => return pond_rim(seed, x, y, ids),
+            None => {}
+        }
+    }
+
+    match biome {
         Biome::Ocean => {
             // the upper ocean strip is the intertidal band (tidal.rs), and the
             // shallow-water life clings to the permanently wet shelf just below it —

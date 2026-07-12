@@ -42,7 +42,7 @@
 //! it persists and the entities never duplicate.
 
 use super::chunk::{CHUNK_SIZE, Chunk, chunk_coord};
-use super::infinite_gen::{Biome, biome_at, hash, unit};
+use super::infinite_gen::{Biome, RiverZone, biome_at, hash, river_zone_at, unit};
 use super::tile::Tiles;
 use crate::core::game::Game;
 use crate::rng::Rng;
@@ -1300,17 +1300,22 @@ pub fn trail_writes(seed: i64, a: Placement, b: Placement, tiles: &Tiles) -> Vec
     let widen_vertical = dx.abs() >= dy.abs();
     let mut w = Vec::new();
     for &(x, y) in &path {
+        // over the river channel the trail becomes a plank footbridge (stamped by
+        // `stamp_chunk`), and a bridge deck never wears gaps — it must span bank
+        // to bank or the crossing reads broken
+        let bridging = matches!(river_zone_at(seed, x, y), Some(RiverZone::Channel));
         // occasional gaps: whole worn-away stretches (coarse) plus lone missing tiles
-        if unit(hash(
-            seed,
-            0x7261_494C_0003,
-            x.div_euclid(5),
-            y.div_euclid(5),
-        )) < 0.07
+        if !bridging
+            && unit(hash(
+                seed,
+                0x7261_494C_0003,
+                x.div_euclid(5),
+                y.div_euclid(5),
+            )) < 0.07
         {
             continue;
         }
-        if unit(hash(seed, 0x7261_494C_0004, x, y)) < 0.06 {
+        if !bridging && unit(hash(seed, 0x7261_494C_0004, x, y)) < 0.06 {
             continue;
         }
         w.push((x, y, ids.dirt));
@@ -1400,6 +1405,12 @@ pub fn stamp_chunk(seed: i64, depth: i32, cx: i32, cy: i32, chunk: &mut Chunk, t
                 let i = (lx + ly * CHUNK_SIZE) as usize;
                 if ids.trail_ground(chunk.tiles[i]) {
                     chunk.tiles[i] = t;
+                } else if chunk.tiles[i] == ids.water
+                    && matches!(river_zone_at(seed, x, y), Some(RiverZone::Channel))
+                {
+                    // the trail crosses the river on a plank footbridge (ponds and
+                    // marsh pools stay forded as gaps, as before)
+                    chunk.tiles[i] = ids.planks;
                 }
             }
         }
