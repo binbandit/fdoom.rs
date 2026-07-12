@@ -20,6 +20,7 @@
 
 use crate::core::game::Game;
 use crate::core::updater::DAY_LENGTH;
+use crate::core::weather;
 use crate::entity::EntityKind;
 use crate::gfx::lighting::{BAYER, FX_CONTACT_SHADOWS, fx_on};
 use crate::gfx::screen::{self, Screen};
@@ -376,6 +377,141 @@ pub fn heat_shimmer(
                 screen
                     .pixels
                     .copy_within(base + x0 + 1..base + x1, base + x0);
+            }
+        }
+    }
+}
+
+/* --------------------------------- morning mist --------------------------------- */
+
+/// The pale blue-gray a mist pixel lerps toward — the ambient grade then dims it at
+/// dawn and emitter bands re-light it warm.
+const MIST_RGB: i32 = 0x00C6_CFD6;
+
+/// How far a fogged pixel lerps toward [`MIST_RGB`] (of 256): the base step, and a
+/// heavier step for the densest bank band — two quantized levels, no smooth alpha.
+const MIST_LERP: i32 = 112;
+const MIST_LERP_DENSE: i32 = 168;
+
+/// Bank coverage (of 16) per quantized density step. Ceiling 12/16: even the
+/// densest marsh murk leaves the ground readable underneath.
+const MIST_COV: [i32; 6] = [0, 2, 4, 7, 9, 12];
+
+/// Density thresholds (x1000) picking the [`MIST_COV`] step.
+const MIST_STEPS: [i32; 5] = [80, 160, 260, 360, 460];
+
+/// Hash salts for the two drifting patch-noise octaves.
+const MIST_PATCH_SALT: u64 = 0xF06E1;
+const MIST_PATCH_SALT2: u64 = 0xF06E2;
+
+/// Morning-mist ground fog: per-tile density (the pure `weather::mist_*` schedule)
+/// crossed with a slowly west-drifting two-octave patch field, quantized to Bayer
+/// coverage bands on an 8-px cell grid — banks and clear eddies, pixel-art stipple,
+/// never an alpha veil. Runs *before* the ambient grade (see `lighting::render_pass`).
+/// The player's own cell stack stays thinner: coverage steps down inside two
+/// quantized rings around the screen center, so your immediate surroundings read
+/// clearly no matter how thick the morning is (approachability rule).
+pub fn mist_patches(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_scroll: i32) {
+    let seed = g.world_seed;
+    let bases = weather::mist_bases(seed, g.events.day_number, g.tick_count);
+    if !bases.any() {
+        return;
+    }
+    let _ = lvl; // density is a pure surface-plane read; lvl is gated by the caller
+
+    // Per-tile density (0..255 of AMBIENT_FOG_MAX-capped density) over the visible
+    // grid; all-zero frames (dry country) bail before any pixel work.
+    let tx0 = x_scroll >> 4;
+    let ty0 = y_scroll >> 4;
+    let nx = (((x_scroll + screen::W - 1) >> 4) - tx0 + 1) as usize;
+    let ny = (((y_scroll + screen::H - 1) >> 4) - ty0 + 1) as usize;
+    let mut dens = vec![0u8; nx * ny];
+    let mut any = false;
+    for (j, row) in dens.chunks_mut(nx).enumerate() {
+        for (i, d) in row.iter_mut().enumerate() {
+            let v = weather::mist_from(&bases, seed, tx0 + i as i32, ty0 + j as i32);
+            *d = (v * 255.0) as u8;
+            any |= *d > 20;
+        }
+    }
+    if !any {
+        return;
+    }
+
+    let drift = g.game_time / 12; // slow west drift, world-anchored
+    // Player-clarity rings, squared (the renderer centers the player).
+    let (pcx, pcy) = (screen::W / 2, (screen::H - 8) / 2);
+    const R_IN2: i32 = 32 * 32;
+    const R_OUT2: i32 = 56 * 56;
+
+    let cy0 = y_scroll >> 3;
+    let cy1 = (y_scroll + screen::H - 1) >> 3;
+    let cx0 = x_scroll >> 3;
+    let cx1 = (x_scroll + screen::W - 1) >> 3;
+    for cy in cy0..=cy1 {
+        for cx in cx0..=cx1 {
+            let (wx, wy) = (cx * 8, cy * 8); // cell origin in world px
+            let ti = ((wx >> 4) - tx0) as usize;
+            let tj = ((wy >> 4) - ty0) as usize;
+            let dt = dens[(tj.min(ny - 1)) * nx + ti.min(nx - 1)] as i32;
+            if dt == 0 {
+                continue;
+            }
+            // two drifting octaves of patchiness — bank-scale bodies (~6 tiles)
+            // with wisp-scale detail, leaving real clear eddies between banks
+            let n = 0.62
+                * weather::lattice_noise(seed, MIST_PATCH_SALT, wx + 4 + drift, wy + 4, 96)
+                + 0.38
+                    * weather::lattice_noise(
+                        seed,
+                        MIST_PATCH_SALT2,
+                        wx + 4 + drift / 2 + 1013,
+                        wy + 4,
+                        40,
+                    );
+            // density x1000, patch-modulated 0.15..1.65: banks read against eddies
+            let d = dt * (150 + (n * 1500.0) as i32) / 255;
+            let mut step = 0;
+            while step < 5 && d >= MIST_STEPS[step] {
+                step += 1;
+            }
+            let mut cov = MIST_COV[step];
+            if cov == 0 {
+                continue;
+            }
+            // quantized clarity rings around the player
+            let (dx, dy) = (wx + 4 - x_scroll - pcx, wy + 4 - y_scroll - pcy);
+            let r2 = dx * dx + dy * dy;
+            if r2 < R_IN2 {
+                cov = (cov * 5) >> 4;
+            } else if r2 < R_OUT2 {
+                cov = (cov * 11) >> 4;
+            }
+            if cov == 0 {
+                continue;
+            }
+            let y0 = (wy - y_scroll).max(0);
+            let y1 = (wy + 8 - y_scroll).min(screen::H);
+            let x0 = (wx - x_scroll).max(0);
+            let x1 = (wx + 8 - x_scroll).min(screen::W);
+            let k = if step >= 5 {
+                MIST_LERP_DENSE
+            } else {
+                MIST_LERP
+            };
+            for y in y0..y1 {
+                let by = (((y + y_scroll) & 3) << 2) as usize;
+                let row = (y * screen::W) as usize;
+                for x in x0..x1 {
+                    if BAYER[((x + x_scroll) & 3) as usize + by] < cov {
+                        let p = &mut screen.pixels[row + x as usize];
+                        let (pr, pg, pb) = ((*p >> 16) & 0xFF, (*p >> 8) & 0xFF, *p & 0xFF);
+                        let r = pr + (((((MIST_RGB >> 16) & 0xFF) - pr) * k) >> 8);
+                        let g2 = pg + (((((MIST_RGB >> 8) & 0xFF) - pg) * k) >> 8);
+                        let b = pb + ((((MIST_RGB & 0xFF) - pb) * k) >> 8);
+                        *p = (r << 16) | (g2 << 8) | b;
+                    }
+                }
             }
         }
     }

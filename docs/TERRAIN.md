@@ -181,6 +181,11 @@ temperature field and the moisture field are decorrelated even though they share
 | `0x0A6E_D001` | surviving lantern | `lantern_positions` | n/a (raw `hash`, per placement) | n/a | whether one lamp still burns in an Overgrown town |
 | `0x5CAF_0001`..`0x5CAF_0004` | scavenge containers | `container_positions` | n/a (raw `hash`, per placement/house) | n/a | cupboard/barrel/crate presence per house, camp, ruin |
 | `0x5CAF_100D` | container loot | `spawn_chunk_entities` → `fill_scav_container` | n/a (raw `hash`, per tile) | n/a | seeded one-time rummage loot per container position |
+| `0xF06A3` | mist day | `weather::mist_day` | n/a (raw `hash`, per day) | n/a | ambient fog: ~40% of days open misty; bits 32+ pick the day's peak strength |
+| `0xF06B7` | haze day | `weather::haze_day` | n/a (raw `hash`, per day) | n/a | ambient fog: ~15% of days haze over before golden hour |
+| `0xF06C1` | bank day | `weather::bank_day` | n/a (raw `hash`, per day) | n/a | ambient fog: ~35% of days grow the regional banks (humid-ground dawns, coastal evenings) |
+| `0xF06D5` | fog humidity | `weather::fog_moisture` | 80 | 1 (lattice) | modulates the per-biome humidity base into regional wet/dry pockets |
+| `0xF06E1` / `0xF06E2` | mist patches | `ambience::mist_patches` | 96 px / 40 px (pixel-space lattice) | 1 each | render-only drifting bank texture; never touches gen |
 
 If you add a new noise field, **pick an unused salt** (anything not in the table) —
 reusing a salt correlates two fields that should be independent and will look wrong (e.g.
@@ -223,6 +228,26 @@ the 0.30..0.36 cold fringe), and `level::tile::snowfall` settles/thaws snow ther
 random tick at a time (see CORE_AND_SAVES.md §2.5). The gradient bound makes that
 safe too — 0.36 stays 20+ tiles from the Savanna gate, so even fully wintered fringe
 country never touches sand.
+
+**Ambient fog** (`core::weather`, fog section) is the other dynamic layer built on
+these fields, pure `f(seed, day, tick, x, y)` like the rain schedule. Three moods
+on day-fraction windows: **morning mist** (~40% of days, dawn → burns off by 0.17
+of the day), **afternoon haze** (~15%, a warm wash through 0.42..0.605, riding into
+golden hour), and **regional banks** (~35% of days: very humid ground mists at dawn
+even without the world roll, shorelines grow an evening bank over 0.54..0.74).
+Regional density comes from `fog_moisture` — a per-biome humidity base (Marsh 1.0 →
+Desert 0.0) modulated by the salt-`0xF06D5` lattice and floored by shoreline
+proximity on the public `land_at` field (`≈0.435` is the waterline) — so marsh
+dawns are the densest in the world and desert interiors never fog. Rain suppresses
+fog (`x (1 - schedule_intensity)`). Densities are hard-capped at
+`AMBIENT_FOG_MAX = 0.55`, well under `WHISPER_FOG_FLOOR = 0.85`, which
+`weather::fog_density(g, x, y)` — the one read future systems should consume —
+reports in marsh country during a Whisper Fog night: the rare event owns the top of
+the scale (its own night-fog *visual* is a queued follow-up; today it is cues +
+spawn pressure). Rendering: `gfx::lighting::fog_grade` (cool desaturating wash for
+mist, warm amber for haze) + `gfx::ambience::mist_patches` (Bayer-banded drifting
+banks, thinned in two quantized rings around the player so your surroundings stay
+readable).
 
 Thresholds are chosen empirically to keep regions "expansive" (hundreds of tiles) per the
 `biomes_are_large_and_all_present` test, which asserts fewer than 40 biome changes over a

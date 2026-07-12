@@ -76,6 +76,7 @@ pub const FX_HEAT_SHIMMER: u32 = 1 << 5;
 pub const FX_MOTES: u32 = 1 << 6;
 pub const FX_TORCH_BREATHING: u32 = 1 << 7;
 pub const FX_DEPTH_FOG: u32 = 1 << 8;
+pub const FX_AMBIENT_FOG: u32 = 1 << 9;
 
 /// Bitmask of effects currently disabled. The game never touches this — it exists so
 /// `tests/visuals.rs` can render true A/B pairs of the same frame.
@@ -264,15 +265,40 @@ pub fn render_pass(
     }
 
     let ctx = frame_ctx(g, lvl);
-    let amb = ctx.amb;
+
+    // Ambient fog (surface, fair weather only): sampled once at the screen center —
+    // the wash/tint side is per-frame, the per-tile texture lives in `mist_patches`.
+    let fog = if lvl == 3
+        && ctx.precip == Precip::None
+        && fx_on(FX_AMBIENT_FOG)
+        && g.levels[lvl].as_ref().is_some_and(|l| l.is_infinite())
+    {
+        weather::fog_sample_at(
+            g,
+            (x_scroll + screen::W / 2) >> 4,
+            (y_scroll + screen::H / 2) >> 4,
+        )
+    } else {
+        weather::FogSample::NONE
+    };
 
     // Golden-hour long shadows: a low clear sun stretches soft dithered strips off
     // trees and walls. Before the grade, so the amber/rose tint sits on top of them.
-    if lvl == 3 && ctx.precip == Precip::None && fx_on(FX_LONG_SHADOWS) {
+    // Real mist diffuses the light — no crisp sun, no strips (haze keeps them: a low
+    // amber sun through haze throws the *best* long shadows).
+    if lvl == 3 && ctx.precip == Precip::None && fog.mist < 0.15 && fx_on(FX_LONG_SHADOWS) {
         if let Some((dir, q)) = ambience::golden_hour(g.tick_count) {
             ambience::long_shadows(screen, g, lvl, x_scroll, y_scroll, dir, q);
         }
     }
+
+    // Mist ground texture *before* the grade: fog pixels are albedo, so the ambient
+    // grade dims them at dawn and — the money shot — emitter light bands re-light
+    // them warm: a campfire glows through the murk instead of sitting under it.
+    if fog.mist > 0.02 {
+        ambience::mist_patches(screen, g, lvl, x_scroll, y_scroll);
+    }
+    let amb = fog_grade(ctx.amb, &fog);
 
     if !amb.is_identity() || ctx.aurora {
         let a8 = ((amb.brightness * 255.0).round() as i32).clamp(0, 254);
@@ -316,6 +342,34 @@ pub fn render_pass(
             }
         }
     }
+}
+
+/// Ambient fog's mark on the frame grade. Mist: a pale blue-gray additive wash plus
+/// tint desaturation (the gray morning mutes dawn's rose); haze: a warm amber wash
+/// with a gentle warm tint shift — "more color wash than obscuring fog". Brightness
+/// is untouched (readability, and the halo/emitter thresholds stay consistent); the
+/// wash is scaled by daylight so an evening bank never *glows* in the dark. Public
+/// for the tint checks in `tests/fog.rs`.
+pub fn fog_grade(amb: Ambient, fog: &weather::FogSample) -> Ambient {
+    if !fog.any() {
+        return amb;
+    }
+    let (m, h) = (fog.mist, fog.haze);
+    let mean = (amb.tint[0] + amb.tint[1] + amb.tint[2]) / 3.0;
+    let k = (m * 0.9).min(0.5); // desaturation follows density, shoulder at 0.5
+    let tint = [
+        (amb.tint[0] + (mean - amb.tint[0]) * k) * (1.0 + 0.16 * h),
+        amb.tint[1] + (mean - amb.tint[1]) * k,
+        (amb.tint[2] + (mean - amb.tint[2]) * k) * (1.0 - 0.20 * h),
+    ];
+    let mut a = Ambient::from_tint(amb.brightness, tint);
+    let lift = 0.35 + 0.65 * amb.brightness.clamp(0.0, 1.0);
+    a.wash = [
+        amb.wash[0] + (46.0 * m + 58.0 * h) * lift,
+        amb.wash[1] + (52.0 * m + 30.0 * h) * lift,
+        amb.wash[2] + (58.0 * m + 7.0 * h) * lift,
+    ];
+    a
 }
 
 /// Rain's cool dim, multiplied into the ambient the grade LUTs are built from:

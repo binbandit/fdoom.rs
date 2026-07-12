@@ -250,7 +250,9 @@ pub fn fish_presence(seed: i64, x: i32, y: i32) -> f64 {
 
 /// Bilinear value noise on a `period`-tile lattice. (A local copy — `infinite_gen`
 /// keeps its own private; only `hash`/`unit` are shared crate-wide.)
-fn lattice_noise(seed: i64, salt: u64, x: i32, y: i32, period: i32) -> f64 {
+/// `pub(crate)` so `gfx::ambience` can drive the mist-patch texture from the same
+/// primitive.
+pub(crate) fn lattice_noise(seed: i64, salt: u64, x: i32, y: i32, period: i32) -> f64 {
     let fx = x.div_euclid(period);
     let fy = y.div_euclid(period);
     let tx = x.rem_euclid(period) as f64 / period as f64;
@@ -266,6 +268,262 @@ fn lattice_noise(seed: i64, salt: u64, x: i32, y: i32, period: i32) -> f64 {
     let a = v00 + (v10 - v00) * sx;
     let b = v01 + (v11 - v01) * sx;
     a + (b - a) * sy
+}
+
+/* ---------------------------------- ambient fog ---------------------------------- */
+//
+// Three everyday fog moods, all pure `f(seed, day, tick, x, y)` like the rain
+// schedule (nothing saved), all presentation-first:
+//
+// - **Morning mist** (~40% of days): from first light until it burns off
+//   mid-morning, scaled by regional moisture — marsh and water-adjacent country
+//   densest, desert none.
+// - **Afternoon haze** (~15% of days): a gentler warm veil through late afternoon
+//   into golden hour — more color wash than obscuring fog (`gfx::lighting` renders
+//   it as tint/wash only, no patches).
+// - **Regional banks** (~35% of days): very humid ground (marsh hearts, water
+//   edges) mists up at dawn even when the world-wide roll failed, and shoreline
+//   country grows an evening bank — mood placement, not a mechanic.
+//
+// Rain suppresses all of it (`1 - schedule_intensity`): rain and fog never stack
+// into soup. Densities are hard-capped at [`AMBIENT_FOG_MAX`], well below
+// [`WHISPER_FOG_FLOOR`] — the Whisper Fog *event* must still land as special;
+// [`fog_density`] is the one read future systems (visibility-based mob behavior)
+// should consume.
+
+/// Ceiling on everyday fog density (0..1 scale where 1 = whiteout). Deliberately
+/// well below [`WHISPER_FOG_FLOOR`]: ambient fog is mood, never a wall.
+pub const AMBIENT_FOG_MAX: f32 = 0.55;
+
+/// Ceiling on the afternoon haze — even gentler than mist.
+pub const HAZE_MAX: f32 = 0.30;
+
+/// The density [`fog_density`] reports during a Whisper Fog night in marsh country.
+/// The rare event owns the top of the scale.
+pub const WHISPER_FOG_FLOOR: f32 = 0.85;
+
+/// Mist density above which the dawn cue fires (and a sensible "is it foggy" edge
+/// for future consumers).
+pub const FOG_CUE_THRESHOLD: f32 = 0.10;
+
+/// Day-fraction windows `(start, full, hold-until, gone)`: intensity smoothsteps in
+/// over `start..full`, holds, and fades over `hold-until..gone`. Day clock: 0.0 =
+/// morning, 0.25 = day, 0.5 = evening, 0.75 = night (see `lighting::SURFACE_KEYS`).
+const MIST_WINDOW: (f32, f32, f32, f32) = (0.000, 0.040, 0.100, 0.170);
+/// Haze rides the run-up to golden hour (which begins at 0.53, amber peak 0.575).
+const HAZE_WINDOW: (f32, f32, f32, f32) = (0.420, 0.475, 0.555, 0.605);
+/// Coastal banks roll in through the evening and dissolve before deep night.
+const BANK_EVE_WINDOW: (f32, f32, f32, f32) = (0.540, 0.600, 0.680, 0.740);
+
+/// Hash salts for the fog streams — distinct from every weather/terrain/event salt.
+const MIST_SALT: u64 = 0xF06A3;
+const HAZE_SALT: u64 = 0xF06B7;
+const BANK_SALT: u64 = 0xF06C1;
+const FOG_HUMID_SALT: u64 = 0xF06D5;
+
+/// Does `day` open with morning mist? ~40% of days; day 0 (fresh session) stays
+/// clear, same convention as the rain schedule.
+pub fn mist_day(seed: i64, day: i32) -> bool {
+    day > 0 && infinite_gen::hash(seed, MIST_SALT, day, 0) % 100 < 40
+}
+
+/// Does `day` haze over in the late afternoon? ~15% of days.
+pub fn haze_day(seed: i64, day: i32) -> bool {
+    day > 0 && infinite_gen::hash(seed, HAZE_SALT, day, 0) % 100 < 15
+}
+
+/// Do the regional banks form today (humid-ground dawn fog + coastal evening
+/// banks)? ~35% of days, independent of the mist roll.
+pub fn bank_day(seed: i64, day: i32) -> bool {
+    day > 0 && infinite_gen::hash(seed, BANK_SALT, day, 0) % 100 < 35
+}
+
+/// Peak strength for a fog day, 0.70..1.0 by hash — some mornings are wisps, some
+/// are proper murk.
+fn fog_peak(seed: i64, salt: u64, day: i32) -> f32 {
+    0.70 + 0.30 * (((infinite_gen::hash(seed, salt, day, 0) >> 32) & 0xFFFF) as f32 / 65535.0)
+}
+
+/// Smoothstep envelope over a `(start, full, hold, gone)` day-fraction window.
+fn window_env(t: f32, w: (f32, f32, f32, f32)) -> f32 {
+    let (a, b, c, d) = w;
+    if t <= a || t >= d {
+        0.0
+    } else if t < b {
+        smooth((t - a) / (b - a))
+    } else if t <= c {
+        1.0
+    } else {
+        1.0 - smooth((t - c) / (d - c))
+    }
+}
+
+/// Regional moisture for fog, 0..1: a per-biome humidity base modulated by a smooth
+/// ~80-tile humidity field, floored by shoreline proximity ([`shore_factor`]) so
+/// water-adjacent ground mists up regardless of biome. Marsh reads ~1, desert
+/// interior exactly 0.
+pub fn fog_moisture(seed: i64, x: i32, y: i32) -> f32 {
+    let base = match infinite_gen::biome_at(seed, x, y) {
+        Biome::Marsh => 1.0,
+        Biome::Beach => 0.85,
+        Biome::Ocean | Biome::DeepOcean => 0.80,
+        Biome::Forest => 0.75,
+        Biome::Plains => 0.60,
+        Biome::Tundra => 0.50,
+        Biome::Mountains => 0.45,
+        Biome::Savanna => 0.25,
+        Biome::Desert => 0.0,
+    };
+    let n = lattice_noise(seed, FOG_HUMID_SALT, x, y, 80) as f32;
+    let m = (base * (0.65 + 0.55 * n)).clamp(0.0, 1.0);
+    m.max(0.9 * shore_factor(seed, x, y))
+}
+
+/// Shoreline proximity 0..1 from the public land/elevation field: 1 at the
+/// water/land line (`land ≈ 0.435`), fading out ~coast-strip wide on both sides.
+fn shore_factor(seed: i64, x: i32, y: i32) -> f32 {
+    (1.0 - ((infinite_gen::land_at(seed, x, y) - 0.435).abs() / 0.075) as f32).clamp(0.0, 1.0)
+}
+
+/// The time-side factors of the mist components this instant, each 0..1 and already
+/// rain-suppressed. Split from the spatial side ([`mist_from`]) so the renderer
+/// computes these once per frame and only pays the per-tile moisture reads on
+/// mornings that actually have fog.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MistBases {
+    /// World-wide morning mist (mist days): scales with plain moisture.
+    pub open: f32,
+    /// Humid-ground dawn fog (bank days): only very moist ground catches it.
+    pub humid: f32,
+    /// Coastal evening bank (bank days): scales with shoreline proximity.
+    pub coast: f32,
+}
+
+impl MistBases {
+    pub const NONE: MistBases = MistBases {
+        open: 0.0,
+        humid: 0.0,
+        coast: 0.0,
+    };
+
+    pub fn any(&self) -> bool {
+        self.open > 0.0 || self.humid > 0.0 || self.coast > 0.0
+    }
+}
+
+/// Compute the mist time-envelopes for a day-clock instant. Pure.
+pub fn mist_bases(seed: i64, day: i32, tick: i32) -> MistBases {
+    let day = day + tick.div_euclid(DAY_LENGTH);
+    let tick = tick.rem_euclid(DAY_LENGTH);
+    let t = tick as f32 / DAY_LENGTH as f32;
+    let dry = 1.0 - schedule_intensity(seed, day, tick);
+    let morn = window_env(t, MIST_WINDOW) * dry;
+    let eve = window_env(t, BANK_EVE_WINDOW) * dry;
+    MistBases {
+        open: if mist_day(seed, day) {
+            morn * fog_peak(seed, MIST_SALT, day)
+        } else {
+            0.0
+        },
+        humid: if bank_day(seed, day) {
+            morn * fog_peak(seed, BANK_SALT, day)
+        } else {
+            0.0
+        },
+        coast: if bank_day(seed, day) {
+            eve * 0.85 * fog_peak(seed, BANK_SALT, day)
+        } else {
+            0.0
+        },
+    }
+}
+
+/// The spatial side of the mist: cross the time bases with this tile's moisture /
+/// shoreline reads. Returns the capped density, 0..=[`AMBIENT_FOG_MAX`].
+pub fn mist_from(bases: &MistBases, seed: i64, x: i32, y: i32) -> f32 {
+    if !bases.any() {
+        return 0.0;
+    }
+    let m = fog_moisture(seed, x, y);
+    let open = bases.open * m;
+    // only truly humid ground (marsh hearts, water edges) catches the bank-day dawn
+    let humid = bases.humid * ((m - 0.70) / 0.30).clamp(0.0, 1.0);
+    let coast = bases.coast * shore_factor(seed, x, y);
+    open.max(humid).max(coast).min(1.0) * AMBIENT_FOG_MAX
+}
+
+/// Morning-mist / fog-bank density at a surface tile, 0..=[`AMBIENT_FOG_MAX`]. Pure.
+pub fn mist_at(seed: i64, day: i32, tick: i32, x: i32, y: i32) -> f32 {
+    mist_from(&mist_bases(seed, day, tick), seed, x, y)
+}
+
+/// Afternoon-haze density at a surface tile, 0..=[`HAZE_MAX`]. Pure. Softly
+/// moisture-shaped (deserts still shimmer with dry heat haze, wet country hazes a
+/// little thicker), rain-suppressed like the mist.
+pub fn haze_at(seed: i64, day: i32, tick: i32, x: i32, y: i32) -> f32 {
+    let day = day + tick.div_euclid(DAY_LENGTH);
+    let tick = tick.rem_euclid(DAY_LENGTH);
+    if !haze_day(seed, day) {
+        return 0.0;
+    }
+    let t = tick as f32 / DAY_LENGTH as f32;
+    let env = window_env(t, HAZE_WINDOW);
+    if env <= 0.0 {
+        return 0.0;
+    }
+    let dry = 1.0 - schedule_intensity(seed, day, tick);
+    let shape = 0.55 + 0.45 * fog_moisture(seed, x, y);
+    (env * fog_peak(seed, HAZE_SALT, day) * shape * dry).min(1.0) * HAZE_MAX
+}
+
+/// The two ambient-fog components at one spot and instant — what the renderer
+/// consumes (`gfx::lighting::fog_grade` + `gfx::ambience::mist_patches`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FogSample {
+    /// Cool obscuring mist, 0..=[`AMBIENT_FOG_MAX`].
+    pub mist: f32,
+    /// Warm translucent haze, 0..=[`HAZE_MAX`].
+    pub haze: f32,
+}
+
+impl FogSample {
+    pub const NONE: FogSample = FogSample {
+        mist: 0.0,
+        haze: 0.0,
+    };
+
+    pub fn any(&self) -> bool {
+        self.mist > 0.005 || self.haze > 0.005
+    }
+}
+
+/// Pure fog sample at a surface tile and day-clock instant.
+pub fn fog_sample(seed: i64, day: i32, tick: i32, x: i32, y: i32) -> FogSample {
+    FogSample {
+        mist: mist_at(seed, day, tick, x, y),
+        haze: haze_at(seed, day, tick, x, y),
+    }
+}
+
+/// Convenience wrapper on the live clock (renderer-side).
+pub fn fog_sample_at(g: &Game, x: i32, y: i32) -> FogSample {
+    fog_sample(g.world_seed, g.events.day_number, g.tick_count, x, y)
+}
+
+/// **Effects API**: ambient fog density on the surface plane at tile `(x, y)`,
+/// 0..1 (1 = whiteout). Everyday fog never exceeds [`AMBIENT_FOG_MAX`]; during a
+/// Whisper Fog night the marshes report [`WHISPER_FOG_FLOOR`] — the event owns the
+/// top of the scale. Future consumers (visibility-based mob behavior, ranged-aim
+/// penalties) should read THIS, not the components.
+pub fn fog_density(g: &Game, x: i32, y: i32) -> f32 {
+    let s = fog_sample_at(g, x, y);
+    let mut d = s.mist.max(s.haze);
+    if crate::core::events::whisper_fog_active(g)
+        && infinite_gen::biome_at(g.world_seed, x, y) == Biome::Marsh
+    {
+        d = d.max(WHISPER_FOG_FLOOR);
+    }
+    d
 }
 
 /// Per-tick weather hook (called from `Game::tick` right after `events::tick`, so the
@@ -294,6 +552,12 @@ pub fn tick(g: &mut Game) {
 
     let day = g.events.day_number;
     let t = g.tick_count;
+    precip_cue(g, day, t);
+    mist_cue(g, day, t);
+}
+
+/// The rain-sets-in / rain-clears cue edge (see [`tick`]).
+fn precip_cue(g: &mut Game, day: i32, t: i32) {
     let cur = precip_at_clock(g, day, t);
     let prev = precip_at_clock(g, day, t - 1);
     let level = |p: Precip| match p {
@@ -317,4 +581,23 @@ pub fn tick(g: &mut Game) {
         (false, true, true) => "The snow begins to thaw.",
     };
     g.notify_all(msg);
+}
+
+/// The foggy-dawn cue: fires once as the morning mist thickens past
+/// [`FOG_CUE_THRESHOLD`] at the player — same stateless previous-instant edge as the
+/// rain cue. Morning only (evening coastal banks stay silent), and the burn-off is
+/// silent too: the visual is enough.
+fn mist_cue(g: &mut Game, day: i32, t: i32) {
+    if t.rem_euclid(DAY_LENGTH) >= DAY_LENGTH / 4 {
+        return;
+    }
+    let Some((x, y)) = player_surface_pos(g) else {
+        return; // classic finite surfaces have no moisture fields — no fog there
+    };
+    let seed = g.world_seed;
+    let cur = mist_at(seed, day, t, x, y);
+    let prev = mist_at(seed, day, t - 1, x, y);
+    if prev < FOG_CUE_THRESHOLD && cur >= FOG_CUE_THRESHOLD {
+        g.notify_all("Mist hangs over the low ground.");
+    }
 }
