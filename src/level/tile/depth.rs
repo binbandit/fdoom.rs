@@ -153,6 +153,260 @@ fn span_extent(spans: &[(i32, i32); 16]) -> Option<(i32, i32)> {
     Some((first, last))
 }
 
+/* --------------------------- merged excavation spaces --------------------------- */
+
+/// Excavation "rank" for connectivity: how deep the excavated space is at `(x, y)`.
+/// Pits rank by dig stage; a chasm outranks any pit (its floor already broke
+/// through). `None` = not part of an excavation.
+fn exc_rank(g: &Game, lvl: usize, x: i32, y: i32) -> Option<i32> {
+    match g.tile_at(lvl, x, y).kind {
+        TileKind::DugPit => Some(g.level(lvl).get_data(x, y).clamp(0, MAX_STAGE)),
+        TileKind::Chasm => Some(MAX_STAGE + 1),
+        _ => None,
+    }
+}
+
+/// Excavation ranks of the four orthogonal neighbors, in N, S, W, E order.
+fn exc_sides(g: &Game, lvl: usize, x: i32, y: i32) -> [Option<i32>; 4] {
+    [
+        exc_rank(g, lvl, x, y - 1),
+        exc_rank(g, lvl, x, y + 1),
+        exc_rank(g, lvl, x - 1, y),
+        exc_rank(g, lvl, x + 1, y),
+    ]
+}
+
+/// Salts for the passage openings across shared tile boundaries: one stream for
+/// horizontal boundaries (between vertical neighbors), one for vertical.
+const PASSAGE_SALT_H: u64 = 0x0D16_00AA;
+const PASSAGE_SALT_V: u64 = 0x0D16_00BB;
+
+/// Where the excavated space opens across a shared tile boundary: a pixel band
+/// `(lo, hi)` inclusive, measured along the edge. Both tiles hash the same boundary
+/// key `(bx, by)`, so the two halves of the opening line up seam-free; `inset`
+/// narrows the passage where the shallower of the two digs pinches it (both sides
+/// derive the same inset, so they still agree).
+fn passage_band(seed: i64, salt: u64, bx: i32, by: i32, inset: i32) -> (i32, i32) {
+    let h = hash(seed, salt, bx, by);
+    let lo = 1 + inset + (h % 2) as i32;
+    let hi = 14 - inset - ((h >> 2) % 2) as i32;
+    (lo, hi)
+}
+
+/// A 16x16 pixel mask (bit `c` of row `r`) of the excavated area of tile `(x, y)`:
+/// the tile's own ragged blob, opened up across every boundary shared with a fellow
+/// excavated tile (`sides` in N, S, W, E order), plus filled corner quadrants where
+/// two open sides meet around an excavated diagonal — so interior tiles of a merged
+/// excavation come out as fully open floor while the outer boundary keeps the
+/// hand-drawn ragged lip.
+fn merged_mask(
+    seed: i64,
+    x: i32,
+    y: i32,
+    inset: i32,
+    sides: [bool; 4],
+    side_insets: [i32; 4],
+    corners: [bool; 4],
+) -> [u16; 16] {
+    let spans = hole_spans(seed, x, y, inset);
+    let mut m = [0u16; 16];
+    for (r, &(a, b)) in spans.iter().enumerate() {
+        for c in a.max(0)..=b.min(15) {
+            m[r] |= 1 << c;
+        }
+    }
+    // Passages: half-tile bands running from the shared edge through the center,
+    // where they always overlap the blob. The band walls wander +-1px per step
+    // inward — hashed on the boundary key and the depth `k`, so both tiles carve
+    // the identical wander and the seam stays pixel-exact — keeping the opening
+    // ragged instead of ruler-straight.
+    let wander = |salt: u64, bx: i32, by: i32, base: (i32, i32), k: i32| -> (i32, i32) {
+        let h = hash(
+            seed,
+            salt.wrapping_add(0x9E37_79B9 * (k as u64 + 1)),
+            bx,
+            by,
+        );
+        let lo = (base.0 + (h % 3) as i32 - 1).max(1);
+        let hi = (base.1 - ((h >> 3) % 3) as i32 + 1).min(14);
+        (lo, hi)
+    };
+    if sides[0] {
+        let base = passage_band(seed, PASSAGE_SALT_H, x, y, side_insets[0]);
+        for r in 0..=8i32 {
+            let (lo, hi) = wander(PASSAGE_SALT_H, x, y, base, r);
+            for c in lo..=hi {
+                m[r as usize] |= 1 << c;
+            }
+        }
+    }
+    if sides[1] {
+        let base = passage_band(seed, PASSAGE_SALT_H, x, y + 1, side_insets[1]);
+        for r in 7..=15i32 {
+            let (lo, hi) = wander(PASSAGE_SALT_H, x, y + 1, base, 15 - r);
+            for c in lo..=hi {
+                m[r as usize] |= 1 << c;
+            }
+        }
+    }
+    if sides[2] {
+        let base = passage_band(seed, PASSAGE_SALT_V, x, y, side_insets[2]);
+        for c in 0..=8i32 {
+            let (lo, hi) = wander(PASSAGE_SALT_V, x, y, base, c);
+            for r in lo..=hi {
+                m[r as usize] |= 1 << c;
+            }
+        }
+    }
+    if sides[3] {
+        let base = passage_band(seed, PASSAGE_SALT_V, x + 1, y, side_insets[3]);
+        for c in 7..=15i32 {
+            let (lo, hi) = wander(PASSAGE_SALT_V, x + 1, y, base, 15 - c);
+            for r in lo..=hi {
+                m[r as usize] |= 1 << c;
+            }
+        }
+    }
+    let mut fill = |r0: i32, r1: i32, c0: i32, c1: i32| {
+        for r in r0..=r1 {
+            for c in c0..=c1 {
+                m[r as usize] |= 1 << c;
+            }
+        }
+    };
+    if corners[0] {
+        fill(0, 7, 0, 7);
+    }
+    if corners[1] {
+        fill(0, 7, 8, 15);
+    }
+    if corners[2] {
+        fill(8, 15, 0, 7);
+    }
+    if corners[3] {
+        fill(8, 15, 8, 15);
+    }
+    m
+}
+
+fn mask_at(m: &[u16; 16], r: i32, c: i32) -> bool {
+    (0..16).contains(&r) && (0..16).contains(&c) && m[r as usize] & (1 << c) != 0
+}
+
+/// A computed excavation floor for one tile: the pixel mask plus where it sits.
+struct FloorMask {
+    x: i32,
+    y: i32,
+    m: [u16; 16],
+}
+
+/// Column extents of a mask: first and last set row per column (`i32::MAX`/`MIN`
+/// for empty columns).
+fn mask_extents(m: &[u16; 16]) -> ([i32; 16], [i32; 16]) {
+    let mut top = [i32::MAX; 16];
+    let mut bot = [i32::MIN; 16];
+    for r in 0..16i32 {
+        for c in 0..16i32 {
+            if mask_at(m, r, c) {
+                top[c as usize] = top[c as usize].min(r);
+                bot[c as usize] = bot[c as usize].max(r);
+            }
+        }
+    }
+    (top, bot)
+}
+
+/// Shade an excavated floor mask under top light: dark crescent along the north
+/// inner wall, lighter lip along the south inner wall, flat `band` darkness
+/// elsewhere. Rim shading is suppressed where the floor runs to an open edge (a
+/// shared boundary is a continuation, not a rim); `skip` pixels are left untouched
+/// (the chasm paints its void over them anyway).
+fn shade_floor(
+    screen: &mut Screen,
+    floor: &FloorMask,
+    sides: [bool; 4],
+    band: i32,
+    skip: Option<&[u16; 16]>,
+) {
+    let (top, bot) = mask_extents(&floor.m);
+    for r in 0..16i32 {
+        for c in 0..16i32 {
+            if !mask_at(&floor.m, r, c) || skip.is_some_and(|s| mask_at(s, r, c)) {
+                continue;
+            }
+            let (ct, cb) = (top[c as usize], bot[c as usize]);
+            let north_rim = !(sides[0] && ct == 0);
+            let south_rim = !(sides[1] && cb == 15);
+            let amount = if r == ct && north_rim {
+                band + 55 // shadow under the north lip
+            } else if r == ct + 1 && north_rim {
+                band + 30
+            } else if r == cb && south_rim {
+                (band - 22).max(8) // south inner wall catches the light
+            } else {
+                band
+            };
+            screen.darken_rect(
+                floor.x * 16 + c,
+                floor.y * 16 + r,
+                1,
+                1,
+                amount.clamp(0, 255),
+            );
+        }
+    }
+}
+
+/// Salt for the terrace-step shadow jitter.
+const STEP_SALT: u64 = 0x0D16_00CC;
+
+/// Depth terracing: where an open neighbor is *shallower* than this tile, the step
+/// drops onto our floor — a short ragged shadow band just inside that edge makes
+/// the stage change readable without closing the shared boundary.
+fn step_shadows(
+    screen: &mut Screen,
+    seed: i64,
+    floor: &FloorMask,
+    ranks: &[Option<i32>; 4],
+    my_rank: i32,
+    band: i32,
+) {
+    let (x, y) = (floor.x, floor.y);
+    let amount = (band + 48).min(255);
+    let stepped = |i: usize| matches!(ranks[i], Some(r) if r < my_rank);
+    let mut px = |r: i32, c: i32| {
+        if mask_at(&floor.m, r, c) {
+            screen.darken_rect(x * 16 + c, y * 16 + r, 1, 1, amount);
+        }
+    };
+    for c in 0..16i32 {
+        let w = 2 + (hash(seed, STEP_SALT, x * 16 + c, y) % 2) as i32;
+        if stepped(0) {
+            for r in 0..w {
+                px(r, c);
+            }
+        }
+        if stepped(1) {
+            for r in 16 - w..16 {
+                px(r, c);
+            }
+        }
+    }
+    for r in 0..16i32 {
+        let w = 2 + (hash(seed, STEP_SALT, y * 16 + r, x) % 2) as i32;
+        if stepped(2) {
+            for c in 0..w {
+                px(r, c);
+            }
+        }
+        if stepped(3) {
+            for c in 16 - w..16 {
+                px(r, c);
+            }
+        }
+    }
+}
+
 /* ---------------------------------- deep water ---------------------------------- */
 
 /// Only a player carrying a Raft (or a creative player) can cross deep water.
@@ -234,6 +488,52 @@ pub fn deep_water_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, 
     }
 }
 
+/* --------------------------- flooding excavations --------------------------- */
+
+/// What water pouring into `(x, y)` becomes, if that tile is an excavation: the
+/// flood assumes the depth of the hole — a shallow dig fills as ordinary water, a
+/// bottomed-out pit or a chasm fills as Deep Water. (A flooded chasm no longer
+/// drops you: the tile *is* deep water now. The carved pocket below stays dry —
+/// the flood seals the breakthrough rather than pouring through it.)
+pub fn flood_kind(g: &Game, lvl: usize, x: i32, y: i32) -> Option<&'static str> {
+    match g.tile_at(lvl, x, y).kind {
+        TileKind::DugPit => Some(if g.level(lvl).get_data(x, y) >= MAX_STAGE {
+            "Deep Water"
+        } else {
+            "water"
+        }),
+        TileKind::Chasm => Some("Deep Water"),
+        _ => None,
+    }
+}
+
+/// Flood the excavation at `(x, y)` if there is one. Called from the random tile
+/// tick of adjacent water (shallow and deep), so a pool spreads through a connected
+/// pit network one visible tile at a time — dig a channel to the water and watch
+/// the basin fill.
+pub fn try_flood(g: &mut Game, lvl: usize, x: i32, y: i32) -> bool {
+    let Some(kind) = flood_kind(g, lvl, x, y) else {
+        return false;
+    };
+    let t = g.tiles.get(kind);
+    g.set_tile_default(lvl, x, y, &t);
+    true
+}
+
+/// Deep water spreads into adjacent excavations on the same one-random-neighbor
+/// cadence as shallow water (`water::tick`), so a flooded deep basin keeps feeding
+/// the network — but unlike shallow water it never creeps into plain holes or lava.
+pub fn deep_water_tick(g: &mut Game, lvl: usize, xt: i32, yt: i32) {
+    let mut xn = xt;
+    let mut yn = yt;
+    if g.random.next_boolean() {
+        xn += g.random.next_int_bound(2) * 2 - 1;
+    } else {
+        yn += g.random.next_int_bound(2) * 2 - 1;
+    }
+    try_flood(g, lvl, xn, yn);
+}
+
 /* ----------------------------------- dug pit ------------------------------------ */
 
 pub fn dug_pit_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i32) {
@@ -241,45 +541,44 @@ pub fn dug_pit_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: 
     let dirt = g.tiles.get("dirt");
     dispatch::render(g, screen, &dirt, lvl, x, y);
 
-    // a ragged bowl, not a square: each stage widens the lip and darkens the core.
-    // Concavity comes from per-column rim shading under top light — a dark crescent
-    // along the north inner wall, a lighter lip along the south inner wall — while
-    // the corners stay untouched dirt.
+    // a ragged bowl, not a square — and not an island: each stage widens the lip
+    // and darkens the core, but boundaries shared with a fellow pit or chasm open
+    // up so adjacent digs read as ONE excavated space. Concavity comes from
+    // per-column rim shading under top light — dark crescent along the north inner
+    // wall, lighter lip along the south — suppressed where the floor continues
+    // into the neighbor.
     let seed = g.world_seed;
+    let ranks = exc_sides(g, lvl, x, y);
+    let sides = ranks.map(|r| r.is_some());
+    // the passage pinches to the shallower of the two digs it joins
+    let side_insets = ranks.map(|r| MAX_STAGE - stage.min(r.unwrap_or(0).min(MAX_STAGE)));
+    let corners = [
+        sides[0] && sides[2] && exc_rank(g, lvl, x - 1, y - 1).is_some(),
+        sides[0] && sides[3] && exc_rank(g, lvl, x + 1, y - 1).is_some(),
+        sides[1] && sides[2] && exc_rank(g, lvl, x - 1, y + 1).is_some(),
+        sides[1] && sides[3] && exc_rank(g, lvl, x + 1, y + 1).is_some(),
+    ];
     let inset = MAX_STAGE - stage;
-    let outer = hole_spans(seed, x, y, inset);
-    let core = hole_spans(seed, x, y, inset + 4);
-    let mut top = [i32::MAX; 16];
-    let mut bot = [i32::MIN; 16];
-    for r in 0..16i32 {
-        let (a, b) = outer[r as usize];
-        for c in a.max(0)..=b.min(15) {
-            top[c as usize] = top[c as usize].min(r);
-            bot[c as usize] = bot[c as usize].max(r);
-        }
-    }
+    let floor = FloorMask {
+        x,
+        y,
+        m: merged_mask(seed, x, y, inset, sides, side_insets, corners),
+    };
+
     let band = 40 + 26 * stage;
+    shade_floor(screen, &floor, sides, band, None);
+
+    // per-tile core mottle keeps a wide merged floor from reading flat
+    let core = hole_spans(seed, x, y, inset + 4);
     let core_extra = 34 + 36 * stage;
-    for r in 0..16i32 {
-        let (a, b) = outer[r as usize];
-        for c in a.max(0)..=b.min(15) {
-            let (ct, cb) = (top[c as usize], bot[c as usize]);
-            let amount = if r == ct {
-                band + 55 // shadow under the north lip
-            } else if r == ct + 1 {
-                band + 30
-            } else if r == cb {
-                (band - 22).max(8) // south inner wall catches the light
-            } else {
-                band
-            };
-            screen.darken_rect(x * 16 + c, y * 16 + r, 1, 1, amount.clamp(0, 255));
-        }
-        let (ca, cb) = core[r as usize];
+    for (r, &(ca, cb)) in core.iter().enumerate() {
         if ca <= cb {
-            screen.darken_rect(x * 16 + ca, y * 16 + r, cb - ca + 1, 1, core_extra);
+            screen.darken_rect(x * 16 + ca, y * 16 + r as i32, cb - ca + 1, 1, core_extra);
         }
     }
+
+    step_shadows(screen, seed, &floor, &ranks, stage, band);
+
     if stage >= MAX_STAGE {
         // rock speckle so the "you need a pickaxe now" state is readable
         let col = color::get(-1, 333);
@@ -296,10 +595,49 @@ pub fn dug_pit_interact(
     item: &mut Item,
     _attack_dir: Direction,
 ) -> bool {
+    let stage = g.level(lvl).get_data(xt, yt);
+
+    // building in the hole: a dug pit takes floor material exactly like the classic
+    // hole (boarding the dig over), and shovel-loads of dirt backfill it stage by
+    // stage — a mis-dug pit is reversible, and a basin can be floored for a base.
+    // (The item pass already rejected these placements — floor items only list the
+    // classic hole/water as valid tiles — so the tile handles them here.)
+    if let ItemKind::TileItem { model, .. } = &item.kind {
+        let model = model.clone();
+        let placed = match model.as_str() {
+            "WOOD PLANKS" | "STONE BRICKS" | "OBSIDIAN" => {
+                g.set_tile_named(lvl, xt, yt, &model);
+                // the item pass pushed a misleading "dig a hole first" note before
+                // this handler ran — retract it, the hole is right here
+                if g.notifications.last().map(String::as_str) == Some("Dig a hole first!") {
+                    g.sync_note_ages();
+                    g.notifications.pop();
+                    g.note_ages.pop();
+                }
+                true
+            }
+            "DIRT" => {
+                if stage > 0 {
+                    g.level_mut(lvl).set_data(xt, yt, stage - 1);
+                } else {
+                    let dirt = g.tiles.get("dirt");
+                    g.set_tile_default(lvl, xt, yt, &dirt);
+                }
+                true
+            }
+            _ => return false,
+        };
+        if placed && !g.is_mode("creative") {
+            if let Some(count) = item.count_mut() {
+                *count -= 1;
+            }
+        }
+        return placed;
+    }
+
     let ItemKind::Tool { ttype, .. } = item.kind else {
         return false;
     };
-    let stage = g.level(lvl).get_data(xt, yt);
 
     if ttype == ToolType::Shovel && stage < MAX_STAGE {
         if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
@@ -363,27 +701,65 @@ pub fn chasm_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i3
     let dirt = g.tiles.get("dirt");
     dispatch::render(g, screen, &dirt, lvl, x, y);
 
-    // a ragged black opening through the floor (same outline family as the pit that
-    // broke through here). The bottom-most pixels of each column stay partly lit —
-    // the south inner wall catches top light — and the north lip gets a crumble
-    // shadow just outside the opening, so it reads as a hole, not a stamp.
+    // the chasm sits inside the excavation that broke through: around the black
+    // opening the tile is dug floor at full depth, connected to neighboring pits
+    // and chasms exactly like a pit — so a breakthrough inside a big dig doesn't
+    // punch a square of untouched dirt into the merged floor
     let seed = g.world_seed;
-    let spans = hole_spans(seed, x, y, 0);
-    let mut top = [i32::MAX; 16];
-    let mut bot = [i32::MIN; 16];
-    for r in 0..16i32 {
-        let (a, b) = spans[r as usize];
-        for c in a.max(0)..=b.min(15) {
-            top[c as usize] = top[c as usize].min(r);
-            bot[c as usize] = bot[c as usize].max(r);
-        }
+    let ranks = exc_sides(g, lvl, x, y);
+    let sides = ranks.map(|r| r.is_some());
+    let side_insets = ranks.map(|r| MAX_STAGE - r.unwrap_or(0).min(MAX_STAGE));
+    let corners = [
+        sides[0] && sides[2] && exc_rank(g, lvl, x - 1, y - 1).is_some(),
+        sides[0] && sides[3] && exc_rank(g, lvl, x + 1, y - 1).is_some(),
+        sides[1] && sides[2] && exc_rank(g, lvl, x - 1, y + 1).is_some(),
+        sides[1] && sides[3] && exc_rank(g, lvl, x + 1, y + 1).is_some(),
+    ];
+
+    // the opening itself: a ragged black void (same outline family as the pit that
+    // broke through here), merging with adjacent chasm voids into one drop
+    let is_chasm = |r: &Option<i32>| matches!(r, Some(v) if *v > MAX_STAGE);
+    let void_sides = [
+        is_chasm(&ranks[0]),
+        is_chasm(&ranks[1]),
+        is_chasm(&ranks[2]),
+        is_chasm(&ranks[3]),
+    ];
+    let chasm_diag = |dx: i32, dy: i32| is_chasm(&exc_rank(g, lvl, x + dx, y + dy));
+    let void_corners = [
+        void_sides[0] && void_sides[2] && chasm_diag(-1, -1),
+        void_sides[0] && void_sides[3] && chasm_diag(1, -1),
+        void_sides[1] && void_sides[2] && chasm_diag(-1, 1),
+        void_sides[1] && void_sides[3] && chasm_diag(1, 1),
+    ];
+    let void = merged_mask(seed, x, y, 0, void_sides, [0; 4], void_corners);
+
+    if sides.iter().any(|&s| s) {
+        let floor = FloorMask {
+            x,
+            y,
+            m: merged_mask(seed, x, y, 0, sides, side_insets, corners),
+        };
+        let band = 40 + 26 * MAX_STAGE;
+        shade_floor(screen, &floor, sides, band, Some(&void));
+        step_shadows(screen, seed, &floor, &ranks, MAX_STAGE + 1, band);
     }
+
+    // The bottom-most pixels of each column stay partly lit — the south inner wall
+    // catches top light — and the north lip gets a crumble shadow just outside the
+    // opening, so it reads as a hole, not a stamp. Both are suppressed where the
+    // void continues into a neighboring chasm.
+    let (top, bot) = mask_extents(&void);
     for r in 0..16i32 {
-        let (a, b) = spans[r as usize];
-        for c in a.max(0)..=b.min(15) {
-            let amount = if r == bot[c as usize] {
+        for c in 0..16i32 {
+            if !mask_at(&void, r, c) {
+                continue;
+            }
+            let cb = bot[c as usize];
+            let south_open = void_sides[1] && cb == 15;
+            let amount = if r == cb && !south_open {
                 140 // lit rim: the south inner wall, irregular per column
-            } else if r == bot[c as usize] - 1 {
+            } else if r == cb - 1 && !south_open {
                 225
             } else {
                 255

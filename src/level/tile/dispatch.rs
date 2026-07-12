@@ -236,6 +236,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         TileKind::Grass => grass::tick(g, def, lvl, xt, yt),
         TileKind::Dirt => dirt::tick(g, def, lvl, xt, yt),
         TileKind::Water => water::tick(g, def, lvl, xt, yt),
+        TileKind::DeepWater => depth::deep_water_tick(g, lvl, xt, yt),
         TileKind::Rock => rock::tick(g, def, lvl, xt, yt),
         TileKind::Tree => tree::tick(g, def, lvl, xt, yt),
         TileKind::TreeSpecies { .. } => tree_species::tick(g, def, lvl, xt, yt),

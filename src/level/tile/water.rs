@@ -76,4 +76,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         let t = g.tiles.get("Stone Bricks");
         g.set_tile_default(lvl, xn, yn, &t);
     }
+    // excavation flooding: water pours into an adjacent dug pit or chasm and assumes
+    // its depth (shallow dig -> water, bottomed-out pit or chasm -> deep water)
+    super::depth::try_flood(g, lvl, xn, yn);
 }
