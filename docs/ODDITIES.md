@@ -373,3 +373,24 @@ Counts: 5 breaks-immersion, 14 noticeable, 8 nitpick.
   sampled across the tide clock.
 - Village window light at night: skipped (known-dead per PLAYTEST.md; TownAge
   "Settled" lanterns landed after the audit shots).
+
+## Play-session addendum (PM hands-on, target/verify/myplay/)
+Fixed on the spot: square-corner family checkers (corner rounding, fa5f2d4);
+tidal-flat razor staircase (sand family, fa5f2d4); seam stipple over sprites
+(ground_pass before sprites, fa5f2d4); silent empty-name Create World
+(auto 'claim N', fa5f2d4); Evening-only fireflies + black Help page (05c3301).
+
+Still open, confirmed by eye:
+- O-N1 Water glows near-fullbright violet at night (night blue gain 1.14 boosts
+  blue-dominant pixels; land darkens, water pops). p3_night_mobs. lighting.rs
+  SURFACE_KEYS / water handling. noticeable.
+- O-N2 Player is a black blob at night — base radius-5 pool too weak to lift the
+  dark sprite; hostiles got eye glints, the player didn't. Taste call: warm rim
+  or brighter pool center. noticeable.
+- O-N3 Night wave rows on big water read as strong repetition (scalloped rows,
+  identical phase). p3_fire. water.rs wave crests. nitpick->noticeable at night.
+- O-N4 Title flyover: mountain regions read as one giant smooth gray smear at
+  drone height (rock faces + blend average out). p1_title. nitpick (title only).
+- O-N5 Wet|dry sand still steps at art level (tint now grades; the cells lack a
+  connector lap like water's). Queue wet-sand connector art. nitpick.
+
