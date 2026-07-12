@@ -522,6 +522,116 @@ pub fn mist_patches(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y_
     }
 }
 
+/* -------------------------------- blizzard veil --------------------------------- */
+
+/// The cold blue-white a blizzard pixel lerps toward — a shade colder than
+/// [`MIST_RGB`], so the whiteout reads as driven snow, not morning damp.
+const BLIZZ_RGB: i32 = 0x00DC_E6F0;
+
+/// Blizzard lerp steps (of 256): base band, and the heavier step for the densest
+/// squall cells. Same two-quantized-levels rule as the mist.
+const BLIZZ_LERP: i32 = 120;
+const BLIZZ_LERP_DENSE: i32 = 176;
+
+/// Veil coverage (of 16) per quantized density step. Ceiling 13/16 — denser than
+/// the morning mist's 12, but the ground always survives the stipple: NEVER a full
+/// whiteout (approachability floor).
+const BLIZZ_COV: [i32; 6] = [0, 3, 5, 8, 10, 13];
+
+/// Density thresholds (x1000) picking the [`BLIZZ_COV`] step.
+const BLIZZ_STEPS: [i32; 5] = [120, 220, 330, 450, 580];
+
+/// Hash salts for the squall patch octaves — distinct from the mist patch salts.
+const BLIZZ_PATCH_SALT: u64 = 0xB112_2A4D;
+const BLIZZ_PATCH_SALT2: u64 = 0xB112_2A4E;
+
+/// The blizzard whiteout: the mist-patch idiom (8-px cells, quantized Bayer
+/// stipple, world-anchored) driven by a *flat* severity instead of the moisture
+/// field — a blizzard doesn't care what ground it buries. Squall bodies drift by
+/// fast (storm wind), with real thinner eddies between them. Runs before the
+/// ambient grade like the mist, so a campfire's light bands re-light the veil warm
+/// — the sanctuary glows *through* the storm.
+///
+/// Approachability floor: two quantized clarity rings around the screen center
+/// keep the player's ~4-tile surroundings readable at any severity.
+pub fn blizzard_veil(screen: &mut Screen, g: &Game, x_scroll: i32, y_scroll: i32, sev: f32) {
+    if sev <= 0.0 {
+        return;
+    }
+    let seed = g.world_seed;
+    let drift = g.game_time / 4; // storm wind: three times the mist's drift
+    let sev1000 = (sev * 1000.0) as i32;
+
+    // Player-clarity rings, squared (the renderer centers the player).
+    let (pcx, pcy) = (screen.w / 2, (screen.h - 8) / 2);
+    const R_IN2: i32 = 36 * 36;
+    const R_OUT2: i32 = 64 * 64; // ~4 tiles: the readability floor
+
+    let cy0 = y_scroll >> 3;
+    let cy1 = (y_scroll + screen.h - 1) >> 3;
+    let cx0 = x_scroll >> 3;
+    let cx1 = (x_scroll + screen.w - 1) >> 3;
+    for cy in cy0..=cy1 {
+        for cx in cx0..=cx1 {
+            let (wx, wy) = (cx * 8, cy * 8);
+            // squall-scale bodies with wisp detail, both racing with the wind
+            let n = 0.62
+                * weather::lattice_noise(seed, BLIZZ_PATCH_SALT, wx + 4 + drift, wy + 4, 88)
+                + 0.38
+                    * weather::lattice_noise(
+                        seed,
+                        BLIZZ_PATCH_SALT2,
+                        wx + 4 + drift * 2 + 977,
+                        wy + 4,
+                        36,
+                    );
+            // density x1000: severity-scaled, patch-modulated — eddies stay thin
+            let d = sev1000 * (250 + (n * 550.0) as i32) / 1000;
+            let mut step = 0;
+            while step < 5 && d >= BLIZZ_STEPS[step] {
+                step += 1;
+            }
+            let mut cov = BLIZZ_COV[step];
+            if cov == 0 {
+                continue;
+            }
+            let (dx, dy) = (wx + 4 - x_scroll - pcx, wy + 4 - y_scroll - pcy);
+            let r2 = dx * dx + dy * dy;
+            if r2 < R_IN2 {
+                cov = (cov * 4) >> 4;
+            } else if r2 < R_OUT2 {
+                cov = (cov * 10) >> 4;
+            }
+            if cov == 0 {
+                continue;
+            }
+            let y0 = (wy - y_scroll).max(0);
+            let y1 = (wy + 8 - y_scroll).min(screen.h);
+            let x0 = (wx - x_scroll).max(0);
+            let x1 = (wx + 8 - x_scroll).min(screen.w);
+            let k = if step >= 5 {
+                BLIZZ_LERP_DENSE
+            } else {
+                BLIZZ_LERP
+            };
+            for y in y0..y1 {
+                let by = (((y + y_scroll) & 3) << 2) as usize;
+                let row = (y * screen.w) as usize;
+                for x in x0..x1 {
+                    if BAYER[((x + x_scroll) & 3) as usize + by] < cov {
+                        let p = &mut screen.pixels[row + x as usize];
+                        let (pr, pg, pb) = ((*p >> 16) & 0xFF, (*p >> 8) & 0xFF, *p & 0xFF);
+                        let r = pr + (((((BLIZZ_RGB >> 16) & 0xFF) - pr) * k) >> 8);
+                        let g2 = pg + (((((BLIZZ_RGB >> 8) & 0xFF) - pg) * k) >> 8);
+                        let b = pb + ((((BLIZZ_RGB & 0xFF) - pb) * k) >> 8);
+                        *p = (r << 16) | (g2 << 8) | b;
+                    }
+                }
+            }
+        }
+    }
+}
+
 /* -------------------------------- drifting motes -------------------------------- */
 
 /// Leaf/pollen palettes: (body, highlight) pairs — two greens and one early-autumn

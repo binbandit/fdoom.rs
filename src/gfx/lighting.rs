@@ -77,6 +77,8 @@ pub const FX_MOTES: u32 = 1 << 6;
 pub const FX_TORCH_BREATHING: u32 = 1 << 7;
 pub const FX_DEPTH_FOG: u32 = 1 << 8;
 pub const FX_AMBIENT_FOG: u32 = 1 << 9;
+pub const FX_BLIZZARD: u32 = 1 << 10;
+pub const FX_THUNDER: u32 = 1 << 11;
 
 /// Bitmask of effects currently disabled. The game never touches this — it exists so
 /// `tests/visuals.rs` can render true A/B pairs of the same frame.
@@ -217,6 +219,9 @@ pub fn ambient_for(g: &Game, lvl: usize) -> Ambient {
 struct FrameCtx {
     amb: Ambient,
     precip: Precip,
+    /// Severe-weather tier at the player (None whenever `precip` is None, so event
+    /// skies and underground levels silence the storm visuals with it).
+    storm: weather::Storm,
     aurora: bool,
     ember: bool,
 }
@@ -234,9 +239,15 @@ fn frame_ctx(g: &Game, lvl: usize) -> FrameCtx {
     } else {
         Precip::None
     };
+    let storm = if precip == Precip::None {
+        weather::Storm::None
+    } else {
+        weather::storm(g)
+    };
     FrameCtx {
         amb: weather_grade(ambient_for(g, lvl), precip),
         precip,
+        storm,
         aurora,
         ember,
     }
@@ -302,7 +313,62 @@ pub fn render_pass(
     if fog.mist > 0.02 {
         ambience::mist_patches(screen, g, lvl, x_scroll, y_scroll);
     }
-    let amb = fog_grade(ctx.amb, &fog);
+
+    // Blizzard whiteout: the veil is albedo like the mist patches — painted before
+    // the grade so emitter light bands re-light it warm (the campfire-sanctuary
+    // money shot), then a cold fog wash through the same fog-grade machinery,
+    // denser than any morning mist but never the Whisper Fog's wall.
+    let blizzard = match ctx.storm {
+        weather::Storm::Blizzard(sev) if fx_on(FX_BLIZZARD) => sev,
+        _ => 0.0,
+    };
+    if blizzard > 0.0 {
+        ambience::blizzard_veil(screen, g, x_scroll, y_scroll, blizzard);
+    }
+    let mut amb = fog_grade(ctx.amb, &fog);
+    if blizzard > 0.0 {
+        let wash = weather::FogSample {
+            mist: BLIZZARD_MIST * blizzard,
+            haze: 0.0,
+        };
+        amb = fog_grade(amb, &wash);
+    }
+
+    // Thunderstorm sky: the pure flash schedule plus this frame's visible strikes.
+    // Bolt frames drive their own (stronger) pulse; the ~8-15 s ambient flashes
+    // stay sparing. All of it lifts the grade *before* the LUTs are built.
+    let mut strikes: Vec<weather::Strike> = Vec::new();
+    if matches!(ctx.storm, weather::Storm::Thunderstorm(_)) && fx_on(FX_THUNDER) {
+        let (seed, day, t) = (g.world_seed, g.events.day_number, g.tick_count);
+        let mut flash = weather::sky_flash(seed, day, t);
+        // The camera centers the player, so the screen-center tile is the same
+        // suppression anchor `weather::tick` uses for the 8-tile player floor.
+        let (ptx, pty) = (
+            (x_scroll + screen.w / 2) >> 4,
+            (y_scroll + (screen.h - 8) / 2) >> 4,
+        );
+        strikes = weather::strikes_in_rect(
+            seed,
+            day,
+            t,
+            (x_scroll >> 4) - 1,
+            (y_scroll >> 4) - 1,
+            ((x_scroll + screen.w) >> 4) + 1,
+            ((y_scroll + screen.h) >> 4) + 1,
+        );
+        strikes.retain(|s| {
+            let (dx, dy) = (s.x - ptx, s.y - pty);
+            dx * dx + dy * dy >= weather::STRIKE_PLAYER_FLOOR * weather::STRIKE_PLAYER_FLOOR
+        });
+        for s in &strikes {
+            if let weather::StrikePhase::Bolt(age) = weather::strike_phase(s, t) {
+                flash = flash.max([1.0, 0.6, 0.3][age as usize]);
+            }
+        }
+        if flash > 0.0 {
+            amb = flash_lift(amb, flash);
+        }
+    }
 
     if !amb.is_identity() || ctx.aurora {
         let a8 = ((amb.brightness * 255.0).round() as i32).clamp(0, 254);
@@ -337,12 +403,173 @@ pub fn render_pass(
         }
         fish_bubbles(screen, g, lvl, x_scroll, y_scroll, amb.brightness);
         match ctx.precip {
-            Precip::Rain(i) => rain_streaks(screen, g, i, amb.brightness, x_scroll, y_scroll),
-            Precip::Snow(i) => snow_flecks(screen, g, i, amb.brightness, x_scroll, y_scroll),
+            Precip::Rain(i) => {
+                // A thunderstorm turns the rain torrential: streak coverage up.
+                let i = match ctx.storm {
+                    weather::Storm::Thunderstorm(sev) if fx_on(FX_THUNDER) => {
+                        (i + 0.45 * sev).min(1.0)
+                    }
+                    _ => i,
+                };
+                rain_streaks(screen, g, i, amb.brightness, x_scroll, y_scroll);
+            }
+            Precip::Snow(i) => {
+                // A blizzard doubles down: full fleck coverage plus wind-driven
+                // streaks racing sideways through the veil.
+                let i = if blizzard > 0.0 {
+                    (i + 0.6 * blizzard).min(1.0)
+                } else {
+                    i
+                };
+                snow_flecks(screen, g, i, amb.brightness, x_scroll, y_scroll);
+                if blizzard > 0.0 {
+                    wind_flecks(screen, g, blizzard, amb.brightness, x_scroll, y_scroll);
+                }
+            }
             Precip::None => {
                 if fx_on(FX_MOTES) {
                     ambience::drift_motes(screen, g, x_scroll, y_scroll, amb.brightness);
                 }
+            }
+        }
+        // Lightning on top of the rain: the 2 s ground-shimmer telegraph, then the
+        // bolt itself (the frame-wide pulse already lifted the grade above).
+        for s in &strikes {
+            match weather::strike_phase(s, g.tick_count) {
+                weather::StrikePhase::Telegraph(p) => {
+                    strike_telegraph(screen, s, p, g.tick_count, x_scroll, y_scroll);
+                }
+                weather::StrikePhase::Bolt(age) => {
+                    strike_bolt(screen, s, age, x_scroll, y_scroll);
+                }
+                weather::StrikePhase::Idle => {}
+            }
+        }
+    }
+}
+
+/// Blizzard fog-wash density fed into [`fog_grade`] at full severity: denser than
+/// the everyday mist cap (0.55) but far off the Whisper Fog's 0.85 — the whiteout
+/// grays and brightens the world, it never walls it off.
+const BLIZZARD_MIST: f32 = 0.70;
+
+/// Lift the frame grade for a sky flash: a short white-blue pulse — brightness up,
+/// a cold additive wash — reusing the Ambient wash channel end to end.
+fn flash_lift(amb: Ambient, f: f32) -> Ambient {
+    let mut a = Ambient::from_tint((amb.brightness + 0.35 * f).min(1.0), amb.tint);
+    a.wash = [
+        amb.wash[0] + 70.0 * f,
+        amb.wash[1] + 82.0 * f,
+        amb.wash[2] + 118.0 * f,
+    ];
+    a
+}
+
+/// Wind-driven blizzard streaks: the rain-lane trick rotated shallow — lanes of
+/// constant `d = wx + 3*wy` (falling gently down-left), racing sideways at
+/// 4 px/tick. Layered over the ordinary flecks, they make the snowfall read as
+/// *driven*, not drifting.
+fn wind_flecks(
+    screen: &mut Screen,
+    g: &Game,
+    sev: f32,
+    ambient: f32,
+    x_scroll: i32,
+    y_scroll: i32,
+) {
+    const WIND_SALT: u64 = 0xB11257;
+    const LANE: i32 = 9; // d-units between lanes
+    const SEG: i32 = 26; // x-period between flecks on a lane
+
+    let drive = g.game_time as i64 * 4; // storm wind, blowing west
+    let lift = 0.45 + 0.55 * ambient.clamp(0.0, 1.0);
+    let a = (95.0 * lift * (0.55 + 0.45 * sev)) as i32;
+    let coverage = (sev * 14.0).ceil() as i32;
+
+    let d0 = x_scroll + 3 * y_scroll;
+    let d1 = x_scroll + screen.w + 3 * (y_scroll + screen.h);
+    let e0 = ((x_scroll as i64 + drive) / SEG as i64) as i32 - 1;
+    let e1 = (((x_scroll + screen.w) as i64 + drive) / SEG as i64) as i32 + 1;
+    for q in (d0.div_euclid(LANE) - 1)..=(d1.div_euclid(LANE) + 1) {
+        for e in e0..=e1 {
+            if BAYER[((q & 3) + ((e & 3) << 2)) as usize] >= coverage {
+                continue;
+            }
+            let h = crate::level::infinite_gen::hash(g.world_seed, WIND_SALT, q, e);
+            let len = 4 + (h & 1) as i32; // 4-5 px dashes
+            let s0 = ((h >> 8) % (SEG - len) as u64) as i32;
+            let dq = q * LANE + ((h >> 24) % (LANE - 2) as u64) as i32;
+            let wx0 = (e as i64 * SEG as i64 - drive) as i32 + s0;
+            for k in 0..len {
+                let wx = wx0 + k;
+                let wy = (dq - wx).div_euclid(3);
+                screen.add_rgb(wx - x_scroll, wy - y_scroll, a, a, a + 8);
+            }
+        }
+    }
+}
+
+/// The strike telegraph: a flickering pale-electric shimmer disc on the target
+/// tile, growing and brightening across the 2 s lead — the halo/heat-shimmer
+/// idiom, world-anchored Bayer stipple with a pulsing rim.
+fn strike_telegraph(
+    screen: &mut Screen,
+    s: &weather::Strike,
+    p: f32,
+    tick: i32,
+    x_scroll: i32,
+    y_scroll: i32,
+) {
+    let cx = s.x * 16 + 8 - x_scroll;
+    let cy = s.y * 16 + 8 - y_scroll;
+    let r = 5 + (5.0 * p) as i32; // 5..10 px
+    let pulse = [6, 10, 13, 9][((tick / 3) & 3) as usize];
+    let (ar, ag, ab) = (
+        46 + (36.0 * p) as i32,
+        48 + (38.0 * p) as i32,
+        66 + (56.0 * p) as i32,
+    );
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let d2 = dx * dx + dy * dy;
+            if d2 > r * r {
+                continue;
+            }
+            // bright flickering rim, dimmer fill
+            let cov = if d2 >= (r - 2) * (r - 2) {
+                pulse
+            } else {
+                pulse / 2
+            };
+            let (x, y) = (cx + dx, cy + dy);
+            let b = ((x + x_scroll) & 3) as usize + ((((y + y_scroll) & 3) << 2) as usize);
+            if BAYER[b] < cov {
+                screen.add_rgb(x, y, ar, ag, ab);
+            }
+        }
+    }
+}
+
+/// The bolt: a jagged white column from the sky to the target tile plus a ground
+/// burst, fading over the three bolt frames (the frame-wide flash rides the grade).
+fn strike_bolt(screen: &mut Screen, s: &weather::Strike, age: i32, x_scroll: i32, y_scroll: i32) {
+    let cx = s.x * 16 + 8;
+    let ground = s.y * 16 + 12 - y_scroll;
+    let k = [230, 130, 60][age as usize];
+    // 4-row segments, each hash-jittered ±2 px around the column
+    for y in 0..ground.min(screen.h) {
+        let seg = (y + y_scroll) >> 2;
+        let h = crate::level::infinite_gen::hash(s.x as i64, 0xB017, s.y, seg);
+        let x = cx + ((h % 5) as i32 - 2) - x_scroll;
+        screen.add_rgb(x, y, k, k, k + 12);
+        screen.add_rgb(x + 1, y, k / 2, k / 2, k / 2 + 8);
+    }
+    // ground burst: a small additive disc that dies with the bolt
+    let r = [5, 3, 2][age as usize];
+    for dy in -r..=r {
+        for dx in -r..=r {
+            if dx * dx + dy * dy <= r * r {
+                screen.add_rgb(cx - x_scroll + dx, ground + dy, k, k, k + 10);
             }
         }
     }

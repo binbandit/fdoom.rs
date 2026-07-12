@@ -39,6 +39,25 @@ const SETTLE_TREE_ODDS: i32 = 450;
 const THAW_GROUND_ODDS: i32 = 1500;
 const THAW_TREE_ODDS: i32 = 1100;
 
+/// Blizzards (`weather::blizzard_at`, the severe-weather tier) drive snow down this
+/// many times faster: one blizzard slice winters a clearing almost completely.
+pub const BLIZZARD_SETTLE_FACTOR: i32 = 3;
+
+/// The settle odds one random tick rolls against — split out pure so the storm
+/// tests pin the blizzard factor without a statistical loop.
+pub fn settle_odds(tree: bool, blizzard: bool) -> i32 {
+    let base = if tree {
+        SETTLE_TREE_ODDS
+    } else {
+        SETTLE_GROUND_ODDS
+    };
+    if blizzard {
+        base / BLIZZARD_SETTLE_FACTOR
+    } else {
+        base
+    }
+}
+
 /// Is snow *at home* at this position? Tundra proper and Mountains (summit caps) —
 /// checked through both the plain and the domain-warped biome lookups, so the
 /// generated patchy boundary snow counts as native and never erodes.
@@ -58,10 +77,14 @@ pub fn random_tick(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32) -> b
     }
     let (odds, to) = match def.kind {
         // settle: falling snow buries the meadow and whitens broadleaf canopies
+        // (a blizzard drives it down BLIZZARD_SETTLE_FACTOR times as fast)
         TileKind::Grass | TileKind::TallGrass { .. } if weather::snowing_at(g, x, y) => {
-            (SETTLE_GROUND_ODDS, "snow")
+            (settle_odds(false, weather::blizzard_at(g, x, y)), "snow")
         }
-        TileKind::Tree if weather::snowing_at(g, x, y) => (SETTLE_TREE_ODDS, "snow tree"),
+        TileKind::Tree if weather::snowing_at(g, x, y) => (
+            settle_odds(true, weather::blizzard_at(g, x, y)),
+            "snow tree",
+        ),
         // thaw: once the snow stops, visiting snow melts back off — never at home
         TileKind::Snow | TileKind::SnowTree
             if weather::snowing_at(g, x, y) || snow_native(g.world_seed, x, y) =>

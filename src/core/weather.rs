@@ -79,10 +79,13 @@ pub enum Precip {
 }
 
 /// Per-slice biome gate for the intensity curve (see [`desert_slice_wet`]).
+/// `Storm` is the severe-tier read: only severe slices contribute, so the same ramp
+/// machinery yields a smooth storm envelope (see [`storm_intensity`]).
 #[derive(Clone, Copy)]
 enum Gate {
     Open,
     Desert,
+    Storm,
 }
 
 fn norm_slice(day: i32, slice: i32) -> (i32, i32) {
@@ -106,7 +109,10 @@ pub fn desert_slice_wet(seed: i64, day: i32, slice: i32) -> bool {
     infinite_gen::hash(seed, DESERT_SALT, day, slice) % 100 < 15
 }
 
-/// The slice's plateau intensity: 0 when dry, otherwise 0.55..1.0 by hash.
+/// The slice's plateau intensity: 0 when dry, otherwise 0.55..1.0 by hash. Severe
+/// slices ([`slice_severe`]) floor theirs at [`STORM_PEAK_FLOOR`]: a storm *is*
+/// heavy precipitation, so every existing intensity consumer (rain dim, fire
+/// dousing, temperature chill) escalates with it for free.
 fn gated_peak(seed: i64, day: i32, slice: i32, gate: Gate) -> f32 {
     let (day, slice) = norm_slice(day, slice);
     if !slice_raining(seed, day, slice) {
@@ -115,8 +121,17 @@ fn gated_peak(seed: i64, day: i32, slice: i32, gate: Gate) -> f32 {
     if matches!(gate, Gate::Desert) && !desert_slice_wet(seed, day, slice) {
         return 0.0;
     }
+    let severe = slice_severe(seed, day, slice);
+    if matches!(gate, Gate::Storm) && !severe {
+        return 0.0;
+    }
     let h = infinite_gen::hash(seed, WEATHER_SALT, day, slice);
-    0.55 + 0.45 * (((h >> 32) & 0xFFFF) as f32 / 65535.0)
+    let peak = 0.55 + 0.45 * (((h >> 32) & 0xFFFF) as f32 / 65535.0);
+    if severe {
+        peak.max(STORM_PEAK_FLOOR)
+    } else {
+        peak
+    }
 }
 
 fn smooth(t: f32) -> f32 {
@@ -237,6 +252,256 @@ pub fn growth_boost(g: &Game) -> bool {
 /// Fireflies (and similar fair-weather ambience) hide from the rain.
 pub fn fireflies_hidden(g: &Game) -> bool {
     is_raining(g)
+}
+
+/* ---------------------------------- severe weather ---------------------------------- */
+//
+// The storm tier: a pure severity escalation on top of the precipitation schedule —
+// ~[`STORM_SLICE_PCT`]% of precip slices are *severe*, rolled per slice from their
+// own salt. Cold country presents a severe slice as a **blizzard** (whiteout veil,
+// an extra cold band, snow settling fast), warm country as a **thunderstorm**
+// (torrential streaks, sky flashes, rare telegraphed lightning strikes). Everything
+// stays `f(seed, day, slice/tick)`: nothing is saved, and the whole tier coexists
+// with the effects API — a thunderstorm still `is_raining` (crops drink, fires
+// drown), a blizzard is still `Precip::Snow`.
+//
+// Approachability floors (deliberate, keep them):
+// - The storm threshold (0.5) sits far above the rain cue threshold (0.05), so the
+//   plain "Rain patters down..." / "Snow drifts down..." cue always lands first —
+//   a storm is announced twice before it peaks.
+// - The blizzard veil never becomes a wall: `gfx::ambience::blizzard_veil` keeps
+//   the player's ~4-tile surroundings readable (clarity rings), and campfires keep
+//   their full warmth override (`core::temperature`) — the fire stays home.
+// - Lightning is a spectacle and a forest-fire starter, never a player-killer:
+//   strikes are suppressed inside [`STRIKE_PLAYER_FLOOR`] tiles of the player, and
+//   they never land inside a town footprint (the POIs don't burn down off-screen).
+// - Thunder audio is skipped: the engine ships no sound assets (same call as the
+//   rain); the sky flash carries the sensory load.
+
+/// Percent of *rainy* slices that escalate to severe (~15%).
+pub const STORM_SLICE_PCT: u64 = 15;
+
+/// Severe slices floor their schedule peak here: storms are heavy by definition,
+/// which keeps `extinguishes_fire` (> 0.5) live through the whole plateau — a
+/// thunderstorm always fights its own lightning fires.
+pub const STORM_PEAK_FLOOR: f32 = 0.85;
+
+/// Storm envelope level above which the storm "is on" (cues, presentation, strikes).
+/// Well above [`CUE_THRESHOLD`]: rain always sets in before it escalates.
+pub const STORM_THRESHOLD: f32 = 0.5;
+
+/// Hash salt for the severe-tier roll — distinct from every weather/fog/event salt.
+const STORM_SALT: u64 = 0x570124;
+
+/// Does slice `slice` of `day` escalate to a severe storm? Pure; severe ⊆ rainy.
+pub fn slice_severe(seed: i64, day: i32, slice: i32) -> bool {
+    let (day, slice) = norm_slice(day, slice);
+    slice_raining(seed, day, slice)
+        && infinite_gen::hash(seed, STORM_SALT, day, slice) % 100 < STORM_SLICE_PCT
+}
+
+/// The storm envelope (0..1) for a day-clock position — the schedule intensity with
+/// non-severe slices contributing zero, ramped by the same smoothstep as the rain.
+/// Between two severe slices the storm holds; into a plain rain slice it decays
+/// mid-ramp (the boundary midpoint sits below [`STORM_THRESHOLD`]) — a storm always
+/// dies down *into* rain, never rain -> clear-sky pop.
+pub fn storm_intensity(seed: i64, day: i32, tick: i32) -> f32 {
+    intensity_gated(seed, day, tick, Gate::Storm)
+}
+
+/// Presented storm severity 0..1: 0 at the [`STORM_THRESHOLD`] crossing, 1 at the
+/// severe plateau floor. What the renderer drives densities with.
+pub fn severity(storm_i: f32) -> f32 {
+    ((storm_i - STORM_THRESHOLD) / (STORM_PEAK_FLOOR - STORM_THRESHOLD)).clamp(0.0, 1.0)
+}
+
+/// The storm as presented at the player, severity 0..1. Rides [`precip`], so the
+/// desert gate and the cold-reach snow gate apply unchanged.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Storm {
+    None,
+    /// Cold-country severe slice: whiteout veil, extra cold band, fast settle.
+    Blizzard(f32),
+    /// Warm-country severe slice: torrential rain, sky flashes, lightning.
+    Thunderstorm(f32),
+}
+
+/// The storm at the player's location right now.
+pub fn storm(g: &Game) -> Storm {
+    let si = storm_intensity(g.world_seed, g.events.day_number, g.tick_count);
+    if si < STORM_THRESHOLD {
+        return Storm::None;
+    }
+    match precip(g) {
+        Precip::Snow(_) => Storm::Blizzard(severity(si)),
+        Precip::Rain(_) => Storm::Thunderstorm(severity(si)),
+        Precip::None => Storm::None,
+    }
+}
+
+/// Is a blizzard raging over surface tile (x, y) right now? Positional (no arena
+/// read — safe during the player's own take-out tick): the storm envelope crossed
+/// with the same cold-reach gate as [`snowing_at`]. Drivers: the temperature wave's
+/// extra cold band and `tile::snowfall`'s fast-settle factor.
+pub fn blizzard_at(g: &Game, x: i32, y: i32) -> bool {
+    snow_climate(g.world_seed, x, y)
+        && storm_intensity(g.world_seed, g.events.day_number, g.tick_count) >= STORM_THRESHOLD
+}
+
+/* --------------------------------- sky flash --------------------------------- */
+
+/// Sky-flash scheduling window in ticks (~9 s): each window rolls one 3-tick flash
+/// at a hashed offset with ~70% odds — flashes land every ~8-15 s of storm, sparing
+/// by design.
+pub const FLASH_WINDOW: i32 = 540;
+
+const FLASH_SALT: u64 = 0xF1A54;
+
+/// White-blue sky-flash strength (0..1) at a day-clock instant. Pure schedule side
+/// only — callers gate on the thunderstorm actually being on at the player
+/// (`gfx::lighting` does). Three-tick pulse: full, then two decay steps.
+pub fn sky_flash(seed: i64, day: i32, tick: i32) -> f32 {
+    let day = day + tick.div_euclid(DAY_LENGTH);
+    let tick = tick.rem_euclid(DAY_LENGTH);
+    let w = tick / FLASH_WINDOW;
+    let h = infinite_gen::hash(seed, FLASH_SALT, day, w);
+    if h % 100 >= 70 {
+        return 0.0;
+    }
+    let off = ((h >> 16) % (FLASH_WINDOW - 4) as u64) as i32;
+    match tick - w * FLASH_WINDOW - off {
+        0 => 1.0,
+        1 => 0.65,
+        2 => 0.35,
+        _ => 0.0,
+    }
+}
+
+/* ------------------------------- lightning strikes ------------------------------- */
+
+/// Strike scheduling slot in ticks: one roll per [`STRIKE_CELL`]² world cell per
+/// storm minute. Divides `DAY_LENGTH` exactly (64800 / 3600 = 18 slots/day).
+pub const STRIKE_SLOT: i32 = 3600;
+
+/// Strike cell size in tiles. With ~50% of cells rolling a strike per slot, the
+/// player's couple-of-screens neighborhood sees roughly one strike per storm minute.
+pub const STRIKE_CELL: i32 = 32;
+
+/// Telegraph lead in ticks (~2 s): the target tile shimmers this long before the
+/// bolt, always — baked into the schedule (a strike can never fire untelegraphed).
+pub const STRIKE_TELEGRAPH: i32 = 120;
+
+/// Strikes never land within this many tiles of the player (suppressed at execution
+/// and render — lightning is drama on the horizon line, not a player-killer).
+pub const STRIKE_PLAYER_FLOOR: i32 = 8;
+
+/// Town footprints get this much extra clearance beyond `kind_radius`.
+const STRIKE_TOWN_PAD: i32 = 2;
+
+const STRIKE_SALT: u64 = 0x11A87;
+
+/// One scheduled lightning strike: target tile and the bolt's day-clock tick.
+/// The telegraph shimmer runs `tick - STRIKE_TELEGRAPH .. tick`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Strike {
+    pub x: i32,
+    pub y: i32,
+    pub tick: i32,
+}
+
+/// Where a strike is in its life at a day-clock instant.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StrikePhase {
+    Idle,
+    /// Telegraph progress 0..1 (1 = the bolt is imminent).
+    Telegraph(f32),
+    /// Bolt age in ticks: 0 (the flash) .. 2 (dying glow).
+    Bolt(i32),
+}
+
+pub fn strike_phase(s: &Strike, tick: i32) -> StrikePhase {
+    let d = tick - s.tick;
+    if (-STRIKE_TELEGRAPH..0).contains(&d) {
+        StrikePhase::Telegraph((STRIKE_TELEGRAPH + d) as f32 / STRIKE_TELEGRAPH as f32)
+    } else if (0..3).contains(&d) {
+        StrikePhase::Bolt(d)
+    } else {
+        StrikePhase::Idle
+    }
+}
+
+/// Is this tile inside (or hugging) a town footprint? Lightning spares the POIs.
+fn in_town(seed: i64, x: i32, y: i32) -> bool {
+    use crate::level::structures_gen::{self, StructureKind};
+    let r = structures_gen::MAX_RADIUS + STRIKE_TOWN_PAD;
+    structures_gen::placements_in_rect(seed, x - r, y - r, x + r, y + r)
+        .iter()
+        .any(|p| {
+            matches!(p.kind, StructureKind::Hamlet | StructureKind::Village)
+                && (x - p.x).abs().max((y - p.y).abs())
+                    <= structures_gen::kind_radius(p.kind) + STRIKE_TOWN_PAD
+        })
+}
+
+/// The strike (if any) a world cell hosts in a slot. Pure: everything hashes from
+/// `(seed, day, slot, cell)` — the two-stage hash is the "(seed, day, slice, k)"
+/// stream, with the cell as k. Gates (all pure): the storm envelope is on at the
+/// bolt tick, the target sits in warm (rain) country, a desert target needs the
+/// slice's desert roll, and town footprints are excluded.
+fn cell_strike(seed: i64, day: i32, slot: i32, cx: i32, cy: i32) -> Option<Strike> {
+    let h1 = infinite_gen::hash(seed, STRIKE_SALT, day, slot);
+    let h = infinite_gen::hash(seed, h1, cx, cy);
+    if h % 100 >= 50 {
+        return None;
+    }
+    let x = cx * STRIKE_CELL + ((h >> 8) % STRIKE_CELL as u64) as i32;
+    let y = cy * STRIKE_CELL + ((h >> 16) % STRIKE_CELL as u64) as i32;
+    let tick = slot * STRIKE_SLOT
+        + STRIKE_TELEGRAPH
+        + ((h >> 32) % (STRIKE_SLOT - STRIKE_TELEGRAPH - 4) as u64) as i32;
+    if storm_intensity(seed, day, tick) < STORM_THRESHOLD {
+        return None; // the storm isn't on when this bolt would land
+    }
+    if snow_climate(seed, x, y) {
+        return None; // blizzards don't throw lightning
+    }
+    if infinite_gen::biome_at(seed, x, y) == Biome::Desert
+        && !desert_slice_wet(seed, day, tick / SLICE_LEN)
+    {
+        return None; // no storm reaches a dry desert slice
+    }
+    if in_town(seed, x, y) {
+        return None;
+    }
+    Some(Strike { x, y, tick })
+}
+
+/// Every strike scheduled for `tick`'s slot whose cell overlaps the tile rect.
+/// Pure and cheap (a handful of cells per screen); the renderer draws telegraphs
+/// and bolts from this, [`tick`] executes the ignition, tests pin it directly.
+pub fn strikes_in_rect(
+    seed: i64,
+    day: i32,
+    tick: i32,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+) -> Vec<Strike> {
+    let day = day + tick.div_euclid(DAY_LENGTH);
+    let tick = tick.rem_euclid(DAY_LENGTH);
+    let slot = tick / STRIKE_SLOT;
+    let mut out = Vec::new();
+    for cy in y0.div_euclid(STRIKE_CELL)..=y1.div_euclid(STRIKE_CELL) {
+        for cx in x0.div_euclid(STRIKE_CELL)..=x1.div_euclid(STRIKE_CELL) {
+            if let Some(s) = cell_strike(seed, day, slot, cx, cy) {
+                if s.x >= x0 && s.x <= x1 && s.y >= y0 && s.y <= y1 {
+                    out.push(s);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Deterministic "fish presence" field over the world plane, 0..1 — smooth ~24-tile
@@ -553,7 +818,84 @@ pub fn tick(g: &mut Game) {
     let day = g.events.day_number;
     let t = g.tick_count;
     precip_cue(g, day, t);
+    storm_cue(g, day, t);
+    strike_tick(g, day, t);
     mist_cue(g, day, t);
+}
+
+/// The storm-escalation cue edge: fires when the storm envelope crosses
+/// [`STORM_THRESHOLD`] at the player — stateless like [`precip_cue`], and always
+/// *after* the plain rain/snow cue (the thresholds are ordered). The blizzard
+/// set-in earns the centered warning band (it changes what you should do next:
+/// get to fire); the thunderstorm set-in stays on the lingering ambient tier —
+/// the sky flashes are their own announcement.
+fn storm_cue(g: &mut Game, day: i32, t: i32) {
+    let seed = g.world_seed;
+    let (was, now) = (
+        storm_intensity(seed, day, t - 1) >= STORM_THRESHOLD,
+        storm_intensity(seed, day, t) >= STORM_THRESHOLD,
+    );
+    if was == now {
+        return;
+    }
+    // Kind from what's falling at the player; a desert-blocked slice has no storm
+    // to announce (precip None on both edges).
+    let snow = match precip_at_clock(g, day, if now { t } else { t - 1 }) {
+        Precip::Snow(_) => true,
+        Precip::Rain(_) => false,
+        Precip::None => return,
+    };
+    match (now, snow) {
+        (true, true) => g.push_warning("The wind turns to knives."),
+        (true, false) => g.push_cue("Thunder rolls in over the rain..."),
+        (false, true) => g.notify_all("The wind eases; the snow falls soft again."),
+        (false, false) => g.notify_all("The thunder moves on."),
+    }
+}
+
+/// Tile radius around the player inside which scheduled bolts actually land
+/// (chunks there are streamed in; the far world's strikes stay virtual).
+const STRIKE_ACT: i32 = 40;
+
+/// Execute this instant's lightning bolts near the player: ignite the target when
+/// it's flammable and throw the smash/fire particles. Presentation-first like the
+/// rest of the weather — with the player underground nothing lands (they couldn't
+/// see or fight it), and the [`STRIKE_PLAYER_FLOOR`] suppression keeps bolts off
+/// the player's camp. No thunder audio: the engine ships no sound assets.
+fn strike_tick(g: &mut Game, day: i32, t: i32) {
+    let Some((px, py)) = player_surface_pos(g) else {
+        return;
+    };
+    let seed = g.world_seed;
+    if storm_intensity(seed, day, t) < STORM_THRESHOLD {
+        return;
+    }
+    let Some(lvl) = g.try_player().and_then(|p| p.c.level) else {
+        return;
+    };
+    for s in strikes_in_rect(
+        seed,
+        day,
+        t,
+        px - STRIKE_ACT,
+        py - STRIKE_ACT,
+        px + STRIKE_ACT,
+        py + STRIKE_ACT,
+    ) {
+        if s.tick != t.rem_euclid(DAY_LENGTH) {
+            continue;
+        }
+        let (dx, dy) = (s.x - px, s.y - py);
+        if dx * dx + dy * dy < STRIKE_PLAYER_FLOOR * STRIKE_PLAYER_FLOOR {
+            continue; // spectacle floor: lightning never lands beside you
+        }
+        crate::level::tile::fire::ignite(g, lvl, s.x, s.y); // no-op on non-flammable
+        let (cx, cy) = (s.x * 16 + 8, s.y * 16 + 8);
+        let smash = crate::entity::particle::new_smash_particle(cx, cy);
+        g.level_mut(lvl).add(smash, lvl);
+        let flame = crate::entity::particle::new_fire_particle(cx - 4, cy - 4);
+        g.level_mut(lvl).add(flame, lvl);
+    }
 }
 
 /// The rain-sets-in / rain-clears cue edge (see [`tick`]).

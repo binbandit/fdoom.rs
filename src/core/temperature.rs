@@ -93,6 +93,14 @@ pub const MINE_SCORE: f64 = -0.8;
 /// Snow-covered ground underfoot chills half a band.
 const SNOW_GROUND_CHILL: f64 = 0.5;
 
+/// A blizzard (`weather::blizzard_at`) bites one extra band beyond the snowfall
+/// chill. Deliberately a [`Modifiers`] term, not an ambient one: it sits *before*
+/// the fur-coat shift and the campfire clamp in [`apply_modifiers`], so both
+/// mitigations answer it — and the campfire keeps its **full** warmth override in
+/// a whiteout. That's identity, not an oversight: campfire = home, and the
+/// blizzard is exactly the moment the sanctuary must hold.
+const BLIZZARD_CHILL: f64 = 1.0;
+
 /// Fur Coat: cold shifted two bands toward comfort. Straw Hat / shade: one heat band.
 const COAT_SHIFT: f64 = 2.0;
 const HAT_SHIFT: f64 = 1.0;
@@ -240,6 +248,8 @@ pub struct Modifiers {
     /// Within basking range (~3 tiles) of hot-spring water — the campfire clamp's
     /// wild cousin (content wave; see `tile/spring_water.rs`).
     pub near_spring: bool,
+    /// A blizzard rages here (severe-weather tier): one extra cold band.
+    pub blizzard: bool,
 }
 
 /// The pure mitigation pipeline: ambient score in, felt score out.
@@ -247,6 +257,9 @@ pub fn apply_modifiers(ambient: f64, m: &Modifiers) -> f64 {
     let mut s = ambient;
     if m.snow_underfoot {
         s -= SNOW_GROUND_CHILL;
+    }
+    if m.blizzard {
+        s -= BLIZZARD_CHILL;
     }
     // water breaks heat outright (and never punishes — cold water is not modeled)
     if s > 0.0 && m.swimming {
@@ -308,6 +321,7 @@ pub fn modifiers_for(g: &Game, e: &Entity) -> Modifiers {
         fur_coat: worn(e) == Some("Fur Coat"),
         near_fire: crate::entity::furniture::campfire_behavior::near_lit_campfire(g, e),
         near_spring: near_hot_spring(g, lvl, xt, yt),
+        blizzard: on_surface && weather::blizzard_at(g, xt, yt),
     }
 }
 
