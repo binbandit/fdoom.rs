@@ -59,6 +59,10 @@ everything after evolves the game on its own terms.
   survive loops, gather-chain crafting, cooking at fires, weather that matters,
   places with mood (cemeteries, ruins, hollow nights). When a design choice could
   go "blocky sandbox" or "grounded survival", pick grounded survival.
+- **But keep Minecraft's approachability**: survival pressure teaches, it doesn't
+  punish. Threats telegraph early and mitigate cheaply; no fast death spirals, no
+  fiddly meters; a kid can bumble through day one. Depth for veterans, warmth for
+  everyone.
 - Original flavor over clones: fossicking identity (pans, veins, cave-ins), invisible
   fish, dig-descent instead of stairs, stamina-draining ghosts. Inspired-by is fine;
   1:1 copies of other games' mechanics are not.

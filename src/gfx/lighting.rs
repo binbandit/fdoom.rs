@@ -514,6 +514,7 @@ enum GroundFam {
     Sand,
     Snow,
     Mud,
+    Heath,
 }
 
 /// Representative on-screen base color per ground family (what the tile art reads
@@ -525,6 +526,7 @@ fn fam_color(f: GroundFam) -> i32 {
         GroundFam::Sand => 0xE3D06A,  // warm dune yellow
         GroundFam::Snow => 0xEFF4F9,  // frost white, faintly blue
         GroundFam::Mud => 0x584A38,   // dark peat
+        GroundFam::Heath => 0x84876F, // olive-gray highland gravel
         GroundFam::Other => 0,
     }
 }
@@ -541,6 +543,7 @@ fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], 
         }
         TileKind::Snow | TileKind::SnowTree => (SNOW_F, GroundFam::Snow),
         TileKind::Mud => (MUD_F, GroundFam::Mud),
+        TileKind::Heath => (biome(), GroundFam::Heath),
         TileKind::Dirt | TileKind::Farm => (biome(), GroundFam::Dirt),
         // Species trees stand on the ground their renderer draws beneath them (pine
         // on snow, dead tree and palm on sand); classifying them all as grass used

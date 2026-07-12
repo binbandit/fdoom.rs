@@ -880,7 +880,7 @@ fn material_puff_palette(kind: &TileKind) -> i32 {
         | K::CloudCactus => color::get4(-1, -1, 333, 444),
         K::Sand | K::QuickSand | K::DryBush => color::get4(-1, -1, 442, 553),
         K::Snow => color::get4(-1, -1, 445, 555),
-        K::Dirt | K::Mud | K::Farm | K::Hole | K::DugPit | K::TidalFlat => {
+        K::Dirt | K::Mud | K::Farm | K::Hole | K::DugPit | K::TidalFlat | K::Heath => {
             color::get4(-1, -1, 321, 432)
         }
         K::Floor { .. } | K::Door { .. } | K::Fence | K::TimberProp => {

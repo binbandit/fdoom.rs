@@ -107,6 +107,7 @@ fn tile_color_table(tiles: &Tiles) -> [u32; 256] {
         ("snow", 0xF2F6FC),
         ("snow tree", 0xC2D6E4),
         ("Mud", 0x5D4A33),
+        ("Heath", 0x84876F),
         ("Pine Tree", 0x14532D),
         ("Dead Tree", 0x9A8264),
         ("Willow", 0x3E7D4C),
