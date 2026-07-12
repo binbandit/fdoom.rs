@@ -12,8 +12,9 @@ everything after evolves the game on its own terms.
 - `docs/ARCHITECTURE.md` — 15-minute codebase tour; `docs/TERRAIN.md`,
   `docs/ENTITIES.md`, `docs/ITEMS_AND_CRAFTING.md`, `docs/RENDERING_AND_UI.md`,
   `docs/CORE_AND_SAVES.md` — exhaustive per-system references.
-- `docs/ART_GUIDE.md` (once the sprite decomposition lands) + `CONTRIBUTING.md` —
-  house style. `docs/REQUESTS_AUDIT.md` / `docs/AUDIT_RESULTS.md` — request tracking.
+- `docs/ART_GUIDE.md` + `CONTRIBUTING.md` — house style. `docs/PLAYTEST.md`,
+  `docs/ODDITIES.md`, `docs/UI_REDESIGN.md` — the standing critique/punch-list docs.
+  `docs/REQUESTS_AUDIT.md` / `docs/AUDIT_RESULTS.md` — request tracking.
 - `docs/DEV_GUIDE.md` — daily commands, FDOOM_DEMO scripted runs, headless testing.
 
 ## Commands

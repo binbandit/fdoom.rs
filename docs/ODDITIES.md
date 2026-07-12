@@ -22,10 +22,13 @@ it. Village decay observations are framed as dressing notes, not bugs.
 
 ## Ranked list
 
+Status: O1-O3 FIXED in be7b198 (screen-blend glow, real ground under rock,
+edge-scaled carry + tint clamp). O4/O5/O13/O14/O15 in flight (water-family lane).
+
 Breaks-immersion:
-1.  O1  Emitter light pools split in half at ground seams
-2.  O2  Mountain-border rock/heath renders as smudges, flat square backings, translucent cliffs
-3.  O3  Biome tint bleaches/recolors ground so far it flips terrain identity
+1.  O1  [FIXED be7b198] Emitter light pools split in half at ground seams
+2.  O2  [FIXED be7b198] Mountain-border rock/heath renders as smudges, flat square backings, translucent cliffs
+3.  O3  [FIXED be7b198] Biome tint bleaches/recolors ground so far it flips terrain identity
 4.  O4  Swimming ring is an opaque black rectangle on tidal flats / deep water
 5.  O5  Ponds are hard rectangles with a warm mud rim on every ground (incl. snow)
 
