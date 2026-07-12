@@ -44,6 +44,18 @@ DayZ/7DtD north star + Minecraft approachability + world-coherence rules).
   cooking, Queasy; rebasing onto main tip — tile ids renumber past heath's 67).
 - (all in-flight lanes above have since LANDED)
 
+### In flight (product-owner expansion, 4 worktree lanes + 1 deferred)
+- Content wave 2: hot springs, abandoned mine shafts, bees/honey, badlands.
+- Rivers: winding pure-field waterways, pannable banks, trail bridges.
+- Hunting + field notes: deer (stalk via tall grass), venison/hide->leather,
+  NOTES tab (days/biomes/places/events soft goals, tolerant-append save marker).
+- Severe weather: blizzards (+cold band, fast settle, campfire sanctuary) and
+  thunderstorms (telegraphed lightning, self-limiting fires, 8-tile player floor).
+- DEFERRED until the above merge: structures_gen -> structures/ module split
+  (spec in scratchpad/cleanup_spec.md section 2a; part 1 landed b26031c).
+Merge order: by completion; I arbitrate shared files (weather/lighting/registry/
+recipe/survival_display); registry+recipe edits are appended blocks by convention.
+
 ### Queue (dispatch order)
 1. ODDITIES.md noticeable tier (14 items), then nitpicks (O1-O5 + waterlines DONE).
 2. UI L6: gentle thirst (water bottles exist; HUD slot reserved at y=182).
