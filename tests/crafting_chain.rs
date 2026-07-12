@@ -182,3 +182,56 @@ fn crude_axe_outchops_fists_and_grass_yields_fibers() {
         "tall grass dropped {fiber_drops} fibers, expected at least 2"
     );
 }
+
+/// The crude set must include the tool that opens the ground: digging is the
+/// descent mechanic, and the Crude Shovel recipe was missing entirely (product
+/// owner report). Craft it bare-handed and dig a pit with it.
+#[test]
+fn crude_shovel_is_craftable_and_digs() {
+    use fdoom::level::tile::dispatch;
+    let mut tw = fdoom::testutil::TestWorld::infinite()
+        .name("crude_shovel")
+        .build();
+    let recipe =
+        tw.g.recipes
+            .craft
+            .iter()
+            .find(|r| r.product_name().eq_ignore_ascii_case("crude shovel"))
+            .expect("Crude Shovel in the personal chain")
+            .clone();
+    tw.give("Stick", 1);
+    tw.give("Cord", 1);
+    tw.give("Sharp Stone", 1);
+    let mut inv = tw.g.player().player().inventory.clone();
+    assert!(recipe.craft(&tw.g, &mut inv), "craft the crude shovel");
+    tw.g.player_mut().player_mut().inventory = inv;
+
+    // dig: shovel a grass tile into a dug pit through the real interact path
+    let (ptx, pty) = tw.player_tile();
+    let lvl = tw.current_level;
+    tw.place("grass", 1, 0);
+    let mut shovel = fdoom::item::registry::get(&tw.g, "Crude Shovel");
+    let pid = tw.g.player_id;
+    // the real dig chain: grass shovels to turf (dirt), dirt opens the pit
+    for expect in ["DIRT", "DUG PIT"] {
+        let tile = tw.g.tile_at(lvl, ptx + 1, pty);
+        tw.g.player_mut().player_mut().stamina = 10;
+        tw.g.with_entity(pid, |player, g| {
+            dispatch::interact(
+                g,
+                &tile,
+                lvl,
+                ptx + 1,
+                pty,
+                player,
+                &mut shovel,
+                fdoom::entity::Direction::Right,
+            );
+        });
+        assert_eq!(
+            tw.tile_at(lvl, ptx + 1, pty).name.to_uppercase(),
+            expect,
+            "the crude shovel should work the ground"
+        );
+    }
+}

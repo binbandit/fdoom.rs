@@ -180,6 +180,9 @@ impl Recipes {
             r("Stick*2", "Wood"),
             r("Crude Axe", "Stick + Cord + Sharp Stone"),
             r("Crude Pickaxe", "Stick + Cord + Sharp Stone"),
+            // digging is the game's descent mechanic — the crude set was missing
+            // the one tool that opens the ground (found by the product owner)
+            r("Crude Shovel", "Stick + Cord + Sharp Stone"),
             r("Crude Spear", "Stick*2 + Cord + Sharp Stone"),
             r("Throwing Knife", "Sharp Stone + Stick + Cord"),
             r("Slingshot", "Stick*2 + Cord*2"),

@@ -102,7 +102,21 @@ fn give(g: &mut Game, args: &[&str]) {
         .iter()
         .find(|i| i.get_name().eq_ignore_ascii_case(&name))
     else {
-        g.notify_all(&format!("No such item: {name}"));
+        // suggest near-matches: "give shovel" should point at the shovel family,
+        // not dead-end (the product owner concluded shovels didn't exist)
+        let lower = name.to_lowercase();
+        let matches: Vec<String> = g
+            .items
+            .iter()
+            .filter(|i| i.get_name().to_lowercase().contains(&lower))
+            .take(3)
+            .map(|i| i.get_name().to_string())
+            .collect();
+        if matches.is_empty() {
+            g.notify_all(&format!("No such item: {name}"));
+        } else {
+            g.notify_all(&format!("No exact '{name}' - try: {}", matches.join(", ")));
+        }
         return;
     };
     let mut item = proto.clone();
