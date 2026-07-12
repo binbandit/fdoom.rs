@@ -132,6 +132,38 @@ fn skerry_at(seed: i64, x: i32, y: i32) -> bool {
     unit(hash(seed, SKERRY_SALT, x.div_euclid(2), y.div_euclid(2))) < 0.0025
 }
 
+/// Salts of the pond/pool shoreline raggedness (per-2x2-cell bites + per-tile teeth).
+const POND_BITE_SALT: u64 = 0x50_4ED1; // "pond"
+const POND_TOOTH_SALT: u64 = 0x50_4ED2;
+
+/// Ragged hash-contour for pond/pool outlines: a zero-mean jitter added to the blob
+/// field before thresholding, so shorelines grow tile-scale teeth and 2x2-cell bites
+/// instead of tracing the smooth noise contour as a hard tile-grid rectangle
+/// (ODDITIES O5). Zero-mean and small, so pond count/placement/size stay put; pure
+/// `f(seed, x, y)`, so chunk borders stay exact.
+fn shore_ragged(seed: i64, x: i32, y: i32) -> f64 {
+    // biased toward the chunky 2x2 bites: a heavy per-tile term makes salt-and-pepper
+    // checkering along the contour instead of organic notches
+    let bite = unit(hash(seed, POND_BITE_SALT, x.div_euclid(2), y.div_euclid(2))) - 0.5;
+    let tooth = unit(hash(seed, POND_TOOTH_SALT, x, y)) - 0.5;
+    bite * 0.024 + tooth * 0.007
+}
+
+/// The bank material ringing an inland pond: mud in grass country, but where the
+/// blended biome edge has carried a pond into cold or hot-dry ground, the rim follows
+/// — snowy margins toward tundra, sandy banks toward desert — so no warm mud ring
+/// ever circles a snowfield pond (ODDITIES O5).
+fn pond_rim(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
+    let climate = climate_at(seed, x, y);
+    if climate < 0.33 {
+        return ids.snow;
+    }
+    if climate > 0.67 && fractal(seed, 2, x, y, 448, 2) < 0.42 {
+        return ids.sand;
+    }
+    ids.mud
+}
+
 /* ------------------------------------ tile rules ------------------------------------ */
 
 struct Ids {
@@ -407,7 +439,9 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             // blobby pools (mid-frequency, so no lonely single water tiles), with a
             // boggy mud rim you wade through to reach the water, willows leaning
             // over it, and reed banks on the wet fringe
-            let pool = fractal(seed, 7, x, y, 14, 2);
+            // same ragged-contour treatment as the plains ponds; the mud rim is
+            // right for a bog in any climate
+            let pool = fractal(seed, 7, x, y, 14, 2) + shore_ragged(seed, x, y);
             if pool > 0.66 {
                 return ids.water;
             }
@@ -480,13 +514,13 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             }
         }
         Biome::Plains => {
-            // inland ponds ringed with mud
-            let pond = fractal(seed, 12, x, y, 40, 2);
+            // inland ponds with ragged shorelines and climate-aware bank rims
+            let pond = fractal(seed, 12, x, y, 40, 2) + shore_ragged(seed, x, y);
             if pond > 0.83 {
                 return ids.water;
             }
             if pond > 0.79 {
-                return ids.mud;
+                return pond_rim(seed, x, y, ids);
             }
             // sweeping tall-grass meadows: dense thicket cores (impassable, fully
             // grown) fringed by younger growth

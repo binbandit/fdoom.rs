@@ -11,9 +11,12 @@ use crate::item::{Item, ToolType};
 use crate::level::drop_item;
 
 pub fn make(name: &str) -> TileDef {
-    let mut def = TileDef::new(name, TileKind::Mud);
-    def.connects_to_water = true;
-    def
+    // Deliberately NOT `connects_to_water`: mud is a bank, not part of the pool.
+    // With the flag set, water drew full interior cells straight up against mud —
+    // the razor-edged marsh pools of ODDITIES O11. Without it, water gives the
+    // boundary its waterline connector art, tinted for mud (see
+    // `water::shore_palette`), the same wet-lap treatment sand shores get.
+    TileDef::new(name, TileKind::Mud)
 }
 
 pub fn render(_g: &mut Game, screen: &mut Screen, _lvl: usize, x: i32, y: i32) {
