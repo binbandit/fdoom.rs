@@ -1,4 +1,15 @@
 //! Port of the `fdoom.screen` package: displays (menus/screens) and their widgets.
+//!
+//! # Module index
+//!
+//! - Shell and routing: `display`, `menu`, `rel_pos`, `key_input_display`.
+//! - Entry flow: `entry`, `splash_menu`, `world_select`, `world_gen_display`,
+//!   `loading_display`, `level_transition_display`.
+//! - In-game views: `survival_display`, `container_display`, `map_menu`,
+//!   `pause_display`, `player_death_display`, `info_display`.
+//! - Reusable widgets and data: `settings_widgets`, `item_list_menu`, `book_data`,
+//!   `book_display`.
+//! - Development-only UI: `dev_console`.
 
 pub mod book_data;
 pub mod book_display;

@@ -8,6 +8,7 @@
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Entity;
+use crate::gfx::screen::fill_rect;
 use crate::gfx::{Rectangle, Screen, color, font};
 use crate::item::Item;
 
@@ -16,7 +17,7 @@ use super::menu::{Menu, MenuBuilder};
 use super::rel_pos::RelPos;
 use super::survival_display::{
     BODY_BOTTOM, DETAIL_RIGHT, DIVIDER_RGB, GOLD_RGB, LEGEND_Y, LIST_X, PANEL_H, PANEL_W, PANEL_X,
-    PANEL_Y, ROW_H, SCROLLBAR_RGB, TAB_Y, bare_name, fill_rect,
+    PANEL_Y, ROW_H, SCROLLBAR_RGB, TAB_Y, bare_name,
 };
 
 /* ------------------------- geometry (mock_chest, exact) ------------------------- */

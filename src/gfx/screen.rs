@@ -18,6 +18,12 @@ pub const H: i32 = 192;
 
 pub const CENTER: Point = Point { x: W / 2, y: H / 2 };
 
+/// Fill a screen-space rectangle with a literal RGB color, clipping it to the
+/// framebuffer bounds.
+pub fn fill_rect(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i32) {
+    screen.fill_rect(x, y, w, h, rgb);
+}
+
 const MAXDARK: i32 = 128;
 
 const BIT_MIRROR_X: i32 = 0x01;
@@ -64,6 +70,17 @@ impl Screen {
     /// Java `clear(color)`.
     pub fn clear(&mut self, color: i32) {
         self.pixels.fill(color);
+    }
+
+    /// Fill a screen-space rectangle with a literal RGB color, clipping it to the
+    /// framebuffer bounds.
+    pub fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, rgb: i32) {
+        for yy in y.max(0)..(y + h).min(self.h) {
+            let row = (yy * self.w) as usize;
+            for xx in x.max(0)..(x + w).min(self.w) {
+                self.pixels[row + xx as usize] = rgb;
+            }
+        }
     }
 
     /// Java `render(int[] pixelColors)` — bulk copy (used by the map view).

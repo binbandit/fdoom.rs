@@ -5,6 +5,16 @@
 //! *state* lives in the level's `tiles`/`data` byte arrays, as in Java. Behavior dispatch
 //! (`tick`/`interact`/`hurt`/...) is in `dispatch.rs`, matching on `TileKind` and calling
 //! into the per-tile modules.
+//!
+//! # Module index
+//!
+//! - Ground: `dirt`, `grass`, `sand`, `snow`, `mud`, `heath`, `floor`, `wall`.
+//! - Flora: `berry_bush`, `cactus`, `flower`, `mushroom`, `sapling`, `tree`,
+//!   `tree_species`, `snow_tree`, `tall_grass`, `wild_carrot`.
+//! - Water and sky: `water`, `tidal`, `reef`, `lava`, `cloud`, `snowfall`.
+//! - Mining and depth: `rock`, `hard_rock`, `ore`, `fossick`, `hole`, `depth`.
+//! - Structures: `door`, `fence`, `fire`, `grave_stone`, `stairs`, `torch`, `window`.
+//! - Farming: `crop`, `farm`, `pumpkin`, `wheat`.
 
 pub mod berry_bush;
 pub mod cactus;
@@ -65,6 +75,43 @@ use crate::entity::Entity;
 use crate::entity::mob::player_behavior::pay_stamina;
 use crate::gfx::Sprite;
 use crate::item::{Item, ItemKind, ToolType};
+
+/// The eight tiles surrounding one tile, sampled in cardinal then diagonal order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Neighbors {
+    pub u: bool,
+    pub d: bool,
+    pub l: bool,
+    pub r: bool,
+    pub ul: bool,
+    pub ur: bool,
+    pub dl: bool,
+    pub dr: bool,
+}
+
+impl Neighbors {
+    /// Sample neighbors using [`TileDef::same_tile`] semantics.
+    pub fn same_tile(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32) -> Self {
+        Self::matching(g, lvl, x, y, |tile| tile.same_tile(def))
+    }
+
+    /// Sample neighbors using the caller's exact matching semantics.
+    pub fn matching<F>(g: &Game, lvl: usize, x: i32, y: i32, mut pred: F) -> Self
+    where
+        F: FnMut(&TileDef) -> bool,
+    {
+        Self {
+            u: pred(&g.tile_at(lvl, x, y - 1)),
+            d: pred(&g.tile_at(lvl, x, y + 1)),
+            l: pred(&g.tile_at(lvl, x - 1, y)),
+            r: pred(&g.tile_at(lvl, x + 1, y)),
+            ul: pred(&g.tile_at(lvl, x - 1, y - 1)),
+            ur: pred(&g.tile_at(lvl, x + 1, y - 1)),
+            dl: pred(&g.tile_at(lvl, x - 1, y + 1)),
+            dr: pred(&g.tile_at(lvl, x + 1, y + 1)),
+        }
+    }
+}
 
 /// The common gate for tool-driven tile interactions (dig, chop, mine).
 ///

@@ -89,17 +89,6 @@ impl HudMem {
     }
 }
 
-/// Fill a screen-space rect with a literal RGB color (bounds-clipped). The HUD's
-/// durability bar needs a flat fill, which no sprite-cell primitive provides.
-fn fill_rect_screen(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i32) {
-    for yy in y.max(0)..(y + h).min(screen.h) {
-        let row = (yy * screen.w) as usize;
-        for xx in x.max(0)..(x + w).min(screen.w) {
-            screen.pixels[row + xx as usize] = rgb;
-        }
-    }
-}
-
 /* ---------------------------- corner-HUD primitives ----------------------------
 UI_REDESIGN §2: frameless, corner-anchored, fixed slots. All geometry below is
 measured against target/verify/ui_mock/mock_hud_{calm,alert}.png. */
@@ -122,7 +111,7 @@ fn vitals_row(
         screen.render(4 + i * 8, y, sprite_cell + 12 * 32, cols(i), 0);
     }
     if low && pulse_on {
-        fill_rect_screen(screen, 4, y + 8, n * 8, 1, 0xF0F0F0);
+        screen.fill_rect(4, y + 8, n * 8, 1, 0xF0F0F0);
     }
 }
 
@@ -162,8 +151,8 @@ fn draw_text_rgb(screen: &mut Screen, msg: &str, x: i32, y: i32, rgb: i32) {
 /// A 7x7 badge dot (black rim, 5x5 fill) — the temperature indicator's shape, shared
 /// by the potion-effect pips so the badge row reads as one instrument cluster.
 fn badge_dot(screen: &mut Screen, x: i32, y: i32, rgb: i32) {
-    fill_rect_screen(screen, x, y, 7, 7, 0x000000);
-    fill_rect_screen(screen, x + 1, y + 1, 5, 5, rgb);
+    screen.fill_rect(x, y, 7, 7, 0x000000);
+    screen.fill_rect(x + 1, y + 1, 5, 5, rgb);
 }
 
 /// Blit a 1x1-cell sprite at 2x into the held plate (Screen has no scaled path; this
@@ -192,7 +181,7 @@ fn render_sprite_2x(
                 crate::gfx::sprite_sheet::SheetPixel::Rgb(rgb) => rgb,
                 crate::gfx::sprite_sheet::SheetPixel::Transparent => continue,
             };
-            fill_rect_screen(screen, x + sx * 2, y + sy * 2, 2, 2, rgb);
+            screen.fill_rect(x + sx * 2, y + sy * 2, 2, 2, rgb);
         }
     }
 }
@@ -211,7 +200,7 @@ fn render_fist(screen: &mut Screen, x: i32, y: i32) {
                 b'f' => 0x5A5A5A,
                 _ => continue,
             };
-            fill_rect_screen(screen, x + c as i32 * 2, y + r as i32 * 2, 2, 2, rgb);
+            screen.fill_rect(x + c as i32 * 2, y + r as i32 * 2, 2, 2, rgb);
         }
     }
 }
@@ -715,10 +704,10 @@ impl Renderer {
         let active = g.player().player().active_item.clone();
         {
             let screen = &mut self.screen;
-            fill_rect_screen(screen, plate_x, plate_y, 18, 1, PLATE_BORDER_RGB);
-            fill_rect_screen(screen, plate_x, plate_y + 17, 18, 1, PLATE_BORDER_RGB);
-            fill_rect_screen(screen, plate_x, plate_y + 1, 1, 16, PLATE_BORDER_RGB);
-            fill_rect_screen(screen, plate_x + 17, plate_y + 1, 1, 16, PLATE_BORDER_RGB);
+            screen.fill_rect(plate_x, plate_y, 18, 1, PLATE_BORDER_RGB);
+            screen.fill_rect(plate_x, plate_y + 17, 18, 1, PLATE_BORDER_RGB);
+            screen.fill_rect(plate_x, plate_y + 1, 1, 16, PLATE_BORDER_RGB);
+            screen.fill_rect(plate_x + 17, plate_y + 1, 1, 16, PLATE_BORDER_RGB);
             screen.darken_rect_screen(plate_x + 1, plate_y + 1, 16, 16, 150);
             match &active {
                 Some(item) => {
@@ -756,11 +745,11 @@ impl Renderer {
                 };
                 let fill = color::upgrade(color::get_byte(readable));
                 let empty = color::upgrade(color::get_byte(111));
-                fill_rect_screen(screen, plate_x, plate_y + 18, 18, 3, 0x000000);
-                fill_rect_screen(screen, plate_x + 1, plate_y + 19, 16, 1, empty);
+                screen.fill_rect(plate_x, plate_y + 18, 18, 3, 0x000000);
+                screen.fill_rect(plate_x + 1, plate_y + 19, 16, 1, empty);
                 let min_fw = if *dur > 0 { 1 } else { 0 };
                 let fw = ((16.0 * frac).round() as i32).clamp(min_fw, 16);
-                fill_rect_screen(screen, plate_x + 1, plate_y + 19, fw, 1, fill);
+                screen.fill_rect(plate_x + 1, plate_y + 19, fw, 1, fill);
             }
 
             // count badge above the plate: stack sizes and ammo only. No bow, no

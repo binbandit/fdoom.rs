@@ -1,7 +1,7 @@
 //! Fence: a solid post that visually joins up with its neighbors.
 
 use super::dispatch;
-use super::{TileDef, TileKind};
+use super::{Neighbors, TileDef, TileKind};
 use crate::core::game::Game;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
@@ -15,15 +15,16 @@ pub fn make(name: &str) -> TileDef {
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     let transition_color = color::get4(310, 420, 530, -1);
 
-    let u = g.tile_at(lvl, x, y - 1).id == def.id;
-    let d = g.tile_at(lvl, x, y + 1).id == def.id;
-    let l = g.tile_at(lvl, x - 1, y).id == def.id;
-    let r = g.tile_at(lvl, x + 1, y).id == def.id;
-
-    let ul = g.tile_at(lvl, x - 1, y - 1).id == def.id;
-    let dl = g.tile_at(lvl, x - 1, y + 1).id == def.id;
-    let ur = g.tile_at(lvl, x + 1, y - 1).id == def.id;
-    let dr = g.tile_at(lvl, x + 1, y + 1).id == def.id;
+    let Neighbors {
+        u,
+        d,
+        l,
+        r,
+        ul,
+        ur,
+        dl,
+        dr,
+    } = Neighbors::matching(g, lvl, x, y, |tile| tile.id == def.id);
 
     // ground first, then one 8x8 fence sprite per connected quadrant
     let dirt = g.tiles.get("dirt");

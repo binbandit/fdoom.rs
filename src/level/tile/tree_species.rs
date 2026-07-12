@@ -10,11 +10,12 @@
 //! which this module also lends to `tree.rs` so every tree family merges into
 //! little forests the same way.
 
-use super::{TileDef, TileKind, TreeSpecies, dispatch, tool_use};
+use super::{Neighbors, TileDef, TileKind, TreeSpecies, dispatch, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::particle::{new_smash_particle, new_text_particle};
 use crate::entity::{Direction, Entity};
+use crate::gfx::sprite_sheet::cell;
 use crate::gfx::{Screen, color};
 use crate::item::{Item, ToolType};
 use crate::level::infinite_gen::hash;
@@ -58,16 +59,17 @@ pub(super) fn render_canopy(
     art: &CanopyArt,
     col: i32,
 ) {
-    let u = g.tile_at(lvl, x, y - 1).same_tile(def);
-    let l = g.tile_at(lvl, x - 1, y).same_tile(def);
-    let r = g.tile_at(lvl, x + 1, y).same_tile(def);
-    let d = g.tile_at(lvl, x, y + 1).same_tile(def);
-    let corners = [
-        g.tile_at(lvl, x - 1, y - 1).same_tile(def),
-        g.tile_at(lvl, x + 1, y - 1).same_tile(def),
-        g.tile_at(lvl, x - 1, y + 1).same_tile(def),
-        g.tile_at(lvl, x + 1, y + 1).same_tile(def),
-    ];
+    let Neighbors {
+        u,
+        d,
+        l,
+        r,
+        ul,
+        ur,
+        dl,
+        dr,
+    } = Neighbors::same_tile(g, def, lvl, x, y);
+    let corners = [ul, ur, dl, dr];
     for qy in 0..2i32 {
         for qx in 0..2i32 {
             let v = if qy == 0 { u } else { d };
@@ -211,16 +213,15 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
 
     if let Some(edges) = canopy_edges(species) {
         let (bx, by) = inf.art;
-        let pos = |cx: i32, cy: i32| cx + cy * 32;
         let art = CanopyArt {
             lone: [
-                pos(bx, by),
-                pos(bx + 1, by),
-                pos(bx, by + 1),
-                pos(bx + 1, by + 1),
+                cell(bx, by),
+                cell(bx + 1, by),
+                cell(bx, by + 1),
+                cell(bx + 1, by + 1),
             ],
-            fill: pos(bx, by + 2),
-            knot: pos(bx + 1, by + 2),
+            fill: cell(bx, by + 2),
+            knot: cell(bx + 1, by + 2),
             edges,
         };
         render_canopy(g, screen, def, lvl, x, y, &art, inf.col);
@@ -230,40 +231,41 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         return;
     }
 
-    let u = g.tile_at(lvl, x, y - 1).same_tile(def);
-    let l = g.tile_at(lvl, x - 1, y).same_tile(def);
-    let r = g.tile_at(lvl, x + 1, y).same_tile(def);
-    let d = g.tile_at(lvl, x, y + 1).same_tile(def);
-    let ul = g.tile_at(lvl, x - 1, y - 1).same_tile(def);
-    let ur = g.tile_at(lvl, x + 1, y - 1).same_tile(def);
-    let dl = g.tile_at(lvl, x - 1, y + 1).same_tile(def);
-    let dr = g.tile_at(lvl, x + 1, y + 1).same_tile(def);
+    let Neighbors {
+        u,
+        d,
+        l,
+        r,
+        ul,
+        ur,
+        dl,
+        dr,
+    } = Neighbors::same_tile(g, def, lvl, x, y);
 
     // species art block: TL/TR/BL/BR standalone quarters, fill, knot-fill (see
     // module docs); fully-surrounded corners swap in the fill cells so canopies of
     // adjacent trees merge into one roof
     let (bx, by) = inf.art;
-    let pos = |cx: i32, cy: i32| cx + cy * 32;
 
     if u && ul && l {
-        screen.render(x * 16, y * 16, pos(bx, by + 2), inf.col, 0);
+        screen.render(x * 16, y * 16, cell(bx, by + 2), inf.col, 0);
     } else {
-        screen.render(x * 16, y * 16, pos(bx, by), inf.col, 0);
+        screen.render(x * 16, y * 16, cell(bx, by), inf.col, 0);
     }
     if u && ur && r {
-        screen.render(x * 16 + 8, y * 16, pos(bx + 1, by + 2), inf.col2, 0);
+        screen.render(x * 16 + 8, y * 16, cell(bx + 1, by + 2), inf.col2, 0);
     } else {
-        screen.render(x * 16 + 8, y * 16, pos(bx + 1, by), inf.col, 0);
+        screen.render(x * 16 + 8, y * 16, cell(bx + 1, by), inf.col, 0);
     }
     if d && dl && l {
-        screen.render(x * 16, y * 16 + 8, pos(bx + 1, by + 2), inf.col2, 0);
+        screen.render(x * 16, y * 16 + 8, cell(bx + 1, by + 2), inf.col2, 0);
     } else {
-        screen.render(x * 16, y * 16 + 8, pos(bx, by + 1), inf.col1, 0);
+        screen.render(x * 16, y * 16 + 8, cell(bx, by + 1), inf.col1, 0);
     }
     if d && dr && r {
-        screen.render(x * 16 + 8, y * 16 + 8, pos(bx, by + 2), inf.col, 0);
+        screen.render(x * 16 + 8, y * 16 + 8, cell(bx, by + 2), inf.col, 0);
     } else {
-        screen.render(x * 16 + 8, y * 16 + 8, pos(bx + 1, by + 1), inf.col2, 0);
+        screen.render(x * 16 + 8, y * 16 + 8, cell(bx + 1, by + 1), inf.col2, 0);
     }
     if inf.darken > 0 {
         screen.darken_rect(x * 16, y * 16, 16, 16, inf.darken);

@@ -17,6 +17,7 @@ use crate::core::temperature;
 use crate::core::updater::NORM_SPEED;
 use crate::entity::Entity;
 use crate::entity::mob::player::{MAX_ARMOR, PlayerData, SPRITES, WearSlot, wear_slot_for};
+use crate::gfx::screen::fill_rect;
 use crate::gfx::{Rectangle, Screen, color, font};
 use crate::item::{Inventory, Item, ItemKind, PotionType, Recipe, registry};
 use crate::level::{self, infinite_gen};
@@ -114,18 +115,6 @@ pub(crate) const SCROLLBAR_RGB: i32 = 0x9A9A9A;
 /// divider — recipe entries clip their text here (overflow rule; see font::draw_fit).
 pub(crate) fn list_clip_width(x: i32) -> i32 {
     (DIVIDER_X - 2 - x).max(8)
-}
-
-/// Fill a screen-space rect with a literal RGB color (bounds-clipped). Same shape as
-/// the renderer's private helper — the gauges here need flat fills, not sprite cells.
-pub(crate) fn fill_rect(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i32) {
-    use crate::gfx::screen::{H, W};
-    for yy in y.max(0)..(y + h).min(H) {
-        let row = (yy * W) as usize;
-        for xx in x.max(0)..(x + w).min(W) {
-            screen.pixels[row + xx as usize] = rgb;
-        }
-    }
 }
 
 /* ------------------------------------- tabs ------------------------------------- */
@@ -972,7 +961,7 @@ impl SurvivalDisplay {
             };
             font::draw(label, screen, x, TAB_Y, col);
             if active {
-                fill_rect(screen, x - 1, UNDERLINE_Y, w + 2, 1, GOLD_RGB);
+                screen.fill_rect(x - 1, UNDERLINE_Y, w + 2, 1, GOLD_RGB);
             }
         }
     }

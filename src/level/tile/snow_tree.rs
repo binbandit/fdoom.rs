@@ -1,11 +1,12 @@
 //! Port of `fdoom.level.tile.SnowTreeTile`.
 
 use super::dispatch;
-use super::{TileDef, TileKind, tool_use};
+use super::{Neighbors, TileDef, TileKind, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
+use crate::gfx::sprite_sheet::cell;
 use crate::gfx::{Screen, color};
 use crate::item::{Item, ToolType};
 
@@ -29,39 +30,40 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let bark_col1 = COL1;
     let bark_col2 = COL2;
 
-    let u = g.tile_at(lvl, x, y - 1).id == def.id;
-    let l = g.tile_at(lvl, x - 1, y).id == def.id;
-    let r = g.tile_at(lvl, x + 1, y).id == def.id;
-    let d = g.tile_at(lvl, x, y + 1).id == def.id;
-    let ul = g.tile_at(lvl, x - 1, y - 1).id == def.id;
-    let ur = g.tile_at(lvl, x + 1, y - 1).id == def.id;
-    let dl = g.tile_at(lvl, x - 1, y + 1).id == def.id;
-    let dr = g.tile_at(lvl, x + 1, y + 1).id == def.id;
+    let Neighbors {
+        u,
+        d,
+        l,
+        r,
+        ul,
+        ur,
+        dl,
+        dr,
+    } = Neighbors::matching(g, lvl, x, y, |tile| tile.id == def.id);
 
     // frost-dusted snow-pine art block (artgen `flora_cells`, base (13,26)) — same
     // six-cell corner-sampling as the broadleaf, so snowy woods merge into one roof
     let (bx, by) = (13, 26);
-    let pos = |cx: i32, cy: i32| cx + cy * 32;
 
     if u && ul && l {
-        screen.render(x * 16, y * 16, pos(bx, by + 2), COL, 0);
+        screen.render(x * 16, y * 16, cell(bx, by + 2), COL, 0);
     } else {
-        screen.render(x * 16, y * 16, pos(bx, by), COL, 0);
+        screen.render(x * 16, y * 16, cell(bx, by), COL, 0);
     }
     if u && ur && r {
-        screen.render(x * 16 + 8, y * 16, pos(bx + 1, by + 2), bark_col2, 0);
+        screen.render(x * 16 + 8, y * 16, cell(bx + 1, by + 2), bark_col2, 0);
     } else {
-        screen.render(x * 16 + 8, y * 16, pos(bx + 1, by), COL, 0);
+        screen.render(x * 16 + 8, y * 16, cell(bx + 1, by), COL, 0);
     }
     if d && dl && l {
-        screen.render(x * 16, y * 16 + 8, pos(bx + 1, by + 2), bark_col2, 0);
+        screen.render(x * 16, y * 16 + 8, cell(bx + 1, by + 2), bark_col2, 0);
     } else {
-        screen.render(x * 16, y * 16 + 8, pos(bx, by + 1), bark_col1, 0);
+        screen.render(x * 16, y * 16 + 8, cell(bx, by + 1), bark_col1, 0);
     }
     if d && dr && r {
-        screen.render(x * 16 + 8, y * 16 + 8, pos(bx, by + 2), COL, 0);
+        screen.render(x * 16 + 8, y * 16 + 8, cell(bx, by + 2), COL, 0);
     } else {
-        screen.render(x * 16 + 8, y * 16 + 8, pos(bx + 1, by + 1), bark_col2, 0);
+        screen.render(x * 16 + 8, y * 16 + 8, cell(bx + 1, by + 1), bark_col2, 0);
     }
 }
 

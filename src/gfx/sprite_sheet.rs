@@ -34,6 +34,11 @@ pub const TILE_SIZE: i32 = 16;
 /// stays valid; the atlas only ever grows in *height*.
 pub const SHEET_CELLS: i32 = 32;
 
+/// Convert atlas cell coordinates to the linear cell index used by `Screen::render`.
+pub const fn cell(cx: i32, cy: i32) -> i32 {
+    cx + cy * SHEET_CELLS
+}
+
 /// One decoded sheet pixel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SheetPixel {
@@ -58,7 +63,7 @@ impl CellRect {
     /// Sheet position of the top-left cell (`pos = x + y * 32`) — the index render
     /// calls take.
     pub fn pos(&self) -> i32 {
-        self.x + self.y * SHEET_CELLS
+        cell(self.x, self.y)
     }
 }
 
