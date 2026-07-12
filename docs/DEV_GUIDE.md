@@ -129,70 +129,166 @@ The dump also prints per-kind structure counts for the rendered rect to stdout.
 
 ## Pixel-art studio: `pixel_studio`
 
-`src/bin/pixel_studio.rs` is the game's art tool: a standalone winit/softbuffer window
-for making and editing sprite art in place. The PNG files it edits **are the source of
-truth** — with artgen deprecated, `assets/sprites/**` is the art, and the studio writes
-those files directly.
+`src/bin/pixel_studio.rs` is the game's art tool: a standalone winit/softbuffer
+window for making and editing sprite art in place. The PNG files it edits **are the
+source of truth** — `assets/sprites/**` is the art (see docs/ART_GUIDE.md), and the
+studio writes those files directly. This section is the full manual: modes, every
+key, the new-sprite flow, and the edit-to-in-game loop.
 
 ```sh
-just studio                            # assets/sprites (dir) if present, else assets/sprites.png
-just studio target=assets/sprites.png  # browse a monolithic sheet by 8x8/16x16 cells
-cargo run --bin pixel_studio -- assets/sprites.png --cell 4 10 --size 16
-cargo run --bin pixel_studio -- --sheet target/some_atlas.png
+just studio                                  # assets/sprites — the normal way in
+just studio target=assets/golden_atlas.png   # inspect a monolithic sheet
+cargo run --bin pixel_studio -- assets/sprites --canvas       # start in whole-sheet view
+cargo run --bin pixel_studio -- assets/sprites --file items/pan.png
 ```
 
-Two modes, same editor:
+### The three views
 
-- **Directory mode** (primary): the left pane is a file browser over every `*.png`
-  under the target folder (`tiles/`, `mobs/<mob>/`, `items/`, ...; `*.bak.png` is
-  hidden). Opening a file sizes the editor to the image — 8x8 items and 16x16
-  tiles/mob frames are edited whole; larger strips are edited one 8/16px block at a
-  time (Left/Right arrows and `I`/`K` step, Tab toggles 8/16 stepping).
-- **Sheet mode** (fallback, for the legacy monolithic sheet or any stitched atlas):
-  the left pane is the whole sheet at 2x; click or arrow-select a cell. 256px-wide
-  sheets get the legacy region labels (TERRAIN / ITEMS / MOBS / ...) per row.
+- **Files** (default): the left pane is a browser over every `*.png` under the
+  target folder (`*.bak.png` hidden). 8x8 items and 16x16 tiles are edited whole;
+  bigger strips are edited one 8/16px window at a time (arrows and `I`/`K` step,
+  Tab toggles 8/16). Press `/` and type to jump to a file by name.
+- **Whole sheet** (`W`): every file stitched into one editable canvas laid out
+  exactly like the real atlas (manifest pins on the 32x32 base grid, new art on the
+  auto-allocated rows below). Paint anywhere — every edit routes to the file that
+  owns those pixels, dirty files get a red outline in the left pane, and `S` saves
+  **only the dirty files** (each backed up once per session). Eyedrop, copy/paste
+  and shape tools work across file boundaries; `G` snaps the window to the file
+  under the cursor (odd cell origins included); Shift+arrows wrap-nudges just the
+  file under the window. `W` again returns to the file browser.
+- **Sheet** (fallback, for `--sheet <png>` targets like the golden atlas): same as
+  whole-sheet view but for a monolithic PNG, with a built-in sprite map naming the
+  classic regions, and `G` snapping via that map.
 
-The right pane is the editor canvas (~24x zoom, pixel grid, 8px cell boundaries
-marked), the two palette banks, and a live preview strip: the block at 1x/2x/4x plus a
-3x3 tiling at 2x for judging seamless tile edges.
+The right side is always the editor canvas (zoomable, pixel grid with 8px cell
+lines), the palette banks, and the preview strip.
+
+### Every key
 
 | Input | Action |
 |---|---|
-| left-click / drag on canvas | paint with the current color |
-| right-click on canvas | eyedrop the pixel under the cursor |
+| left-click / drag | paint with the current color |
+| right-click | eyedrop the pixel under the cursor |
 | `F` | flood-fill at the cursor |
-| `H` / `V` | flip the block horizontally / vertically |
+| `L` | line tool (drag start to end; toggle back to pencil) |
+| `R` / Shift+`R` | rectangle / filled rectangle tool |
+| `M` | mirror-draw across the window's vertical axis |
+| `[` / `]` | shade-shift the hovered pixel (grays walk the 4-shade ladder, colors step ±16/channel) |
+| `H` / `V` | flip the window horizontally / vertically |
 | `E` (or the T swatch) | eraser — paint transparent |
-| `U` / Ctrl+Z | undo, 64 levels |
-| `C` | toggle the custom swatch; arrows then step RGB (Left/Right channel, Up/Down value, Shift = fine) |
-| Up/Down | browse files (dir mode) / move cell (sheet mode); Shift+move discards unsaved edits when switching files |
-| Tab | 8px / 16px block stepping |
-| `S` | save in place (title bar shows `*` while dirty) |
-| Esc | quit (asks twice if dirty) |
+| Ctrl+`C` / Ctrl+`V` | copy the window / arm paste (click to place, works across files in whole-sheet view) |
+| Shift+arrows | wrap-nudge the image (whole-sheet view: just the file under the window) |
+| `U` / Ctrl+`Z` | undo (64 levels) |
+| `Y` / Ctrl+`Y` / Ctrl+Shift+`Z` | redo |
+| arrows | browse files (file view) / move the window by one cell (sheet views) |
+| `I` / `K` | step the window vertically inside tall strips |
+| Tab | toggle 8/16px window |
+| `G` | snap the window to the sprite/file under the sheet-pane cursor |
+| `W` | toggle file browser ↔ whole-sheet canvas |
+| `N` | create a new sprite (modal: name, size preset, create + open) |
+| `/` | find a file by typed name (Up/Down next/prev match, Enter done) |
+| wheel / middle-drag | zoom at the cursor / pan |
+| `P` / Shift+`P` | cycle the preview palette (player, zombie tiers, tool tiers, terrain tiles) |
+| `D` / Shift+`D` | cycle the in-context backdrop (grass / sand / snow / water / night) |
+| `A` | animate sibling frames at the game's walk cadence |
+| `B` / `O` | capture an onion-skin reference / toggle it |
+| `C` | toggle the custom RGB swatch (arrows step channels, Shift = fine) |
+| `S` / Ctrl+`S` | save (first save of a session writes `<name>.bak.png` first) |
+| `X` | revert from disk |
+| Esc | close modal/finder/paste, else quit (asks twice if dirty) |
+| `?` | key list overlay |
 
-The first save of a session copies the file to `<name>.bak.png` alongside before
-overwriting, so one session can never silently destroy art.
+### The preview strip
 
-**Palette rules** (see `src/gfx/sprite_sheet.rs`): every opaque gray pixel
-(`r == g == b`) is a *palette pixel* — the renderer quantizes it (`gray / 64`) to a
-shade 0-3 and recolors it through the draw call's packed palette. The SHADES bank
-offers exactly the four legal grays `0 / 85 / 170 / 255`; do not invent other grays.
-Any saturated color is drawn literally, and alpha < 128 is transparent. The studio
-shows a `! GRAY + COLOR MIXED IN CELL` warning when a single 8x8 cell contains both
-palette grays and saturated colors — that is almost always a mistake, because the gray
-half of the cell will recolor at draw time (mob tints, shirts, tool tiers) while the
-true-color half stays fixed. Keep a cell entirely in one mode.
+Under the palette banks: the window at raw 1x/2x/4x, then **in-game previews** —
+the sprite composited over the real terrain textures (sampled from the loaded
+sheet and recolored through the exact tile palettes from the game code) at 1x, 2x
+and 4x. `D` cycles grass / sand / snow / water / night-graded grass, so
+terrain-taste judgments ("calm base, sparse detail") happen here, not after a game
+boot. `P` runs palette-mode art through real game palettes the same way. 16px
+windows also get a 3x3 tiling preview for judging seamless edges.
 
-Headless (CI / agent) hook — edit pixels without a window, same backup+save path:
+### Making a new sprite, end to end
+
+1. `just studio`, press `N`. Type the path-name (folders included, no extension):
+   `items/moonfruit`, `tiles/bog_flower`, `mobs/mirelurk/walk`. Up/Down picks a
+   size preset (item 8x8, tile 16x16, mob walk strip 64x16, texture row 32x8...),
+   Shift+arrows dials a custom size in 8px steps. Enter creates the transparent
+   PNG and opens it.
+2. Draw it. True color for new art (never `r == g == b` — that becomes a palette
+   pixel); crib outline ink and palette from neighboring sprites (`W` shows
+   everything at once). Watch the warning slot: the studio flags pal/rgb mode
+   violations per file.
+3. `S` to save. Check the in-game preview slots (`D` for the right biome).
+4. **No manifest edit** — unpinned files auto-allocate; code finds the sprite by
+   name (`sheet.cell("items/moonfruit")`, or a registry entry — see
+   docs/ADDING_CONTENT.md for items).
+5. Add the file to `UNPINNED_RGB` (or `UNPINNED_PAL`) in `tests/sprite_atlas.rs` —
+   the studio's create message reminds you which.
+6. `just run` — dev builds stitch `assets/sprites/` fresh at every boot, so the
+   art is simply there. `cargo test --test sprite_atlas` for the integrity checks.
+
+### Your art workflow (the edit loop)
+
+Dev builds read the sprite folder live at boot (`assets::sprite_sheet()`, which
+prefers a checkout's `assets/sprites/` over the embedded copy and panics loudly if
+the folder is broken — your edit can never be silently ignored). So the loop is:
+
+1. keep the studio open, edit, `S`;
+2. relaunch the game (`just run`, or `just demo-title` / `just shots` for headless
+   screenshots) — no rebuild step, the PNGs are read as-is;
+3. for release builds only, `cargo build` re-embeds the tree automatically.
+
+There is no in-game reload key (yet): a relaunch is the refresh.
+
+### Palette rules recap
+
+Every opaque **gray** pixel (`r == g == b`) is a *palette pixel*: the renderer
+quantizes `gray / 64` to shade 0-3 and recolors it through the draw call's packed
+palette. The SHADES bank is exactly the four legal grays **0 / 85 / 170 / 255** —
+off-ladder grays land on the wrong shade silently, so never invent others. Any
+saturated color draws literally; alpha < 128 is transparent. Palette mode is only
+for art that recolors at draw time (mob tints, player shirt, tool tiers, font);
+all new art should be true color. The studio warns per file (against the manifest
+mode) or per 8x8 cell (mixed grays + colors — almost always a mistake).
+
+### Headless hooks (CI / scripts)
+
+Same backup+save path as the interactive editor, no window:
 
 ```sh
-cargo run --bin pixel_studio -- assets/sprites.png --set 3 5 FF00AA --set 10 5 t
+cargo run --bin pixel_studio -- <png> --set 3 5 FF00AA --set 10 5 t  # image coords
 cargo run --bin pixel_studio -- assets/sprites --file tiles/grass.png --set 0 0 336699
+cargo run --bin pixel_studio -- assets/sprites --canvas --set 120 208 336699  # canvas coords
+cargo run --bin pixel_studio -- assets/sprites --new items/moonfruit 8x8
+cargo run --bin pixel_studio -- --sheet assets/golden_atlas.png --snap 16 11  # report G-snap
+cargo run --bin pixel_studio -- assets/sprites --shot out.png [--backdrop 2] [--pal 1] [--demo-new]
 ```
 
-`--set X Y COLOR` takes `RRGGBB`, `RRGGBBAA`, or `t` (transparent); coordinates are
-image-absolute. `tests/pixel_studio.rs` round-trips both modes through the game's own
+`--set X Y COLOR` takes `RRGGBB`, `RRGGBBAA`, or `t`; `--blit SX SY W H DX DY`
+copies rects; `--nudge DX DY` wrap-shifts (single files only). With `--canvas`,
+coordinates are stitched-canvas coordinates and only the touched files are
+rewritten. `tests/pixel_studio.rs` round-trips all of these through the game's own
 sheet loader.
+
+### Troubleshooting
+
+- **"My edit isn't in the game."** You're running a release/installed binary (uses
+  the embedded copy — rebuild), or you edited a `.bak.png`, or the game predates
+  the save (relaunch). Dev builds cannot silently miss the folder: they panic if
+  `assets/sprites/manifest.txt` is unreadable.
+- **"My gray pixel changed color in game."** It was a palette pixel — use a
+  true color with one channel nudged (`31,27,24`, not `28,28,28`), or press `P` in
+  the studio to see what the palette does to it.
+- **"Sprite looks right in the editor, wrong scale in game."** File dimensions
+  must be multiples of 8, and multi-cell pieces follow the orders in
+  docs/ART_GUIDE.md (frames left-to-right, quarters TL/TR/BL/BR).
+- **"The golden test failed."** You changed *pinned* art. Deliberate? Regenerate
+  the fixture (ART_GUIDE, "The golden atlas"). Accidental? `X` revert, or restore
+  from the `.bak.png` the studio wrote next to the file.
+- **"Canvas save says NOTHING TO SAVE."** No dirty files — paints on gap cells
+  (checkerboard between placements) belong to no file and are dropped on save;
+  the status bar warns when that happens.
 
 ## Headless testing
 

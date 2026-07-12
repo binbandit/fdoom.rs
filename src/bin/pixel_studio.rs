@@ -2,13 +2,20 @@
 //! `assets/sprites/**` are the art source of truth (docs/ART_GUIDE.md); this tool
 //! browses, previews, and edits them in place.
 //!
-//! Two sources, one editor:
+//! Three views, one editor:
 //!
 //! - **Directory mode** (primary): point it at a folder (default `assets/sprites`)
-//!   and the left pane is a file browser over every `*.png` under it. Opening a file
-//!   sizes the editor to the image; bigger strips are edited one window at a time.
-//!   When the folder has a `manifest.txt` (the atlas manifest), each file's declared
-//!   `pal`/`rgb` mode drives precise wrong-mode warnings.
+//!   and the left pane is a file browser over every `*.png` under it (`/` finds by
+//!   name, `N` creates a new sprite). Opening a file sizes the editor to the image;
+//!   bigger strips are edited one window at a time. When the folder has a
+//!   `manifest.txt` (the atlas manifest), each file's declared `pal`/`rgb` mode
+//!   drives precise wrong-mode warnings.
+//! - **Canvas mode** (`W` from directory mode, or `--canvas`): every file stitched
+//!   into one editable canvas via the game's own stitcher, i.e. the real atlas
+//!   layout. Paints route to their owning file (per-file dirty tracking, red
+//!   outlines), `S` saves only the dirty files, `G` snaps the window to the file
+//!   under the cursor, Shift+arrows nudges just that file, and copy/paste/eyedrop
+//!   work across file boundaries.
 //! - **Sheet mode** (fallback, for `assets/golden_atlas.png` or any stitched atlas):
 //!   the left pane shows the whole sheet at 2x. The editing window sits at any 8px
 //!   cell (no even-cell snapping); `G` jumps it to the sprite under the cursor with
@@ -16,18 +23,23 @@
 //!
 //! ```sh
 //! cargo run --bin pixel_studio                                  # assets/sprites
+//! cargo run --bin pixel_studio -- assets/sprites --canvas       # whole-sheet view
 //! cargo run --bin pixel_studio -- --sheet assets/golden_atlas.png --cell 15 26
 //! cargo run --bin pixel_studio -- <png> --set X Y RRGGBB        # headless batch edit
-//! cargo run --bin pixel_studio -- <dir> --file tiles/grass_texture.png --set X Y t
+//! cargo run --bin pixel_studio -- <dir> --canvas --set X Y c    # canvas-coord edits
+//! cargo run --bin pixel_studio -- <dir> --new items/moonfruit 8x8
+//! cargo run --bin pixel_studio -- <target> --snap CX CY         # report G-snap, exit
 //! cargo run --bin pixel_studio -- <target> --shot out.png       # headless UI frame
 //! ```
 //!
 //! Press `?` in-app for the full key list. Highlights: palette-applied preview (`P`
 //! cycles real game palettes so grayscale sprites show as the game draws them),
-//! in-context preview over grass/sand/night backdrops, animation preview (`A`),
-//! onion skin (`B` capture / `O` toggle), line/rect tools (`L`/`R`/Shift+`R`),
-//! mirror-draw (`M`), copy/paste (Ctrl+C/V), shade-shift (`[`/`]`), image nudge
-//! (Shift+arrows, wraps), wheel zoom at the cursor, middle-drag pan.
+//! in-context previews over the real terrain textures (`D` cycles grass/sand/snow/
+//! water/night, sampled from the loaded sheet through the tiles' actual palettes),
+//! animation preview (`A`), onion skin (`B` capture / `O` toggle), line/rect tools
+//! (`L`/`R`/Shift+`R`), mirror-draw (`M`), copy/paste (Ctrl+C/V), shade-shift
+//! (`[`/`]`), image nudge (Shift+arrows, wraps), undo/redo (`U`/`Y`), wheel zoom at
+//! the cursor, middle-drag pan.
 //!
 //! Pixel semantics mirror `src/gfx/sprite_sheet.rs`: opaque grays (`r==g==b`) are
 //! palette pixels recolored at draw time (legal shades are exactly 0/85/170/255),
@@ -51,6 +63,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowId};
 
+use fdoom::gfx::sprite_sheet::{self, SheetPixel, SpriteSheet};
 use fdoom::gfx::{Screen, color, font};
 
 /* ------------------------------------ layout ------------------------------------ */
@@ -163,7 +176,70 @@ const PREVIEW_PALS: &[(&str, i32)] = &[
     ("TOOL IRON", color::get4(-1, 100, 321, 555)),
     ("TOOL GOLD", color::get4(-1, 100, 321, 550)),
     ("TOOL GEM", color::get4(-1, 100, 321, 55)),
+    // terrain texture palettes (grass.rs / sand.rs / water.rs `dots` sprites), for
+    // editing `*_texture` rows as the game will color them
+    ("GRASS TILE", color::get4(141, 141, 252, 30)),
+    ("SAND TILE", color::get4(552, 550, 440, 440)),
+    ("WATER TILE", color::get4(5, 105, 115, 115)),
 ];
+
+/// In-context preview backdrops: the real terrain texture rows sampled from the
+/// loaded game sheet, recolored through the exact `get4` words the tile code uses
+/// (`grass.rs` / `sand.rs` / `snow.rs` / `water.rs`). `D` cycles, index 4 re-grades
+/// grass through `night`.
+struct Backdrop {
+    name: &'static str,
+    cell_x: i32,
+    cell_y: i32,
+    pal: i32,
+    night: bool,
+}
+
+fn backdrops() -> [Backdrop; 5] {
+    let snow = color::get4(
+        color::hex("#ffffff"),
+        color::hex("#ffffff"),
+        color::hex("#dde6f0"),
+        color::hex("#b9c8d8"),
+    );
+    [
+        Backdrop {
+            name: "GRASS",
+            cell_x: 22,
+            cell_y: 0,
+            pal: color::get4(141, 141, 252, 30),
+            night: false,
+        },
+        Backdrop {
+            name: "SAND",
+            cell_x: 26,
+            cell_y: 0,
+            pal: color::get4(552, 550, 440, 440),
+            night: false,
+        },
+        Backdrop {
+            name: "SNOW",
+            cell_x: 13,
+            cell_y: 3,
+            pal: snow,
+            night: false,
+        },
+        Backdrop {
+            name: "WATER",
+            cell_x: 0,
+            cell_y: 0,
+            pal: color::get4(5, 105, 115, 115),
+            night: false,
+        },
+        Backdrop {
+            name: "NIGHT GRASS",
+            cell_x: 22,
+            cell_y: 0,
+            pal: color::get4(141, 141, 252, 30),
+            night: true,
+        },
+    ]
+}
 
 /// Region map of the classic 256x256 atlas layout (row = 8px cell row), so the
 /// sheet-mode browser can label unmapped cells. Dir-mode files are labeled by their
@@ -395,6 +471,108 @@ fn rect_points(x0: i32, y0: i32, x1: i32, y1: i32, fill: bool) -> Vec<(i32, i32)
     pts
 }
 
+/* --------------------------------- canvas mode --------------------------------- */
+
+/// One source file's rectangle on the stitched canvas. Canvas mode edits the whole
+/// tree as a single image; every paint routes back to its owning file via these.
+struct Placement {
+    rel: String, // manifest-relative path, e.g. "tiles/grass.png"
+    path: PathBuf,
+    x: i32, // px on the canvas
+    y: i32,
+    w: i32,
+    h: i32,
+    dirty: bool,
+}
+
+/// Stitch every `*.png` under `root` into one canvas using the game's own stitcher
+/// (`sprite_sheet::stitch`), so canvas mode shows the **real atlas layout**: pinned
+/// files at their manifest cells, new art on the auto-allocated rows below. Returns
+/// the canvas image, per-file placements, and a per-8px-cell owner index (-1 = gap).
+fn build_canvas(root: &Path) -> Result<(Image, Vec<Placement>, Vec<i32>), String> {
+    let manifest = std::fs::read_to_string(root.join("manifest.txt")).unwrap_or_default();
+    let mut owned: Vec<(String, Vec<u8>)> = Vec::new();
+    for e in walk(root) {
+        if e.is_dir {
+            continue;
+        }
+        let bytes = std::fs::read(&e.path).map_err(|err| format!("{}: {err}", e.rel))?;
+        owned.push((e.rel, bytes));
+    }
+    if owned.is_empty() {
+        return Err(format!("no *.png files under {}", root.display()));
+    }
+    let parts: Vec<(&str, &[u8])> = owned
+        .iter()
+        .map(|(p, b)| (p.as_str(), b.as_slice()))
+        .collect();
+    let st = sprite_sheet::stitch(&manifest, &parts)?;
+    let px: Vec<Rgba> = st
+        .rgba
+        .chunks_exact(4)
+        .map(|c| [c[0], c[1], c[2], c[3]])
+        .collect();
+    let img = Image {
+        w: st.width,
+        h: st.height,
+        px,
+    };
+    let mut placements: Vec<Placement> = st
+        .cells
+        .iter()
+        .map(|(name, r)| {
+            let rel = format!("{name}.png");
+            Placement {
+                path: root.join(&rel),
+                rel,
+                x: r.x * CELL,
+                y: r.y * CELL,
+                w: r.w * CELL,
+                h: r.h * CELL,
+                dirty: false,
+            }
+        })
+        .collect();
+    placements.sort_by(|a, b| (a.y, a.x, &a.rel).cmp(&(b.y, b.x, &b.rel)));
+    let cols = img.w / CELL;
+    let mut owner = vec![-1i32; (cols * (img.h / CELL)) as usize];
+    for (i, p) in placements.iter().enumerate() {
+        for cy in p.y / CELL..(p.y + p.h) / CELL {
+            for cx in p.x / CELL..(p.x + p.w) / CELL {
+                owner[(cx + cy * cols) as usize] = i as i32;
+            }
+        }
+    }
+    Ok((img, placements, owner))
+}
+
+/// Cut a placement's rectangle back out of the canvas as a standalone image.
+fn canvas_extract(img: &Image, p: &Placement) -> Image {
+    let mut px = Vec::with_capacity((p.w * p.h) as usize);
+    for y in p.y..p.y + p.h {
+        for x in p.x..p.x + p.w {
+            px.push(img.px[(x + y * img.w) as usize]);
+        }
+    }
+    Image { w: p.w, h: p.h, px }
+}
+
+/// Wrap-shift only the `(x, y, w, h)` rect of `img` (canvas-mode nudge: one file).
+fn nudge_rect(img: &mut Image, x: i32, y: i32, w: i32, h: i32, dx: i32, dy: i32) {
+    let mut buf = vec![[0u8; 4]; (w * h) as usize];
+    for yy in 0..h {
+        for xx in 0..w {
+            buf[(xx + yy * w) as usize] = img.px[(x + xx + (y + yy) * img.w) as usize];
+        }
+    }
+    for yy in 0..h {
+        for xx in 0..w {
+            let (nx, ny) = ((xx + dx).rem_euclid(w), (yy + dy).rem_euclid(h));
+            img.px[(x + nx + (y + ny) * img.w) as usize] = buf[(xx + yy * w) as usize];
+        }
+    }
+}
+
 /* --------------------------------- file browser --------------------------------- */
 
 struct Entry {
@@ -551,12 +729,45 @@ enum Source {
         sel: usize,
         scroll: i32,
     },
+    /// The whole tree stitched into one editable canvas (`W` toggles from Tree).
+    /// Paints route to their owning file; `S` saves only the dirty files.
+    Canvas {
+        placements: Vec<Placement>,
+        /// Placement index per 8px canvas cell, -1 for gaps (row-major, `img.w/8` wide).
+        owner: Vec<i32>,
+    },
 }
+
+/// The `N` new-sprite modal: name the file, pick a size preset, create, edit.
+struct NewSprite {
+    name: String,
+    preset: usize, // SIZE_PRESETS index; usize::MAX once the size is hand-adjusted
+    w: i32,
+    h: i32,
+    pal: bool, // advisory only: which UNPINNED list to remind the artist about
+}
+
+/// Common sprite shapes (docs/ART_GUIDE.md pixel-budget conventions).
+const SIZE_PRESETS: &[(i32, i32, &str)] = &[
+    (8, 8, "ITEM ICON"),
+    (16, 16, "TILE / FURNITURE / MOB FRAME"),
+    (64, 16, "MOB WALK STRIP (4 FRAMES)"),
+    (32, 8, "TEXTURE ROW (4 VARIANTS)"),
+    (24, 24, "CONNECTOR SPARSE 3X3"),
+    (16, 24, "TREE SPECIES 2X3"),
+];
 
 struct Studio {
     source: Source,
     path: PathBuf, // currently open PNG
     img: Image,
+    root: Option<PathBuf>,    // sprite-tree root (dir and canvas modes)
+    tree_rel: Option<String>, // file to reselect when leaving canvas mode
+    sheet: Arc<SpriteSheet>,  // the real game sheet (font + backdrop cells)
+    backdrops: [Backdrop; 5],
+    backdrop_idx: usize,             // in-context preview backdrop (D cycles)
+    new_sprite: Option<NewSprite>,   // the N modal, when open
+    find: Option<String>,            // the / file-finder, when active (dir mode)
     manifest: HashMap<String, bool>, // rel path -> is_palette (dir mode, may be empty)
     bx: i32, // edit-window origin in image px (free; keyboard steps one 8px cell)
     by: i32,
@@ -583,6 +794,7 @@ struct Studio {
     onion: Option<Onion>,
     help_on: bool,
     undo: Vec<Snap>,
+    redo: Vec<Snap>,
     dirty: bool,
     backed_up: HashSet<PathBuf>,
     status: String,
@@ -595,10 +807,18 @@ struct Studio {
 
 impl Studio {
     fn new(source: Source, path: PathBuf, img: Image, size: i32) -> Studio {
+        let sheet = Arc::new(fdoom::assets::sprite_sheet());
         let mut s = Studio {
             source,
             path,
             img,
+            root: None,
+            tree_rel: None,
+            sheet: sheet.clone(),
+            backdrops: backdrops(),
+            backdrop_idx: 0,
+            new_sprite: None,
+            find: None,
             manifest: HashMap::new(),
             bx: 0,
             by: 0,
@@ -625,13 +845,14 @@ impl Studio {
             onion: None,
             help_on: false,
             undo: Vec::new(),
+            redo: Vec::new(),
             dirty: false,
             backed_up: HashSet::new(),
             status: String::new(),
             hover: None,
             sheet_hover: None,
             esc_armed: false,
-            text: Screen::new(Arc::new(fdoom::assets::sprite_sheet())),
+            text: Screen::new(sheet),
             frame: vec![0; (VIEW_W * VIEW_H) as usize],
         };
         s.build_swatches();
@@ -675,6 +896,29 @@ impl Studio {
             self.img.px[i] = v;
             self.dirty = true;
             self.esc_armed = false;
+            // canvas mode: mark the owning file dirty (gaps save nowhere — warn)
+            let cols = self.img.w / CELL;
+            if let Source::Canvas { placements, owner } = &mut self.source {
+                match owner[(x / CELL + (y / CELL) * cols) as usize] {
+                    -1 => self.status = "GAP PIXEL: NO FILE OWNS THIS (WON'T SAVE)".into(),
+                    o => placements[o as usize].dirty = true,
+                }
+            }
+        }
+    }
+
+    /// Canvas mode: the placement index owning canvas pixel `(x, y)`, if any.
+    fn owner_at(&self, x: i32, y: i32) -> Option<usize> {
+        let cols = self.img.w / CELL;
+        let Source::Canvas { owner, .. } = &self.source else {
+            return None;
+        };
+        if !(0..self.img.w).contains(&x) || !(0..self.img.h).contains(&y) {
+            return None;
+        }
+        match owner[(x / CELL + (y / CELL) * cols) as usize] {
+            -1 => None,
+            o => Some(o as usize),
         }
     }
 
@@ -702,17 +946,37 @@ impl Studio {
         self.drag_anchor = None;
     }
 
-    /// `G`: jump the window to the sprite under the sheet-pane cursor, using the
-    /// sprite map's per-unit footprint (odd origins included).
+    /// `G`: jump the window to the sprite under the sheet-pane cursor with its true
+    /// footprint (odd origins included). Sheet mode uses the built-in sprite map;
+    /// canvas mode uses the real file placements.
     fn snap_to_sprite(&mut self) {
-        let Source::Sheet = self.source else {
-            self.status = "G: SHEET MODE ONLY (FILES ARE ALREADY PER-SPRITE)".into();
+        if let Source::Tree { .. } = self.source {
+            self.status = "G: SHEET/CANVAS ONLY (FILES ARE ALREADY PER-SPRITE)".into();
             return;
-        };
+        }
         let Some((sx, sy)) = self.sheet_hover else {
             self.status = "G: HOVER THE SHEET PANE FIRST".into();
             return;
         };
+        if let Some(i) = self.owner_at(sx, sy) {
+            let Source::Canvas { placements, .. } = &self.source else {
+                unreachable!();
+            };
+            let (x, y, w, h, rel) = {
+                let p = &placements[i];
+                (p.x, p.y, p.w, p.h, p.rel.clone())
+            };
+            self.set_view(w, h);
+            self.set_origin(x, y);
+            self.status = format!("SNAP: {rel}");
+            return;
+        }
+        if let Source::Canvas { .. } = self.source {
+            self.set_view(CELL, CELL);
+            self.set_origin(sx - sx % CELL, sy - sy % CELL);
+            self.status = "SNAP: GAP CELL (8X8, NO FILE)".into();
+            return;
+        }
         let (ccx, ccy) = (sx / CELL, sy / CELL);
         match sprite_at(ccx, ccy) {
             Some(&(cx, cy, _, _, uw, uh, name)) => {
@@ -899,8 +1163,28 @@ impl Studio {
         self.paste_armed = false;
     }
 
-    /// Shift+arrows: wrap-nudge the entire image.
+    /// Shift+arrows: wrap-nudge the whole image — except in canvas mode, where the
+    /// image is the whole atlas, so the nudge wraps only the file under the window.
     fn nudge(&mut self, dx: i32, dy: i32) {
+        if let Source::Canvas { .. } = self.source {
+            let Some(i) = self.owner_at(self.bx, self.by) else {
+                self.status = "NUDGE: NO FILE UNDER THE WINDOW".into();
+                return;
+            };
+            let Source::Canvas { placements, .. } = &mut self.source else {
+                unreachable!();
+            };
+            let (x, y, w, h, rel) = {
+                let p = &mut placements[i];
+                p.dirty = true;
+                (p.x, p.y, p.w, p.h, p.rel.clone())
+            };
+            self.push_undo_rect(x, y, w, h);
+            nudge_rect(&mut self.img, x, y, w, h, dx, dy);
+            self.dirty = true;
+            self.status = format!("NUDGED {rel} BY {dx},{dy} (WRAPS)");
+            return;
+        }
         self.push_undo_rect(0, 0, self.img.w, self.img.h);
         nudge_image(&mut self.img, dx, dy);
         self.dirty = true;
@@ -928,9 +1212,50 @@ impl Studio {
             px,
             view: (self.bx, self.by, self.view_w, self.view_h),
         });
+        self.redo.clear(); // a fresh edit invalidates the redo branch
         if self.undo.len() > 64 {
             self.undo.remove(0);
         }
+    }
+
+    /// Snapshot the current pixels of `s`'s rect (for the opposite stack).
+    fn counter_snap(&self, s: &Snap) -> Snap {
+        let mut px = Vec::with_capacity((s.w * s.h) as usize);
+        for yy in s.y..s.y + s.h {
+            for xx in s.x..s.x + s.w {
+                px.push(self.get(xx, yy));
+            }
+        }
+        Snap {
+            x: s.x,
+            y: s.y,
+            w: s.w,
+            h: s.h,
+            px,
+            view: (self.bx, self.by, self.view_w, self.view_h),
+        }
+    }
+
+    fn apply_snap(&mut self, s: &Snap) {
+        for y in 0..s.h {
+            for x in 0..s.w {
+                self.put(s.x + x, s.y + y, s.px[(x + y * s.w) as usize]);
+            }
+        }
+        (self.bx, self.by, self.view_w, self.view_h) = s.view;
+        self.clamp_pan();
+        self.dirty = true;
+    }
+
+    fn redo_pop(&mut self) {
+        let Some(s) = self.redo.pop() else {
+            self.status = "NOTHING TO REDO".into();
+            return;
+        };
+        let counter = self.counter_snap(&s);
+        self.undo.push(counter);
+        self.apply_snap(&s);
+        self.status = format!("REDO ({} LEFT)", self.redo.len());
     }
 
     fn push_undo_block(&mut self) {
@@ -943,20 +1268,19 @@ impl Studio {
             self.status = "NOTHING TO UNDO".into();
             return;
         };
-        for y in 0..s.h {
-            for x in 0..s.w {
-                self.put(s.x + x, s.y + y, s.px[(x + y * s.w) as usize]);
-            }
-        }
-        (self.bx, self.by, self.view_w, self.view_h) = s.view;
-        self.clamp_pan();
-        self.dirty = true;
-        self.status = format!("UNDO ({} LEFT)", self.undo.len());
+        let counter = self.counter_snap(&s);
+        self.redo.push(counter);
+        self.apply_snap(&s);
+        self.status = format!("UNDO ({} LEFT, Y REDOES)", self.undo.len());
     }
 
     /* ---------------------------------- save/open ---------------------------------- */
 
     fn save(&mut self) {
+        if let Source::Canvas { .. } = self.source {
+            self.save_canvas();
+            return;
+        }
         if !self.backed_up.contains(&self.path) {
             let bak = bak_path(&self.path);
             if let Err(e) = std::fs::copy(&self.path, &bak) {
@@ -975,19 +1299,260 @@ impl Studio {
         }
     }
 
+    /// Canvas mode `S`: write back only the dirty files, each backed up once per
+    /// session; untouched files are never rewritten (byte-identical on disk).
+    fn save_canvas(&mut self) {
+        let Source::Canvas { placements, .. } = &self.source else {
+            return;
+        };
+        let dirty: Vec<usize> = placements
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.dirty)
+            .map(|(i, _)| i)
+            .collect();
+        if dirty.is_empty() {
+            self.status = "NOTHING TO SAVE (NO DIRTY FILES)".into();
+            return;
+        }
+        let mut saved = Vec::new();
+        for i in dirty {
+            let (path, rel, out) = {
+                let Source::Canvas { placements, .. } = &self.source else {
+                    return;
+                };
+                let p = &placements[i];
+                (p.path.clone(), p.rel.clone(), canvas_extract(&self.img, p))
+            };
+            if !self.backed_up.contains(&path) {
+                if let Err(e) = std::fs::copy(&path, bak_path(&path)) {
+                    self.status = format!("BACKUP FAILED ({rel}): {e}");
+                    return;
+                }
+                self.backed_up.insert(path.clone());
+            }
+            if let Err(e) = write_png(&path, &out) {
+                self.status = format!("SAVE FAILED ({rel}): {e}");
+                return;
+            }
+            if let Source::Canvas { placements, .. } = &mut self.source {
+                placements[i].dirty = false;
+            }
+            saved.push(rel);
+        }
+        self.dirty = false;
+        self.esc_armed = false;
+        self.status = format!("SAVED {} FILE(S): {}", saved.len(), saved.join(", "));
+    }
+
     /// `X`: reload the open file from disk, dropping unsaved edits.
     fn revert(&mut self) {
+        if let Source::Canvas { .. } = self.source {
+            let Some(root) = self.root.clone() else {
+                return;
+            };
+            match build_canvas(&root) {
+                Ok((img, placements, owner)) => {
+                    self.img = img;
+                    self.source = Source::Canvas { placements, owner };
+                    self.dirty = false;
+                    self.undo.clear();
+                    self.redo.clear();
+                    self.esc_armed = false;
+                    self.set_origin(self.bx, self.by);
+                    self.status = "CANVAS REBUILT FROM DISK".into();
+                }
+                Err(e) => self.status = format!("REVERT FAILED: {e}"),
+            }
+            return;
+        }
         match load_png(&self.path) {
             Ok(img) => {
                 self.img = img;
                 self.dirty = false;
                 self.undo.clear();
+                self.redo.clear();
                 self.esc_armed = false;
                 self.set_origin(self.bx, self.by);
                 self.status = "REVERTED FROM DISK".into();
             }
             Err(e) => self.status = format!("REVERT FAILED: {e}"),
         }
+    }
+
+    /// `W`: toggle between the file browser and the stitched all-files canvas.
+    fn toggle_canvas(&mut self) {
+        if self.dirty {
+            self.status = "UNSAVED EDITS: S SAVE OR X REVERT BEFORE SWITCHING VIEWS".into();
+            return;
+        }
+        let Some(root) = self.root.clone() else {
+            self.status = "CANVAS: DIRECTORY TARGETS ONLY".into();
+            return;
+        };
+        match &self.source {
+            Source::Tree { entries, sel, .. } => {
+                self.tree_rel = Some(entries[*sel].rel.clone());
+                match build_canvas(&root) {
+                    Ok((img, placements, owner)) => {
+                        // land the window on the file that was open in the browser
+                        let land = self
+                            .tree_rel
+                            .as_ref()
+                            .and_then(|r| placements.iter().find(|p| &p.rel == r))
+                            .map(|p| (p.x, p.y, p.w, p.h));
+                        self.img = img;
+                        self.source = Source::Canvas { placements, owner };
+                        self.undo.clear();
+                        self.redo.clear();
+                        self.zoom_ovr = None;
+                        self.pan = (0, 0);
+                        self.anim_on = false;
+                        self.anim_files.clear();
+                        let (x, y, w, h) = land.unwrap_or((0, 0, 16, 16));
+                        self.set_view(w, h);
+                        self.set_origin(x, y);
+                        self.status = "CANVAS: EVERY FILE, ONE SHEET — W BACK TO FILES".into();
+                    }
+                    Err(e) => self.status = format!("CANVAS FAILED: {e}"),
+                }
+            }
+            Source::Canvas { .. } => {
+                let entries = walk(&root);
+                let sel = self
+                    .tree_rel
+                    .as_ref()
+                    .and_then(|r| entries.iter().position(|e| !e.is_dir && &e.rel == r))
+                    .or_else(|| entries.iter().position(|e| !e.is_dir));
+                let Some(sel) = sel else {
+                    self.status = "NO FILES LEFT UNDER THE TREE".into();
+                    return;
+                };
+                let path = entries[sel].path.clone();
+                match load_png(&path) {
+                    Ok(img) => {
+                        self.source = Source::Tree {
+                            entries,
+                            sel,
+                            scroll: 0,
+                        };
+                        self.path = path;
+                        self.img = img;
+                        self.undo.clear();
+                        self.redo.clear();
+                        self.zoom_ovr = None;
+                        self.pan = (0, 0);
+                        self.set_view(16, 16);
+                        self.set_origin(0, 0);
+                        self.status = "FILE VIEW".into();
+                    }
+                    Err(e) => self.status = format!("OPEN FAILED: {e}"),
+                }
+            }
+            Source::Sheet => self.status = "CANVAS: DIRECTORY TARGETS ONLY".into(),
+        }
+    }
+
+    /// `N` (dir/canvas modes): open the new-sprite modal.
+    fn open_new_sprite(&mut self) {
+        if self.root.is_none() {
+            self.status = "NEW SPRITE: DIRECTORY TARGETS ONLY".into();
+            return;
+        }
+        if self.dirty {
+            self.status = "UNSAVED EDITS: SAVE (S) BEFORE CREATING A NEW SPRITE".into();
+            return;
+        }
+        let (w, h, _) = SIZE_PRESETS[0];
+        self.new_sprite = Some(NewSprite {
+            name: String::new(),
+            preset: 0,
+            w,
+            h,
+            pal: false,
+        });
+    }
+
+    /// Enter inside the modal: validate, write the blank PNG, open it for editing.
+    fn create_new_sprite(&mut self) {
+        let Some(ns) = &self.new_sprite else { return };
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let name = ns.name.trim_matches('/').to_string();
+        let (w, h, pal) = (ns.w, ns.h, ns.pal);
+        if name.is_empty() {
+            self.status = "NEW: TYPE A NAME (E.G. ITEMS/MOONFRUIT)".into();
+            return;
+        }
+        if name.contains("//")
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_-/".contains(c))
+        {
+            self.status = "NEW: LOWERCASE LETTERS, DIGITS, _ - AND / ONLY".into();
+            return;
+        }
+        let rel = format!("{name}.png");
+        let path = root.join(&rel);
+        if path.exists() {
+            self.status = format!("NEW: {rel} ALREADY EXISTS");
+            return;
+        }
+        if let Some(parent) = path.parent()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            self.status = format!("NEW: MKDIR FAILED: {e}");
+            return;
+        }
+        let blank = Image {
+            w,
+            h,
+            px: vec![[0, 0, 0, 0]; (w * h) as usize],
+        };
+        if let Err(e) = write_png(&path, &blank) {
+            self.status = format!("NEW: WRITE FAILED: {e}");
+            return;
+        }
+        self.new_sprite = None;
+        match &self.source {
+            Source::Canvas { .. } => {
+                // restitch so the new file gets its auto-allocated cells, then land on it
+                if let Ok((img, placements, owner)) = build_canvas(&root) {
+                    let land = placements
+                        .iter()
+                        .find(|p| p.rel == rel)
+                        .map(|p| (p.x, p.y, p.w, p.h));
+                    self.img = img;
+                    self.source = Source::Canvas { placements, owner };
+                    self.undo.clear();
+                    self.redo.clear();
+                    if let Some((x, y, w, h)) = land {
+                        self.set_view(w, h);
+                        self.set_origin(x, y);
+                    }
+                }
+            }
+            _ => {
+                let entries = walk(&root);
+                let idx = entries.iter().position(|e| !e.is_dir && e.rel == rel);
+                self.source = Source::Tree {
+                    entries,
+                    sel: 0,
+                    scroll: 0,
+                };
+                if let Some(idx) = idx {
+                    // fresh Tree source: sel 0 is the root dir, so open_entry always moves
+                    self.open_entry(idx, true);
+                }
+            }
+        }
+        self.manifest = load_manifest_modes(&root);
+        self.status = format!(
+            "CREATED {rel} ({}) — ADD IT TO {} IN tests/sprite_atlas.rs",
+            if pal { "PAL" } else { "RGB" },
+            if pal { "UNPINNED_PAL" } else { "UNPINNED_RGB" },
+        );
     }
 
     /// Dir mode: open the file entry at `idx` (blocked while dirty unless `force`).
@@ -1013,6 +1578,7 @@ impl Studio {
                 self.zoom_ovr = None;
                 self.pan = (0, 0);
                 self.undo.clear();
+                self.redo.clear();
                 self.dirty = false;
                 self.hover = None;
                 self.drag_anchor = None;
@@ -1041,6 +1607,35 @@ impl Studio {
             }
         }
         self.open_entry(i as usize, false);
+    }
+
+    /// `/` finder: jump the file selection to the next entry whose path contains the
+    /// typed needle. `dir` walks forward/backward; `from_next` skips the current row.
+    fn find_apply(&mut self, dir: i32, from_next: bool) {
+        let Some(needle) = self.find.clone() else {
+            return;
+        };
+        let needle = needle.to_ascii_lowercase();
+        let Source::Tree { entries, sel, .. } = &self.source else {
+            return;
+        };
+        if needle.is_empty() {
+            self.status = "FIND: TYPE PART OF A FILE NAME (ESC CANCELS)".into();
+            return;
+        }
+        let (n, start) = (entries.len() as i32, *sel as i32);
+        let hit = (i32::from(from_next)..n).find_map(|step| {
+            let i = (start + dir * step).rem_euclid(n) as usize;
+            (!entries[i].is_dir && entries[i].rel.to_ascii_lowercase().contains(&needle))
+                .then_some(i)
+        });
+        match hit {
+            Some(i) => {
+                self.open_entry(i, false);
+                self.status = format!("FIND {needle}: UP/DOWN NEXT/PREV, ENTER DONE");
+            }
+            None => self.status = format!("FIND {needle}: NO MATCH"),
+        }
     }
 
     /* --------------------------------- animation --------------------------------- */
@@ -1157,6 +1752,36 @@ impl Studio {
                 None
             };
         }
+        // canvas mode: check the file under the window against its manifest mode
+        if let Some(i) = self.owner_at(self.bx, self.by)
+            && let Source::Canvas { placements, .. } = &self.source
+        {
+            let p = &placements[i];
+            if let Some(&is_pal) = self.manifest.get(&p.rel) {
+                let (mut color_px, mut off_ladder, mut gray_px) = (false, false, false);
+                for y in p.y..p.y + p.h {
+                    for x in p.x..p.x + p.w {
+                        match classify(self.get(x, y)) {
+                            Kind::Color => color_px = true,
+                            Kind::Gray(v) => {
+                                gray_px = true;
+                                off_ladder |= !GRAYS.contains(&v);
+                            }
+                            Kind::Transparent => {}
+                        }
+                    }
+                }
+                return if is_pal && color_px {
+                    Some("! PAL FILE CONTAINS COLOR PIXELS".into())
+                } else if is_pal && off_ladder {
+                    Some("! PAL FILE HAS OFF-LADDER GRAYS".into())
+                } else if !is_pal && gray_px {
+                    Some("! RGB FILE CONTAINS GRAY (PAL) PIXELS".into())
+                } else {
+                    None
+                };
+            }
+        }
         if self.block_mixes_modes() {
             Some("! GRAY + COLOR MIXED IN CELL".into())
         } else {
@@ -1227,6 +1852,13 @@ impl Studio {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default(),
             Source::Tree { entries, sel, .. } => entries[*sel].rel.clone(),
+            Source::Canvas { placements, .. } => {
+                let dirty = placements.iter().filter(|p| p.dirty).count();
+                match dirty {
+                    0 => format!("CANVAS ({} FILES)", placements.len()),
+                    n => format!("CANVAS ({} FILES, {n} DIRTY)", placements.len()),
+                }
+            }
         }
     }
 
@@ -1242,6 +1874,18 @@ impl Studio {
                 }
             }
             Source::Sheet => "SHEET".into(),
+            Source::Canvas { placements, .. } => match self.owner_at(self.bx, self.by) {
+                Some(i) => {
+                    let p = &placements[i];
+                    let mode = match self.manifest.get(&p.rel) {
+                        Some(true) => " PAL",
+                        Some(false) => " RGB",
+                        None => " (UNPINNED)",
+                    };
+                    format!("{}{}{}", p.rel, mode, if p.dirty { " *" } else { "" })
+                }
+                None => "GAP (NO FILE)".into(),
+            },
             Source::Tree { entries, sel, .. } => {
                 let rel = &entries[*sel].rel;
                 let folder = match rel.rfind('/') {
@@ -1351,8 +1995,8 @@ impl Studio {
         self.frame.fill(BG);
         self.draw_header();
         match &self.source {
-            Source::Sheet => self.draw_sheet_pane(),
             Source::Tree { .. } => self.draw_tree_pane(),
+            _ => self.draw_sheet_pane(),
         }
         self.draw_legend();
         self.draw_canvas();
@@ -1360,6 +2004,9 @@ impl Studio {
         self.draw_preview();
         if self.help_on {
             self.draw_help();
+        }
+        if self.new_sprite.is_some() {
+            self.draw_new_sprite();
         }
     }
 
@@ -1407,6 +2054,13 @@ impl Studio {
         if self.onion_on {
             flags += "  [ONION]";
         }
+        // canvas mode: name the file under the sheet-pane cursor (secondary slot)
+        if let Some((sx, sy)) = self.sheet_hover
+            && let Some(i) = self.owner_at(sx, sy)
+            && let Source::Canvas { placements, .. } = &self.source
+        {
+            flags += &format!("  HOVER: {}", placements[i].rel);
+        }
         let line2 = format!("PAINT: {}{hover}{flags}", self.paint_desc());
         self.draw_text(PANE_X, 20, &line2, TXT);
         let status = std::mem::take(&mut self.status);
@@ -1437,6 +2091,37 @@ impl Studio {
                 };
                 self.fill_rect(PANE_X + sx * 2, PANE_Y + sy * 2, 2, 2, col);
             }
+        }
+        // canvas mode: outline dirty files (red) and the hovered file (dim)
+        let mut boxes: Vec<(i32, i32, i32, i32, u32)> = Vec::new();
+        if let Source::Canvas { placements, .. } = &self.source {
+            let hovered = self.sheet_hover.and_then(|(sx, sy)| self.owner_at(sx, sy));
+            for (i, p) in placements.iter().enumerate() {
+                let col = if p.dirty {
+                    0xC05050
+                } else if Some(i) == hovered {
+                    0x5A6674
+                } else {
+                    continue;
+                };
+                // only boxes fully inside the visible view (outline doesn't pane-clip)
+                if p.x >= off_x
+                    && p.y >= off_y
+                    && p.x + p.w <= off_x + vw
+                    && p.y + p.h <= off_y + vh
+                {
+                    boxes.push((p.x - off_x, p.y - off_y, p.w, p.h, col));
+                }
+            }
+        }
+        for (x, y, w, h, col) in boxes {
+            self.outline(
+                PANE_X + x * 2 - 1,
+                PANE_Y + y * 2 - 1,
+                w * 2 + 2,
+                h * 2 + 2,
+                col,
+            );
         }
         let (bx, by, bw, bh) = self.block_rect();
         self.outline(
@@ -1505,16 +2190,23 @@ impl Studio {
         let lines: [&str; 5] = match self.source {
             Source::Sheet => [
                 "SHEET: CLICK/ARROWS MOVE - G SNAP TO SPRITE - TAB 8/16",
-                "CANVAS: L-PAINT R-PICK F FILL L/R TOOLS H/V FLIP",
-                "WHEEL ZOOM - MID-DRAG PAN - P PALETTE - A ANIM",
-                "U UNDO - S SAVE - B/O ONION - CTRL+C/V COPY/PASTE",
+                "EDIT: L-PAINT R-PICK F FILL L/R TOOLS H/V FLIP",
+                "WHEEL ZOOM - MID-DRAG PAN - P PALETTE - D BACKDROP",
+                "U UNDO Y REDO - S SAVE - B/O ONION - CTRL+C/V COPY/PASTE",
                 "? FULL KEY LIST - ESC QUIT",
             ],
             Source::Tree { .. } => [
-                "FILES: CLICK OR UP/DOWN - SHIFT+CLICK DISCARDS",
-                "CANVAS: L-PAINT R-PICK F FILL L/R TOOLS H/V FLIP",
-                "WHEEL ZOOM - MID-DRAG PAN - P PALETTE - A ANIM",
-                "U UNDO - S SAVE - B/O ONION - CTRL+C/V COPY/PASTE",
+                "FILES: CLICK/UP+DOWN - / FIND - N NEW - W WHOLE-SHEET",
+                "EDIT: L-PAINT R-PICK F FILL L/R TOOLS H/V FLIP",
+                "WHEEL ZOOM - MID-DRAG PAN - P PALETTE - D BACKDROP",
+                "U UNDO Y REDO - S SAVE - B/O ONION - CTRL+C/V COPY/PASTE",
+                "? FULL KEY LIST - ESC QUIT",
+            ],
+            Source::Canvas { .. } => [
+                "WHOLE SHEET: EVERY FILE - W BACK TO FILES - N NEW",
+                "CLICK/ARROWS MOVE - G SNAP TO FILE - RED BOX = DIRTY",
+                "PAINTS ROUTE TO THEIR FILE - S SAVES ONLY DIRTY FILES",
+                "SHIFT+ARROWS NUDGE THE FILE UNDER THE WINDOW (WRAPS)",
                 "? FULL KEY LIST - ESC QUIT",
             ],
         };
@@ -1707,34 +2399,40 @@ impl Studio {
         self.draw_text(RX, RGB_Y, &rgb_line, col_txt);
     }
 
-    /// Backdrop texel for the in-context previews.
-    fn backdrop(kind: usize, x: i32, y: i32) -> u32 {
-        let speck = ((x * 7 + y * 13 + (x * y) % 5) % 7) == 0;
-        match kind {
-            0 => {
-                if speck {
-                    0x4EA341
+    /// In-context backdrop texel at texture px `(tx, ty)`: the real terrain texture
+    /// cell (variant picked pseudo-randomly per 8px tile cell, like the game's
+    /// `Sprite::dots_at`) recolored through the tile's actual `get4` palette.
+    fn backdrop_texel(&self, tx: i32, ty: i32) -> u32 {
+        let b = &self.backdrops[self.backdrop_idx];
+        let (tcx, tcy) = (tx.div_euclid(CELL), ty.div_euclid(CELL));
+        let variant = (tcx * 7 + tcy * 13 + tcx * tcy).rem_euclid(4);
+        let sx = (b.cell_x + variant) * CELL + tx.rem_euclid(CELL);
+        let sy = b.cell_y * CELL + ty.rem_euclid(CELL);
+        let idx = (sx + sy * self.sheet.width) as usize;
+        let ground = || color::upgrade((b.pal >> 24) & 0xFF) as u32; // shade 0 = tile base
+        let col = match self.sheet.pixels.get(idx) {
+            Some(&SheetPixel::Rgb(c)) => c as u32,
+            Some(&SheetPixel::Palette(s)) => {
+                let byte = (b.pal >> ((3 - s as i32) * 8)) & 0xFF;
+                if byte >= 255 {
+                    ground()
                 } else {
-                    0x3F8C33
+                    color::upgrade(byte) as u32
                 }
             }
-            1 => {
-                if speck {
-                    0xC9B569
-                } else {
-                    0xD9C77A
-                }
-            }
-            _ => night(if speck { 0x4EA341 } else { 0x3F8C33 }),
-        }
+            Some(&SheetPixel::Transparent) => ground(),
+            None => checker(tx / 4, ty / 4), // sheet without these cells (odd targets)
+        };
+        if b.night { night(col) } else { col }
     }
 
     fn draw_preview(&mut self) {
         let (bx, by, bw, bh) = self.block_rect();
         let (pal_name, _) = PREVIEW_PALS[self.pal_idx];
+        let bd_name = self.backdrops[self.backdrop_idx].name;
         let label = format!(
-            "PREVIEW (P: {pal_name})  1X 2X 4X | GRASS SAND NIGHT | {}TILED",
-            if self.anim_on { "ANIM | " } else { "" }
+            "RAW 1X 2X 4X | IN GAME  D:{bd_name}  P:{pal_name}{}",
+            if self.anim_on { " | ANIM" } else { "" }
         );
         self.draw_text(RX, PREVIEW_Y - 12, &label, TXT_DIM);
 
@@ -1752,25 +2450,37 @@ impl Studio {
             x += bw * scale + 8;
         }
         x += 4;
-        // in-context: grass day, sand, night-graded grass at 2x with a 4px apron
-        for kind in 0..3usize {
-            let (w2, h2) = (bw * 2 + 8, bh * 2 + 8);
-            for yy in 0..h2 {
-                for xx in 0..w2 {
-                    self.fill_rect(x + xx, PREVIEW_Y + yy, 1, 1, Self::backdrop(kind, xx, yy));
+        // in-context: the sprite over the real terrain texture (D cycles grass/sand/
+        // snow/water/night) at 1x, 2x and 4x, with a half-tile apron all around
+        let is_night = self.backdrops[self.backdrop_idx].night;
+        for scale in [1, 2, 4] {
+            let (sw, sh) = ((bw + 8) * scale, (bh + 8) * scale);
+            if x + sw > VIEW_W - 4 || PREVIEW_Y + sh > VIEW_H {
+                break; // whatever doesn't fit is dropped, biggest first
+            }
+            for yy in 0..sh {
+                for xx in 0..sw {
+                    let c = self.backdrop_texel(xx / scale, yy / scale);
+                    self.fill_rect(x + xx, PREVIEW_Y + yy, 1, 1, c);
                 }
             }
             for y in 0..bh {
                 for px in 0..bw {
                     if let Some(mut c) = self.shown(self.get(bx + px, by + y)) {
-                        if kind == 2 {
+                        if is_night {
                             c = night(c);
                         }
-                        self.fill_rect(x + 4 + px * 2, PREVIEW_Y + 4 + y * 2, 2, 2, c);
+                        self.fill_rect(
+                            x + (4 + px) * scale,
+                            PREVIEW_Y + (4 + y) * scale,
+                            scale,
+                            scale,
+                            c,
+                        );
                     }
                 }
             }
-            x += w2 + 8;
+            x += sw + 8;
         }
         // animation frame at 2x over grass
         if self.anim_on {
@@ -1783,7 +2493,8 @@ impl Studio {
             let (w2, h2) = (fw * 2 + 8, fh * 2 + 8);
             for yy in 0..h2 {
                 for xx in 0..w2 {
-                    self.fill_rect(x + xx, PREVIEW_Y + yy, 1, 1, Self::backdrop(0, xx, yy));
+                    let c = self.backdrop_texel(xx / 2, yy / 2);
+                    self.fill_rect(x + xx, PREVIEW_Y + yy, 1, 1, c);
                 }
             }
             if self.anim_files.is_empty() {
@@ -1866,6 +2577,7 @@ impl Studio {
             "CTRL+V         PASTE (CLICK)",
             "SHIFT+ARROWS   NUDGE (WRAPS)",
             "U / CTRL+Z     UNDO",
+            "Y / CTRL+Y     REDO",
             "E              ERASER",
             "C              CUSTOM COLOR",
         ];
@@ -1874,15 +2586,17 @@ impl Studio {
             "I / K          STEP VERTICALLY",
             "TAB            8/16 WINDOW",
             "G              SNAP TO SPRITE",
+            "W              FILES <> WHOLE SHEET",
+            "N              NEW SPRITE FILE",
+            "SLASH          FIND FILE BY NAME",
             "WHEEL          ZOOM AT CURSOR",
             "MIDDLE-DRAG    PAN",
             "P / SHIFT+P    PREVIEW PALETTE",
+            "D / SHIFT+D    PREVIEW BACKDROP",
             "A              ANIMATE FRAMES",
-            "B              SET ONION REF",
-            "O              ONION ON/OFF",
+            "B / O          ONION SET / TOGGLE",
             "S / CTRL+S     SAVE (+.BAK)",
             "X              REVERT FROM DISK",
-            "SHIFT+CLICK    DISCARD + OPEN",
             "ESC            CLOSE / QUIT",
         ];
         for (i, l) in col1.iter().enumerate() {
@@ -1898,10 +2612,100 @@ impl Studio {
             TXT_WARN,
         );
     }
+
+    /// The `N` new-sprite modal.
+    fn draw_new_sprite(&mut self) {
+        let Some(ns) = &self.new_sprite else { return };
+        let preset_label = SIZE_PRESETS
+            .get(ns.preset)
+            .map(|&(.., l)| l)
+            .unwrap_or("CUSTOM");
+        let name_line = format!("NAME: {}_", ns.name);
+        let size_line = format!("SIZE: {}X{} PX  ({preset_label})", ns.w, ns.h);
+        let mode_line = format!(
+            "MODE: {}",
+            if ns.pal {
+                "PAL - GRAY LADDER, RECOLORED IN-GAME (TAB SWITCHES)"
+            } else {
+                "RGB - TRUE COLOR, THE DEFAULT FOR NEW ART (TAB SWITCHES)"
+            }
+        );
+        let (x, y, w, h) = (140, 220, VIEW_W - 280, 200);
+        self.fill_rect(x - 2, y - 2, w + 4, h + 4, GRID_MAJOR);
+        self.fill_rect(x, y, w, h, PANEL);
+        self.draw_text(x + 16, y + 12, "NEW SPRITE", TXT);
+        self.draw_text(x + 16, y + 36, &name_line, TXT);
+        self.draw_text(x + 16, y + 52, &size_line, TXT);
+        self.draw_text(x + 16, y + 68, &mode_line, TXT_DIM);
+        let help = [
+            "TYPE THE PATH NAME - FOLDERS WITH /  (E.G. ITEMS/MOONFRUIT)",
+            "UP/DOWN SIZE PRESETS - SHIFT+ARROWS CUSTOM SIZE (8PX STEPS)",
+            "ENTER CREATE + OPEN - ESC CANCEL",
+            "",
+            "NO MANIFEST LINE NEEDED: NEW FILES AUTO-ALLOCATE ON THE",
+            "ATLAS AND ARE ADDRESSED BY NAME (ART_GUIDE.MD).",
+        ];
+        for (i, l) in help.iter().enumerate() {
+            self.draw_text(x + 16, y + 96 + i as i32 * 14, l, TXT_DIM);
+        }
+    }
 }
 
 fn mark(active: bool) -> &'static str {
     if active { ">" } else { " " }
+}
+
+/// Text entry for the finder and the new-sprite modal (file-name characters only).
+fn key_char(code: KeyCode, shift: bool) -> Option<char> {
+    use KeyCode::*;
+    let c = match code {
+        KeyA => 'a',
+        KeyB => 'b',
+        KeyC => 'c',
+        KeyD => 'd',
+        KeyE => 'e',
+        KeyF => 'f',
+        KeyG => 'g',
+        KeyH => 'h',
+        KeyI => 'i',
+        KeyJ => 'j',
+        KeyK => 'k',
+        KeyL => 'l',
+        KeyM => 'm',
+        KeyN => 'n',
+        KeyO => 'o',
+        KeyP => 'p',
+        KeyQ => 'q',
+        KeyR => 'r',
+        KeyS => 's',
+        KeyT => 't',
+        KeyU => 'u',
+        KeyV => 'v',
+        KeyW => 'w',
+        KeyX => 'x',
+        KeyY => 'y',
+        KeyZ => 'z',
+        Digit0 => '0',
+        Digit1 => '1',
+        Digit2 => '2',
+        Digit3 => '3',
+        Digit4 => '4',
+        Digit5 => '5',
+        Digit6 => '6',
+        Digit7 => '7',
+        Digit8 => '8',
+        Digit9 => '9',
+        Minus => {
+            if shift {
+                '_'
+            } else {
+                '-'
+            }
+        }
+        Slash => '/',
+        _ => return None,
+    };
+    Some(c)
 }
 
 /// Sheet-pane scroll for sheets larger than the 256px view: keep the window visible.
@@ -1986,7 +2790,7 @@ impl App {
         }
         if (PANE_X..PANE_X + PANE_W).contains(&fx) && (PANE_Y..PANE_Y + PANE_H).contains(&fy) {
             match &st.source {
-                Source::Sheet => {
+                Source::Sheet | Source::Canvas { .. } => {
                     let view = PANE_W / 2;
                     let off_x = clamp_scroll(st.bx, st.view_w, st.img.w, view);
                     let off_y = clamp_scroll(st.by, st.view_h, st.img.h, view);
@@ -2146,7 +2950,95 @@ impl App {
         self.refresh();
     }
 
+    /// Key handling while the new-sprite modal is open (captures all text keys).
+    fn on_key_new_sprite(&mut self, code: KeyCode) {
+        let shift = self.mods.shift_key();
+        if code == KeyCode::Enter {
+            self.st.create_new_sprite();
+            return;
+        }
+        let Some(ns) = &mut self.st.new_sprite else {
+            return;
+        };
+        match code {
+            KeyCode::Backspace => {
+                ns.name.pop();
+            }
+            KeyCode::Tab => ns.pal = !ns.pal,
+            KeyCode::ArrowRight if shift => {
+                ns.w = (ns.w + CELL).min(256);
+                ns.preset = usize::MAX;
+            }
+            KeyCode::ArrowLeft if shift => {
+                ns.w = (ns.w - CELL).max(CELL);
+                ns.preset = usize::MAX;
+            }
+            KeyCode::ArrowDown if shift => {
+                ns.h = (ns.h + CELL).min(256);
+                ns.preset = usize::MAX;
+            }
+            KeyCode::ArrowUp if shift => {
+                ns.h = (ns.h - CELL).max(CELL);
+                ns.preset = usize::MAX;
+            }
+            KeyCode::ArrowUp | KeyCode::ArrowDown => {
+                let n = SIZE_PRESETS.len();
+                let cur = if ns.preset >= n { 0 } else { ns.preset };
+                ns.preset = if code == KeyCode::ArrowDown {
+                    (cur + 1) % n
+                } else if ns.preset >= n {
+                    0
+                } else {
+                    (cur + n - 1) % n
+                };
+                (ns.w, ns.h) = (SIZE_PRESETS[ns.preset].0, SIZE_PRESETS[ns.preset].1);
+            }
+            _ => {
+                if let Some(c) = key_char(code, shift) {
+                    ns.name.push(c);
+                }
+            }
+        }
+    }
+
+    /// Key handling while the `/` finder is active (captures all text keys).
+    fn on_key_find(&mut self, code: KeyCode) {
+        let shift = self.mods.shift_key();
+        match code {
+            KeyCode::Enter => {
+                self.st.find = None;
+                self.st.status.clear();
+            }
+            KeyCode::Backspace => {
+                if let Some(f) = &mut self.st.find {
+                    f.pop();
+                }
+                self.st.find_apply(1, false);
+            }
+            KeyCode::ArrowDown => self.st.find_apply(1, true),
+            KeyCode::ArrowUp => self.st.find_apply(-1, true),
+            _ => {
+                if let Some(c) = key_char(code, shift) {
+                    if let Some(f) = &mut self.st.find {
+                        f.push(c);
+                    }
+                    self.st.find_apply(1, false);
+                }
+            }
+        }
+    }
+
     fn on_key(&mut self, code: KeyCode) {
+        if self.st.new_sprite.is_some() {
+            self.on_key_new_sprite(code);
+            self.refresh();
+            return;
+        }
+        if self.st.find.is_some() {
+            self.on_key_find(code);
+            self.refresh();
+            return;
+        }
         let st = &mut self.st;
         let shift = self.mods.shift_key();
         let ctrl = self.mods.control_key() || self.mods.super_key();
@@ -2171,11 +3063,11 @@ impl App {
             // arrows: navigate (files in dir mode, cells in sheet mode)
             KeyCode::ArrowUp => match st.source {
                 Source::Tree { .. } => st.move_file_sel(-1),
-                Source::Sheet => st.move_block(0, -1),
+                _ => st.move_block(0, -1),
             },
             KeyCode::ArrowDown => match st.source {
                 Source::Tree { .. } => st.move_file_sel(1),
-                Source::Sheet => st.move_block(0, 1),
+                _ => st.move_block(0, 1),
             },
             KeyCode::ArrowLeft => st.move_block(-1, 0),
             KeyCode::ArrowRight => st.move_block(1, 0),
@@ -2246,10 +3138,26 @@ impl App {
             KeyCode::BracketRight => st.shade_shift(true),
             KeyCode::KeyH => st.flip(true),
             KeyCode::KeyV => st.flip(false),
+            KeyCode::KeyZ if ctrl && shift => st.redo_pop(),
             KeyCode::KeyU => st.undo_pop(),
             KeyCode::KeyZ if ctrl => st.undo_pop(),
-            KeyCode::KeyS => st.save(), // plain S and Ctrl+S both save
+            KeyCode::KeyY => st.redo_pop(), // plain Y and Ctrl+Y both redo
+            KeyCode::KeyS => st.save(),     // plain S and Ctrl+S both save
             KeyCode::KeyX => st.revert(),
+            KeyCode::KeyW => st.toggle_canvas(),
+            KeyCode::KeyN => st.open_new_sprite(),
+            KeyCode::KeyD if shift => {
+                st.backdrop_idx = (st.backdrop_idx + st.backdrops.len() - 1) % st.backdrops.len();
+            }
+            KeyCode::KeyD => st.backdrop_idx = (st.backdrop_idx + 1) % st.backdrops.len(),
+            KeyCode::Slash if !shift => {
+                if let Source::Tree { .. } = st.source {
+                    st.find = Some(String::new());
+                    st.status = "FIND: TYPE PART OF A FILE NAME (ESC CANCELS)".into();
+                } else {
+                    st.status = "FIND: FILE LIST ONLY (PRESS W FOR FILES)".into();
+                }
+            }
             KeyCode::KeyP if shift => {
                 st.pal_idx = (st.pal_idx + PREVIEW_PALS.len() - 1) % PREVIEW_PALS.len();
             }
@@ -2398,6 +3306,12 @@ impl ApplicationHandler for App {
                     if code == KeyCode::Escape {
                         if self.st.help_on {
                             self.st.help_on = false;
+                        } else if self.st.new_sprite.is_some() {
+                            self.st.new_sprite = None;
+                            self.st.status.clear();
+                        } else if self.st.find.is_some() {
+                            self.st.find = None;
+                            self.st.status.clear();
                         } else if self.st.paste_armed {
                             self.st.paste_armed = false;
                             self.st.status.clear();
@@ -2460,9 +3374,12 @@ fn parse_set_color(s: &str) -> Option<Rgba> {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: pixel_studio [<dir> | <sheet.png>] [--sheet <png>] [--cell X Y] [--size 8|16] [--pal N]\n       \
+        "usage: pixel_studio [<dir> | <sheet.png>] [--sheet <png>] [--cell X Y] [--size 8|16] [--pal N] [--backdrop N] [--canvas]\n       \
          pixel_studio <png> [--set X Y (RRGGBB[AA]|t)]... [--blit SX SY W H DX DY]... [--nudge DX DY]\n       \
          pixel_studio <dir> --file <rel.png> [--set ...]...   # headless edits resolve via the tree walk\n       \
+         pixel_studio <dir> --canvas [--set ...]... [--blit ...]...  # headless edits in stitched-canvas coords\n       \
+         pixel_studio <dir> --new <rel-no-ext> WxH            # create a blank sprite PNG (e.g. --new items/moonfruit 8x8)\n       \
+         pixel_studio <target> --snap CX CY                   # print the sprite selection at cell CX,CY and exit\n       \
          pixel_studio <target> --shot <out.png>               # render one UI frame headlessly and exit\n\n\
          default target: assets/sprites (directory) if it exists, else assets/golden_atlas.png"
     );
@@ -2491,10 +3408,31 @@ fn main() {
     let mut file_rel: Option<String> = None;
     let mut shot: Option<PathBuf> = None;
     let mut batch: Vec<BatchOp> = Vec::new();
+    let mut canvas_mode = false;
+    let mut snap_arg: Option<(i32, i32)> = None;
+    let mut new_arg: Option<(String, String)> = None;
+    let mut backdrop_arg = 0usize;
+    let mut demo_new = false;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--canvas" => canvas_mode = true,
+            "--snap" => {
+                snap_arg = Some((arg_i32(&args, i + 1), arg_i32(&args, i + 2)));
+                i += 2;
+            }
+            "--new" => {
+                let rel = args.get(i + 1).cloned().unwrap_or_else(|| usage());
+                let size = args.get(i + 2).cloned().unwrap_or_else(|| usage());
+                new_arg = Some((rel, size));
+                i += 2;
+            }
+            "--backdrop" => {
+                backdrop_arg = arg_i32(&args, i + 1).clamp(0, 4) as usize;
+                i += 1;
+            }
+            "--demo-new" => demo_new = true,
             "--sheet" => {
                 target = Some(PathBuf::from(args.get(i + 1).unwrap_or_else(|| usage())));
                 force_sheet = true;
@@ -2563,6 +3501,114 @@ fn main() {
         }
     });
     let dir_mode = target.is_dir() && !force_sheet;
+    if (canvas_mode || new_arg.is_some()) && !dir_mode {
+        eprintln!("--canvas / --new require a directory target");
+        std::process::exit(2);
+    }
+
+    // headless new-sprite: create a blank PNG in the tree and exit
+    if let Some((rel, size)) = new_arg {
+        let (w, h) = match size.split_once(['x', 'X']) {
+            Some((w, h)) => (w.parse::<i32>().unwrap_or(0), h.parse::<i32>().unwrap_or(0)),
+            None => (0, 0),
+        };
+        if w <= 0 || h <= 0 || w % 8 != 0 || h % 8 != 0 || w > 256 {
+            eprintln!("--new size must be WxH, multiples of 8, width <= 256 (got {size:?})");
+            std::process::exit(2);
+        }
+        let rel = rel.trim_matches('/').trim_end_matches(".png").to_string();
+        if rel.is_empty()
+            || rel.contains("//")
+            || !rel
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_-/".contains(c))
+        {
+            eprintln!("--new name: lowercase letters, digits, _ - and / only (got {rel:?})");
+            std::process::exit(2);
+        }
+        let path = target.join(format!("{rel}.png"));
+        if path.exists() {
+            eprintln!("--new: {} already exists", path.display());
+            std::process::exit(2);
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create sprite folder");
+        }
+        let blank = Image {
+            w,
+            h,
+            px: vec![[0, 0, 0, 0]; (w * h) as usize],
+        };
+        if let Err(e) = write_png(&path, &blank) {
+            eprintln!("--new: {e}");
+            std::process::exit(1);
+        }
+        println!(
+            "created {} ({w}x{h}, transparent) — remember to add it to the UNPINNED list in tests/sprite_atlas.rs",
+            path.display()
+        );
+        return;
+    }
+
+    // headless canvas batch: edits in stitched-canvas coordinates route to their
+    // owning files; only the touched files are rewritten (each with a .bak).
+    if canvas_mode && !batch.is_empty() {
+        let (mut img, mut placements, owner) = match build_canvas(&target) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("pixel_studio --canvas: {e}");
+                std::process::exit(1);
+            }
+        };
+        let cols = img.w / CELL;
+        let mark = |placements: &mut Vec<Placement>, x: i32, y: i32| {
+            if let Some(&o) = owner.get((x / CELL + (y / CELL) * cols) as usize)
+                && o >= 0
+            {
+                placements[o as usize].dirty = true;
+            }
+        };
+        for op in &batch {
+            match *op {
+                BatchOp::Set(x, y, c) => {
+                    if !(0..img.w).contains(&x) || !(0..img.h).contains(&y) {
+                        eprintln!("--set {x} {y}: outside the {}x{} canvas", img.w, img.h);
+                        std::process::exit(2);
+                    }
+                    img.px[(x + y * img.w) as usize] = c;
+                    mark(&mut placements, x, y);
+                }
+                BatchOp::Blit(sx, sy, w, h, dx, dy) => {
+                    blit_rect(&mut img, sx, sy, w, h, dx, dy);
+                    for y in dy.max(0)..(dy + h).min(img.h) {
+                        for x in dx.max(0)..(dx + w).min(img.w) {
+                            mark(&mut placements, x, y);
+                        }
+                    }
+                }
+                BatchOp::Nudge(..) => {
+                    eprintln!("--nudge is per-file; run it on the file, not --canvas");
+                    std::process::exit(2);
+                }
+            }
+        }
+        let mut wrote = 0;
+        for p in placements.iter().filter(|p| p.dirty) {
+            let bak = bak_path(&p.path);
+            if let Err(e) = std::fs::copy(&p.path, &bak) {
+                eprintln!("backup failed for {}: {e}", p.rel);
+                std::process::exit(1);
+            }
+            if let Err(e) = write_png(&p.path, &canvas_extract(&img, p)) {
+                eprintln!("save failed for {}: {e}", p.rel);
+                std::process::exit(1);
+            }
+            println!("wrote {} (backup at {})", p.path.display(), bak.display());
+            wrote += 1;
+        }
+        println!("{wrote} file(s) written from canvas edits");
+        return;
+    }
 
     // resolve the PNG to open (and, in dir mode, the walked entry list)
     let (entries, open_idx, path) = if dir_mode {
@@ -2640,20 +3686,59 @@ fn main() {
     } else {
         HashMap::new()
     };
-    let source = match entries {
-        Some(entries) => Source::Tree {
-            entries,
-            sel: open_idx,
-            scroll: 0,
-        },
-        None => Source::Sheet,
+    let (source, img) = if canvas_mode {
+        match build_canvas(&target) {
+            Ok((cimg, placements, owner)) => (Source::Canvas { placements, owner }, cimg),
+            Err(e) => {
+                eprintln!("pixel_studio --canvas: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        match entries {
+            Some(entries) => (
+                Source::Tree {
+                    entries,
+                    sel: open_idx,
+                    scroll: 0,
+                },
+                img,
+            ),
+            None => (Source::Sheet, img),
+        }
     };
     let mut st = Studio::new(source, path, img, size);
     st.manifest = manifest;
     st.pal_idx = pal;
+    st.backdrop_idx = backdrop_arg;
+    if dir_mode {
+        st.root = Some(target.clone());
+    }
     if let Some((cx, cy)) = cell {
         // any 8px cell is a legal origin — no even-cell snapping
         st.set_origin(cx * CELL, cy * CELL);
+    }
+    if demo_new {
+        // screenshot/test hook: open the new-sprite modal prefilled
+        st.new_sprite = Some(NewSprite {
+            name: "items/moonfruit".into(),
+            preset: 0,
+            w: 8,
+            h: 8,
+            pal: false,
+        });
+    }
+    // `--snap CX CY`: report which sprite a G-snap at that cell selects, then exit
+    // (with `--shot` the frame is rendered first). This is the odd-origin regression
+    // hook: the selection must cover the whole sprite, wherever it starts.
+    if let Some((cx, cy)) = snap_arg {
+        st.sheet_hover = Some((cx * CELL, cy * CELL));
+        st.snap_to_sprite();
+        println!("{}", st.title());
+        println!("{}", st.status);
+        if shot.is_none() {
+            return;
+        }
     }
 
     // headless UI screenshot: render one frame, write it, print the title, exit
