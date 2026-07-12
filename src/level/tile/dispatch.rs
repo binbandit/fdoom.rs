@@ -86,6 +86,9 @@ pub fn make_wheat_tile(name: &str) -> TileDef {
 pub fn make_hard_rock_tile(name: &str) -> TileDef {
     hard_rock::make(name)
 }
+pub fn make_heath_tile(name: &str) -> TileDef {
+    heath::make(name)
+}
 pub fn make_infinite_fall_tile(name: &str) -> TileDef {
     infinite_fall::make(name)
 }
@@ -191,6 +194,7 @@ fn render_inner(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x:
         TileKind::Fence => fence::render(g, screen, def, lvl, x, y),
         TileKind::TimberProp => timber_prop::render(g, screen, def, lvl, x, y),
         TileKind::Window => window::render(g, screen, def, lvl, x, y),
+        TileKind::Heath => heath::render(g, screen, def, lvl, x, y),
         TileKind::Torch { .. } => torch::render(g, screen, def, lvl, x, y),
         _ => default_render(g, screen, def, lvl, x, y),
     }
@@ -434,6 +438,7 @@ pub fn interact(
         TileKind::Farm => farm::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Wheat => wheat::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::HardRock => hard_rock::interact(g, def, lvl, xt, yt, player, item, attack_dir),
+        TileKind::Heath => heath::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::Cloud => cloud::interact(g, def, lvl, xt, yt, player, item, attack_dir),
         TileKind::CloudCactus => {
             cloud_cactus::interact(g, def, lvl, xt, yt, player, item, attack_dir)

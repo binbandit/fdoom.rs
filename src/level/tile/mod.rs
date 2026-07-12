@@ -25,6 +25,7 @@ pub mod fossick;
 pub mod grass;
 pub mod grave_stone;
 pub mod hard_rock;
+pub mod heath;
 pub mod hole;
 pub mod infinite_fall;
 pub mod lava;
@@ -276,6 +277,9 @@ pub enum TileKind {
     /// Light & shelter wave: a wall segment with a glass pane — solid to movement
     /// like a wall, but transparent to light and sight (see `window.rs`).
     Window,
+    /// Highland ground of the Mountains biome: stony moor with clustered heather
+    /// patches (see `heath.rs`). Walkable; shovels to dirt.
+    Heath,
     Wool,
     QuickSand,
     Snow,
@@ -445,6 +449,9 @@ impl Tiles {
 
         // light & shelter: the glass-paned wall segment (see window.rs)
         set(66, dispatch::make_window_tile("Window"));
+
+        // biome identity: the Mountains highland ground (see heath.rs)
+        set(67, dispatch::make_heath_tile("Heath"));
 
         Tiles {
             list: RefCell::new(t),

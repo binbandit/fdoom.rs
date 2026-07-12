@@ -60,12 +60,17 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let mut sand_n = 0;
     let mut snow_n = 0;
     let mut water_n = 0;
+    let mut heath_n = 0;
     for (nx, ny) in [(x, y - 1), (x, y + 1), (x - 1, y), (x + 1, y)] {
         let t = g.tile_at(lvl, nx, ny);
         if matches!(t.kind, TileKind::Snow) {
             snow_n += 1;
         } else if matches!(t.kind, TileKind::Water | TileKind::DeepWater) {
             water_n += 1; // skerries: sea stacks shade into the water, not dirt
+        } else if matches!(t.kind, TileKind::Heath) {
+            // heath sets connects_to_grass (for border suppression), but a crag on
+            // the moor must shade into heath-olive, not meadow-green
+            heath_n += 1;
         } else if t.connects_to_sand {
             sand_n += 1;
         } else if t.connects_to_grass {
@@ -76,6 +81,8 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         color::hex("#e8eef4")
     } else if water_n > grass_n.max(sand_n) {
         115
+    } else if heath_n > grass_n.max(sand_n) {
+        color::hex("#84876f")
     } else if sand_n > grass_n {
         550
     } else if grass_n > 0 {

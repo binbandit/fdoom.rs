@@ -46,7 +46,9 @@ fn biome_map_overview() {
             Biome::Savanna => 0xb5a542,
             Biome::Plains => 0x7cb548,
             Biome::Forest => 0x2e7031,
-            Biome::Marsh => 0x4a6b4f,
+            // teal, deliberately far from Forest's green: the 2026-07 playtest
+            // misread a dark-green Forest region as Marsh and "never found" marsh
+            Biome::Marsh => 0x2f8577,
             Biome::Tundra => 0xdfe8ef,
             Biome::Mountains => 0x8a8f96,
         }

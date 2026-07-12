@@ -147,6 +147,7 @@ struct Ids {
     tall_grass: [u8; 3],
     snow: u8,
     snow_tree: u8,
+    heath: u8,
     deep_water: u8,
     mud: u8,
     // flora wave
@@ -190,6 +191,7 @@ impl Ids {
             ],
             snow: tiles.get("snow").id,
             snow_tree: tiles.get("snow tree").id,
+            heath: tiles.get("Heath").id,
             deep_water: tiles.get("Deep Water").id,
             mud: tiles.get("Mud").id,
             pine: tiles.get("Pine Tree").id,
@@ -262,9 +264,14 @@ pub fn biome_at(seed: i64, x: i32, y: i32) -> Biome {
     if land < 0.445 {
         return Biome::Beach;
     }
-    // ranges: a broad mountain belt refined by local ruggedness
+    // Ranges: a broad mountain belt with rough-modulated (ragged) edges. The old
+    // gate ANDed `rough > 0.55` instead, which punched grass holes all through the
+    // belt interior — the playtest's "green grass + boulder blobs" non-identity.
+    // Additive modulation (±0.03) keeps the same outer envelope and ragged
+    // coastline-style edges but fills the interior; the rough field still places
+    // the rock crags, inside `surface_tile`'s Mountains arm.
     let belt = fractal(seed, 9, x, y, 320, 2);
-    if belt > 0.70 && rough > 0.55 {
+    if belt + (rough - 0.5) * 0.08 > 0.70 {
         return Biome::Mountains;
     }
 
@@ -348,7 +355,18 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             if temperature < 0.42 && belt > 0.76 {
                 return ids.snow; // cold ranges whiten further down the slopes
             }
-            ids.rock
+            // crags: the rough field clusters solid rock into ridges and boulder
+            // groups (exactly the tiles the old AND-gate classified as Mountains)
+            let (_, rough) = land_parts(seed, x, y);
+            if rough > 0.55 {
+                return ids.rock;
+            }
+            if detail < 0.010 {
+                return ids.rock; // lone boulders out on the open moor
+            }
+            // open highland between the crags: stony heath, its heather clusters
+            // handled by the tile's own render (see tile/heath.rs)
+            ids.heath
         }
         Biome::Tundra => {
             // snowfields with scattered pines/firs and the odd bare rock
@@ -397,7 +415,13 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
                     return ids.reeds;
                 }
             }
-            if detail < 0.16 {
+            // dry interior between pools: lone scraggly willows and reed tussocks
+            // keep the bog reading marshy even when no pool is in frame
+            if detail < 0.012 {
+                ids.willow
+            } else if detail < 0.05 {
+                ids.reeds
+            } else if detail < 0.16 {
                 tuft(4)
             } else if detail < 0.175 {
                 ids.flower
