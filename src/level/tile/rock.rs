@@ -14,7 +14,7 @@
 //! Data layout: bit 7 = rubble flag, low 7 bits = accumulated damage (decays on tick).
 
 use super::fossick::{self, RockCharacter};
-use super::{ConnectorSprite, TileDef, TileKind, dirt, dispatch, tool_use};
+use super::{ConnectorSprite, TileDef, TileKind, dispatch, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
@@ -53,23 +53,42 @@ fn is_highland(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    // Edge shade blends into the surrounding ground instead of always dirt-brown
-    // (a lone rock in a meadow used to get a brown halo). Sample the four neighbors
-    // and match the dominant ground family.
+    // Boundary cells expose base area around the blob art. That base used to be a
+    // flat approximation color of the dominant neighbor — which read as a square
+    // backing board behind every boulder/crag, with L-shaped hooks at convex corners
+    // (ODDITIES O2). Instead, render the dominant neighbor ground's *actual art*
+    // under the tile and keep the cells' base transparent, so the real ground shows
+    // through and the blob's own dark rim does the edge shading.
     let mut grass_n = 0;
     let mut sand_n = 0;
     let mut snow_n = 0;
     let mut water_n = 0;
     let mut heath_n = 0;
-    for (nx, ny) in [(x, y - 1), (x, y + 1), (x - 1, y), (x + 1, y)] {
+    let mut interior = true; // all 8 neighbors rock => full cells cover the tile
+    for (nx, ny) in [
+        (x, y - 1),
+        (x, y + 1),
+        (x - 1, y),
+        (x + 1, y),
+        (x - 1, y - 1),
+        (x + 1, y - 1),
+        (x - 1, y + 1),
+        (x + 1, y + 1),
+    ] {
         let t = g.tile_at(lvl, nx, ny);
+        if !matches!(t.kind, TileKind::Rock) {
+            interior = false;
+        }
+        if nx != x && ny != y {
+            continue; // diagonals only feed the interior test
+        }
         if matches!(t.kind, TileKind::Snow) {
             snow_n += 1;
         } else if matches!(t.kind, TileKind::Water | TileKind::DeepWater) {
-            water_n += 1; // skerries: sea stacks shade into the water, not dirt
+            water_n += 1; // skerries: sea stacks stand in the water, not on dirt
         } else if matches!(t.kind, TileKind::Heath) {
             // heath sets connects_to_grass (for border suppression), but a crag on
-            // the moor must shade into heath-olive, not meadow-green
+            // the moor must stand on heath, not on a meadow
             heath_n += 1;
         } else if t.connects_to_sand {
             sand_n += 1;
@@ -77,20 +96,24 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
             grass_n += 1;
         }
     }
-    let bg = if snow_n >= grass_n.max(sand_n) && snow_n > 0 {
-        color::hex("#e8eef4")
-    } else if water_n > grass_n.max(sand_n) {
-        115
-    } else if heath_n > grass_n.max(sand_n) {
-        color::hex("#84876f")
-    } else if sand_n > grass_n {
-        550
-    } else if grass_n > 0 {
-        141
-    } else {
-        dirt::d_col(g.level(lvl).depth)
-    };
-    let col = color::get4(111, 444, 555, bg);
+    if !interior {
+        let under = if snow_n >= grass_n.max(sand_n) && snow_n > 0 {
+            "snow"
+        } else if water_n > grass_n.max(sand_n) {
+            "water"
+        } else if heath_n > grass_n.max(sand_n) {
+            "heath"
+        } else if sand_n > grass_n {
+            "sand"
+        } else if grass_n > 0 {
+            "grass"
+        } else {
+            "dirt" // mines: the gallery floor
+        };
+        let under = g.tiles.get(under);
+        dispatch::render(g, screen, &under, lvl, x, y);
+    }
+    let col = color::get4(111, 444, 555, -1);
     let full = def.csprite.as_ref().map(|cs| cs.full.color).unwrap_or(0);
     dispatch::csprite_render(g, screen, def, lvl, x, y, Some((col, col, full)));
 

@@ -20,7 +20,9 @@
 //!    channel multiply through per-frame 256-entry lookup tables.
 //! 2. **Radiance** — emitters (player, held torch/lantern, torch tiles, lava, lit
 //!    pumpkins, lanterns, furnaces/ovens...) stamp radial falloff into the light screen;
-//!    the final pixel is `grade(pixel) * max(ambient, light)`, quantized into bands with
+//!    the final pixel is `grade(pixel) * max(ambient, light)` plus a band-scaled warm
+//!    screen-blend ([`GLOW`]) so the pool *adds* light instead of only scaling albedo
+//!    (a pure multiply split light pools in half at ground seams), quantized into bands with
 //!    Bayer 4x4 ordered dithering on the falloff so light edges read as pixel-art, not
 //!    smooth banding. Underground levels get a near-black ambient — real cave darkness —
 //!    that only emitters can push back. Stamping is **occlusion-aware** (light &
@@ -92,6 +94,14 @@ pub fn fx_on(bit: u32) -> bool {
 /// The tint a fully-lit pixel converges to: warm torchlight — extra red, eased green,
 /// pulled-back blue. (Tint only; band brightness ramps separately in `build_luts`.)
 const WARM_TINT: [f32; 3] = [1.24, 0.78, 0.48];
+
+/// Emitter radiance screen-blend, per channel: the fraction of a pixel's remaining
+/// headroom (`255 - graded`) that full light adds. A pure multiply can only scale
+/// albedo, so a warm pool read bright orange on sand but stayed near-dark green on
+/// grass and split in half exactly on the ground seam (ODDITIES O1). Screen-blending
+/// lifts dark albedos the most and saturates bright ones gently — the pool reads as
+/// *light on the ground*, continuous across ground families.
+const GLOW: [f32; 3] = [0.45, 0.30, 0.12];
 
 /// Pixel radius per tile-unit of light radius (`get_light_radius` speaks in tiles).
 const PX_PER_RADIUS: i32 = 8;
@@ -482,6 +492,17 @@ const SNOW_F: [i32; 3] = [256, 264, 281]; // 1.00, 1.03, 1.10
 /// Mud: dark peaty brown, slightly deeper than the Marsh tint around it.
 const MUD_F: [i32; 3] = [227, 233, 218]; // 0.89, 0.91, 0.85
 
+/// Per-channel clamp on every ground/biome factor: the envelope of the family tints
+/// above. Inside this band a multiply shifts hue but can never flip a tile out of
+/// its ground family (grass stays green, sand stays sand — ODDITIES O3); anything
+/// stronger must come from art, not from the blend.
+const FACTOR_MIN: i32 = 218; // 0.85
+const FACTOR_MAX: i32 = 281; // 1.10
+
+fn clamp_factor(f: [i32; 3]) -> [i32; 3] {
+    f.map(|c| c.clamp(FACTOR_MIN, FACTOR_MAX))
+}
+
 /// Per-biome ground tint factors (8.8 fixed point), Minecraft-style: a mild palette
 /// shift so biome transitions read on the ground itself, not just the flora.
 /// Deliberately subtle (all factors stay within ~0.85-1.10).
@@ -536,14 +557,23 @@ fn fam_color(f: GroundFam) -> i32 {
 /// tundra); grass, dirt, water, and everything else take the biome tint — that is
 /// where the per-biome hue direction (deep forest green, warm savanna...) comes from.
 fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], GroundFam) {
-    let biome = || biome_factor(crate::level::infinite_gen::biome_at_blended(seed, tx, ty));
+    let biome = || {
+        clamp_factor(biome_factor(crate::level::infinite_gen::biome_at_blended(
+            seed, tx, ty,
+        )))
+    };
     match g.tile_at(lvl, tx, ty).kind {
         TileKind::Sand | TileKind::Cactus | TileKind::FruitingCactus | TileKind::QuickSand => {
             (SAND_F, GroundFam::Sand)
         }
         TileKind::Snow | TileKind::SnowTree => (SNOW_F, GroundFam::Snow),
         TileKind::Mud => (MUD_F, GroundFam::Mud),
-        TileKind::Heath => (biome(), GroundFam::Heath),
+        // Heath keeps its painted look everywhere: under a desert-side biome tint
+        // the olive heath clods turned sand-yellow and read as translucent smoke
+        // stains against the dunes (ODDITIES O2b). Rock stays biome-tinted — it
+        // renders the neighbor ground's art beneath its boundary cells (rock.rs),
+        // and that ground must grade like the ground around it.
+        TileKind::Heath => (NEUTRAL_F, GroundFam::Heath),
         TileKind::Dirt | TileKind::Farm => (biome(), GroundFam::Dirt),
         // Species trees stand on the ground their renderer draws beneath them (pine
         // on snow, dead tree and palm on sand); classifying them all as grass used
@@ -689,6 +719,14 @@ const CARRY_COV: [i32; CARRY_DEPTH as usize] = [13, 10, 7, 4, 2];
 /// Strong enough to read as that ground, weak enough to keep the art's shading.
 const CARRY_LERP: i32 = 168;
 
+/// Coverage multiplier (of 16) by how many of a tile's edges carry. A clean
+/// two-field seam (1 edge) keeps the full ramp; in biome-border interleave zones a
+/// tile can border foreign ground on 2-4 sides, and at full strength those strips
+/// carpeted whole checker regions in neighbor color — grass islands bleached
+/// near-white beside tundra, blend bands turned camouflage (ODDITIES O3). Density
+/// scales down so busy zones stay readable as *their own* ground with soft edges.
+const CARRY_EDGE_SCALE: [i32; 4] = [16, 11, 8, 6];
+
 /// Dithered color-carry across ground-family seams: wherever two adjacent tiles
 /// belong to different ground families, pixels within [`CARRY_DEPTH`] of the shared
 /// edge (on *both* sides — each tile paints its own strip) lerp toward the
@@ -720,10 +758,14 @@ fn seam_carry(
     }
 
     // One strip: `horiz` = seam runs horizontally (neighbor above/below).
-    // `d`-th pixel row/column from the seam, world-anchored Bayer.
-    let mut strip = |tx: i32, ty: i32, dx: i32, dy: i32, ncol: i32| {
+    // `d`-th pixel row/column from the seam, world-anchored Bayer. `scale` (of 16)
+    // thins the Bayer coverage in border-dense zones (see CARRY_EDGE_SCALE).
+    let mut strip = |tx: i32, ty: i32, dx: i32, dy: i32, ncol: i32, scale: i32| {
         for d in 0..CARRY_DEPTH {
-            let cov = CARRY_COV[d as usize];
+            let cov = (CARRY_COV[d as usize] * scale) >> 4;
+            if cov == 0 {
+                continue;
+            }
             if dy != 0 {
                 // horizontal seam: rows into the tile from its top (dy<0) or bottom
                 let wy = if dy < 0 {
@@ -771,6 +813,22 @@ fn seam_carry(
         }
     };
 
+    // A "lone" tile has no 4-neighbor of its own family (a one-tile freckle). It
+    // shouldn't project a full-strength halo of its color onto all four neighbors —
+    // that read as a "glow square" wider than the freckle itself (ODDITIES O3).
+    // Grid-margin cells can't see their full neighborhood and count as not lone.
+    let th = fam.len() / tw;
+    let lone = |gi: usize, gj: usize| -> bool {
+        if gi == 0 || gj == 0 || gi + 1 >= tw || gj + 1 >= th {
+            return false;
+        }
+        let f = fam[gj * tw + gi];
+        fam[(gj - 1) * tw + gi] != f
+            && fam[(gj + 1) * tw + gi] != f
+            && fam[gj * tw + gi - 1] != f
+            && fam[gj * tw + gi + 1] != f
+    };
+
     for tj in 0..ny {
         for ti in 0..nx {
             let f = fam[(tj + 1) * tw + ti + 1];
@@ -779,11 +837,26 @@ fn seam_carry(
             }
             let (tx, ty) = (tx0 + ti as i32, ty0 + tj as i32);
             // (grid dx, grid dy) of the four neighbors; the strip hugs that edge.
-            for (dx, dy) in [(0i32, -1i32), (0, 1), (-1, 0), (1, 0)] {
+            const DIRS: [(i32, i32); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
+            let carries: [bool; 4] = std::array::from_fn(|k| {
+                let (dx, dy) = DIRS[k];
                 let n = fam[(tj as i32 + 1 + dy) as usize * tw + (ti as i32 + 1 + dx) as usize];
-                if n != GroundFam::Other && n != f {
-                    strip(tx, ty, dx, dy, fam_color(n));
+                n != GroundFam::Other && n != f
+            });
+            let edges = carries.iter().filter(|c| **c).count();
+            if edges == 0 {
+                continue;
+            }
+            let scale = CARRY_EDGE_SCALE[edges - 1];
+            for (k, &(dx, dy)) in DIRS.iter().enumerate() {
+                if !carries[k] {
+                    continue;
                 }
+                let (gi, gj) = ((ti as i32 + 1 + dx) as usize, (tj as i32 + 1 + dy) as usize);
+                let n = fam[gj * tw + gi];
+                // halve the carry toward one-tile freckles: soft edge, no glow halo
+                let s = if lone(gi, gj) { scale / 2 } else { scale };
+                strip(tx, ty, dx, dy, fam_color(n), s);
             }
         }
     }
@@ -822,8 +895,12 @@ fn build_luts(amb: &Ambient, fog: bool) -> Vec<[[u8; 256]; 3]> {
             let gain_fp = (tint * brightness * 256.0).round() as i32;
             // the atmosphere wash fades out where real light takes over
             let wash = (amb.wash[c] * (1.0 - ws) * extra).round() as i32;
+            // radiance glow (screen blend, see GLOW): zero at band 0 and in the fog
+            // bands (ws = 0 there), full at the emitter core
+            let glow_fp = (GLOW[c] * ws * 256.0).round() as i32;
             for (v, out) in lut[c].iter_mut().enumerate() {
-                *out = (((v as i32 * gain_fp) >> 8) + wash).min(255) as u8;
+                let lit = (((v as i32 * gain_fp) >> 8) + wash).min(255);
+                *out = (lit + (((255 - lit) * glow_fp) >> 8)).min(255) as u8;
             }
         }
     }
