@@ -102,6 +102,7 @@ pub fn die(g: &mut Game, e: &mut Entity) {
     match &e.kind {
         EntityKind::Player(_) => super::mob::player_behavior::die(g, e),
         EntityKind::Cow(_) => super::mob::cow::die(g, e),
+        EntityKind::Deer(_) => super::mob::deer::die(g, e),
         EntityKind::Pig(_) => super::mob::pig::die(g, e),
         EntityKind::Sheep(_) => super::mob::sheep::die(g, e),
         EntityKind::GlowWorm(_) => super::mob::glow_worm::die(g, e),
@@ -418,6 +419,7 @@ pub fn entity_tick(g: &mut Game, e: &mut Entity) {
     match &e.kind {
         EntityKind::Player(_) => super::mob::player_behavior::tick(g, e),
         EntityKind::Cow(_) => super::mob::cow::tick(g, e),
+        EntityKind::Deer(_) => super::mob::deer::tick(g, e),
         EntityKind::Pig(_) => super::mob::pig::tick(g, e),
         EntityKind::Sheep(_) => super::mob::sheep::tick(g, e),
         EntityKind::GlowWorm(_) => super::mob::glow_worm::tick(g, e),
@@ -453,7 +455,7 @@ pub fn entity_tick(g: &mut Game, e: &mut Entity) {
 pub fn entity_render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     match &e.kind {
         EntityKind::Player(_) => super::mob::player_behavior::render(g, screen, e),
-        EntityKind::Cow(_) | EntityKind::Pig(_) | EntityKind::Sheep(_) => {
+        EntityKind::Cow(_) | EntityKind::Deer(_) | EntityKind::Pig(_) | EntityKind::Sheep(_) => {
             passive_mob_render(g, screen, e)
         }
         EntityKind::GlowWorm(_) => super::mob::glow_worm::render(g, screen, e),

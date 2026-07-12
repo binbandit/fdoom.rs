@@ -164,8 +164,8 @@ overwrites `x`/`y`/`col` as needed. `bounds()` and `is_touching(area)` are the p
 pub enum EntityKind {
     Player(Box<mob::player::PlayerData>),
     // passive mobs
-    Cow(mob::cow::CowData), Pig(mob::pig::PigData), Sheep(mob::sheep::SheepData),
-    GlowWorm(mob::glow_worm::GlowWormData),
+    Cow(mob::cow::CowData), Deer(mob::deer::DeerData), Pig(mob::pig::PigData),
+    Sheep(mob::sheep::SheepData), GlowWorm(mob::glow_worm::GlowWormData),
     // enemy mobs
     Zombie(mob::zombie::ZombieData), Snake(mob::snake::SnakeData),
     Knight(mob::knight::KnightData),
@@ -238,7 +238,9 @@ max_health = (lvl == 0 ? 1 : lvl * lvl) * health * 2^diff_idx
 `random_walk_duration = 45`, `random_walk_chance = 40` — passive mobs don't scale health by
 mob level (they have no `lvl` field at all; only enemy mobs do). Pig/Sheep/GlowWorm are
 structurally identical to Cow at the data-layer level; only the sprite sheet coordinates,
-`color`, `health_factor`, and `die()` drop table differ (§8).
+`color`, `health_factor`, and `die()` drop table differ (§8). The Deer (hunting wave)
+adds leaf-level state on top (`DeerData { passive, flee_time, flee_dir }`) for its bolt
+behavior — see §5.4.
 
 ### 3.5 The Furniture chain (generic)
 
@@ -427,11 +429,14 @@ No dedicated `passivemob_tick_base` exists — passive mobs tick with plain `mob
 (there is no Java `PassiveMob.tick()` override either; the class only overrides `render`,
 `die`, and `checkStartPos`). `passive_mob_render` sets `e.c.col` from the passive mob's
 fixed `color` field (not level-dependent, since passive mobs have no `lvl`) then calls
-`mobai_render`. `passive_mob_die` awards a flat 15 score, no multiplier. There is **no
-flee-from-player behavior and no breeding mechanic** in the current source — passive mobs
-wander exactly like the base `MobAi` random-walk, with no special reaction to player
-proximity or to each other. If you were expecting Minecraft-style breeding/fleeing here:
-it doesn't exist; don't assume it does when reading spawn or AI code.
+`mobai_render`. `passive_mob_die` awards a flat 15 score, no multiplier. There is **no breeding
+mechanic**, and no *PassiveMob-layer* flee behavior — the barnyard trio wanders exactly
+like the base `MobAi` random-walk with no reaction to player proximity. The one
+exception is leaf-level: the **Deer** (hunting wave, `mob/deer.rs`) checks the closest
+player before its base tick and bolts (`flee_time` countdown: `walk_time = 1`,
+`speed = 2` — faster than the player) when approached within ~6 tiles in the open.
+A player standing on a `TallGrass` tile is concealed down to ~2 tiles — the mob
+stealth render rule (§5.2) inverted into a hunting mechanic: stalk through the grass.
 
 ## 6. Movement/collision (`src/entity/behavior.rs`)
 
@@ -643,6 +648,7 @@ trigger it.
 | Mob | Data layer | Notable behavior |
 |---|---|---|
 | Cow | `PassiveMobData` | Wanders; drops leather + raw beef on death (amount scales inversely with difficulty). |
+| Deer | `DeerData { passive, flee_time, flee_dir }` | **Hunting wave — the first true prey.** Grazes Forest/Plains at dawn/day (long pauses: `random_walk_chance 70`, `duration 30`); never attacks. Bolts away at double step for ~2 s when a player closes to 6 tiles in the open (2 tiles if the player stands in tall grass — the stalk); a landed hit also triggers the bolt. Drops Venison 1–2 (difficulty-gated like the cow) + exactly 1 Hide (tans 2:1 into Leather with a Cord, personal crafting). True-color sprite (`mobs/deer/frames.png`, unpinned). |
 | Pig | `PassiveMobData` | Wanders; drops raw pork on death. |
 | Sheep | `PassiveMobData` | Wanders; drops wool on death — **no shearing mechanic** (explicit `// JAVA:` note that this fork never added wool-cutting). |
 | GlowWorm | `PassiveMobData` | Single static 1×1 sprite; ambient light source (radius 2); self-removes outside night/evening; spawns as a side-effect of any surface passive-mob roll, placed beside the mob it escorts (the Java raw-`(0,0)` quirk was fixed post-port — §11). |
@@ -817,7 +823,9 @@ attempts (stopping at the first successful spawn):
   (`check_start_pos_clearance` in `behavior.rs`) with their own tile gates.
 - **Passive spawn**: surface only (`depth == 0`), gated by `passive_check_start_pos`
   (similar distance/density check, plus must land on `GRASS`/`FLOWER`). Picks Cow
-  (`rnd <= 22` at night, `<= 33` by day), Pig (`rnd >= 68`), or Sheep (everything else), and
+  (`rnd <= 22` at night, `<= 33` by day), Pig (`rnd >= 68`), Deer (`34..=50` when it's
+  Morning/Day *and* the spot is Forest/Plains — `deer_biome`), or Sheep (everything
+  else), and
   — regardless of which — **always additionally spawns a GlowWorm** beside the spawned
   mob (`add_at` at the same coordinates; the Java quirk of adding it at its raw default
   `(0, 0)` via `Level::add` was fixed post-port).

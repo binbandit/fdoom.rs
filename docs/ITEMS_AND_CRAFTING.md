@@ -615,10 +615,16 @@ the actual `Recipe::new` calls in `Recipes::new()` (`src/item/recipe.rs`):
 
 Field cooking (fire wave, generalized by the farming wave): interacting with a
 **lit Campfire** while holding anything in `item/cooking.rs`'s `cooked_result` table
-roasts it 1:1 with no coal (raw meats/fish, Mushroom, Potato, Corn, Pumpkin, and the
-Mushroom Skewer), at a small fuel cost plus a smoke puff and the Craft sound — an
-entity-interact path (`campfire_behavior::interact`), not a recipe list, so it does
+roasts it 1:1 with no coal (raw meats/fish, Venison, Mushroom, Potato, Corn, Pumpkin,
+and the Mushroom Skewer), at a small fuel cost plus a smoke puff and the Craft sound —
+an entity-interact path (`campfire_behavior::interact`), not a recipe list, so it does
 not appear in any crafting menu.
+
+Hunting wave (the Deer — `docs/ENTITIES.md` §5.4): `Venison` (heal 2, queasy risk)
+roasts into `Cooked Venison` (heal 4, the premium cooked single); `Hide` (exactly 1
+per deer) tans in personal crafting — `Leather*2 <- Hide*2 + Cord` — a supplemental
+route to the classic `Leather Armor <- leather*10` that leaves the cow/hound Leather
+and Fur drops untouched.
 
 Registered forage foods (these exact names are the contract): `Berry` (heal 1),
 `Mushroom` (1), `Apple` (1, pre-existing), `Cactus Fruit` (1), `Coconut` (2),

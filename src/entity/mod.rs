@@ -80,6 +80,7 @@ pub enum EntityKind {
     Player(Box<mob::player::PlayerData>),
     // passive mobs
     Cow(mob::cow::CowData),
+    Deer(mob::deer::DeerData),
     Pig(mob::pig::PigData),
     Sheep(mob::sheep::SheepData),
     GlowWorm(mob::glow_worm::GlowWormData),
@@ -179,6 +180,7 @@ impl Entity {
         Some(match &self.kind {
             EntityKind::Player(p) => &p.mob,
             EntityKind::Cow(m) => &m.passive.ai.mob,
+            EntityKind::Deer(m) => &m.passive.ai.mob,
             EntityKind::Pig(m) => &m.passive.ai.mob,
             EntityKind::Sheep(m) => &m.passive.ai.mob,
             EntityKind::GlowWorm(m) => &m.passive.ai.mob,
@@ -198,6 +200,7 @@ impl Entity {
         Some(match &mut self.kind {
             EntityKind::Player(p) => &mut p.mob,
             EntityKind::Cow(m) => &mut m.passive.ai.mob,
+            EntityKind::Deer(m) => &mut m.passive.ai.mob,
             EntityKind::Pig(m) => &mut m.passive.ai.mob,
             EntityKind::Sheep(m) => &mut m.passive.ai.mob,
             EntityKind::GlowWorm(m) => &mut m.passive.ai.mob,
@@ -217,6 +220,7 @@ impl Entity {
     pub fn mob_ai(&self) -> Option<&mob::MobAiData> {
         Some(match &self.kind {
             EntityKind::Cow(m) => &m.passive.ai,
+            EntityKind::Deer(m) => &m.passive.ai,
             EntityKind::Pig(m) => &m.passive.ai,
             EntityKind::Sheep(m) => &m.passive.ai,
             EntityKind::GlowWorm(m) => &m.passive.ai,
@@ -235,6 +239,7 @@ impl Entity {
     pub fn mob_ai_mut(&mut self) -> Option<&mut mob::MobAiData> {
         Some(match &mut self.kind {
             EntityKind::Cow(m) => &mut m.passive.ai,
+            EntityKind::Deer(m) => &mut m.passive.ai,
             EntityKind::Pig(m) => &mut m.passive.ai,
             EntityKind::Sheep(m) => &mut m.passive.ai,
             EntityKind::GlowWorm(m) => &mut m.passive.ai,
@@ -283,6 +288,7 @@ impl Entity {
     pub fn passive_mob(&self) -> Option<&mob::PassiveMobData> {
         Some(match &self.kind {
             EntityKind::Cow(m) => &m.passive,
+            EntityKind::Deer(m) => &m.passive,
             EntityKind::Pig(m) => &m.passive,
             EntityKind::Sheep(m) => &m.passive,
             EntityKind::GlowWorm(m) => &m.passive,

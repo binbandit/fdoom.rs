@@ -82,6 +82,10 @@ pub struct Game {
     pub save_cooldown: i32,
     /// Java `Tile.tickCount` (a static on Tile, but game state).
     pub tile_tick_count: i32,
+    /// Trees felled since the journal last swept (tile `hurt_dmg` has no attacker
+    /// handle, so the tally parks here until `field_notes::tick` moves it onto the
+    /// player's notes once a second).
+    pub trees_felled_pending: i32,
 
     // Java `World` statics + levels
     pub levels: Vec<Option<Level>>,
@@ -180,6 +184,7 @@ impl Game {
             pending_save: false,
             save_cooldown: 0,
             tile_tick_count: 0,
+            trees_felled_pending: 0,
             levels: (0..crate::level::IDX_TO_DEPTH.len())
                 .map(|_| None)
                 .collect(),
@@ -363,6 +368,8 @@ impl Game {
 
         // rare-world-events scheduler: day counting + dusk/dawn cues (core::events)
         crate::core::events::tick(self);
+        // the survivor's journal: once-a-second biome/place/event/depth sweep
+        crate::core::field_notes::tick(self);
         // common-ambience weather under it: rain/snow set-in and clear cues
         // (core::weather; the rain itself renders in gfx::lighting)
         crate::core::weather::tick(self);

@@ -701,6 +701,18 @@ fn adder_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
     }
 }
 
+/// Deer country: forest edges and open plains (infinite); grass on finite worlds.
+fn deer_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
+    if g.level(lvl).is_infinite() {
+        matches!(
+            infinite_gen::biome_at(g.world_seed, x >> 4, y >> 4),
+            infinite_gen::Biome::Forest | infinite_gen::Biome::Plains
+        )
+    } else {
+        g.tile_at(lvl, x >> 4, y >> 4).name == "GRASS"
+    }
+}
+
 /// Rattler country: the desert (infinite); sand on finite worlds.
 fn rattler_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
     if g.level(lvl).is_infinite() {
@@ -934,6 +946,16 @@ fn try_spawn_pass(g: &mut Game, lvl: usize) {
                 g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
             } else if rnd >= 68 {
                 let e = crate::entity::mob::pig::new(g);
+                g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
+            } else if (34..=50).contains(&rnd)
+                && matches!(
+                    g.get_time(),
+                    crate::core::updater::Time::Morning | crate::core::updater::Time::Day
+                )
+                && deer_biome(g, lvl, nx, ny)
+            {
+                // deer graze the forest edges and plains at dawn and through the day
+                let e = crate::entity::mob::deer::new(g);
                 g.level_mut(lvl).add_at(e, nx, ny, false, lvl);
             } else {
                 let e = crate::entity::mob::sheep::new(g);

@@ -191,6 +191,10 @@ impl Recipes {
             // you're cold NOW (straw shades the desert sun, furs blunt the tundra)
             r("Straw Hat", "Grass Fibers*6 + Cord"),
             r("Fur Coat", "Fur*5 + Cord*2"),
+            // hunting wave: field-tanning — scrape deer hides, stretch them on a
+            // cord frame. Supplements the cow/hound Leather drops on the way to
+            // Leather Armor (leather*10).
+            r("Leather*2", "Hide*2 + Cord"),
             r("Fishing Rod", "Stick + Cord*2"),
             // fossicking: pan the creeks, shore up the tunnels
             r("Prospector's Pan", "Stick*3 + Cord + Stone"),

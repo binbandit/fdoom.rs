@@ -125,10 +125,11 @@ pub enum Tab {
     Wear,
     Craft,
     SelfPane,
+    Notes,
 }
 
 impl Tab {
-    const ALL: [Tab; 4] = [Tab::Pack, Tab::Wear, Tab::Craft, Tab::SelfPane];
+    const ALL: [Tab; 5] = [Tab::Pack, Tab::Wear, Tab::Craft, Tab::SelfPane, Tab::Notes];
 
     fn label(self) -> &'static str {
         match self {
@@ -136,6 +137,7 @@ impl Tab {
             Tab::Wear => "WEAR",
             Tab::Craft => "CRAFT",
             Tab::SelfPane => "SELF",
+            Tab::Notes => "NOTES",
         }
     }
 }
@@ -314,6 +316,52 @@ pub fn effect_lines(pd: &PlayerData) -> Vec<String> {
             )
         })
         .collect()
+}
+
+/// The NOTES pane's stat rows as (label, value) pairs. Public so tests can pin the
+/// pane's content without scraping pixels (same contract as [`effect_lines`]).
+pub fn notes_lines(pd: &PlayerData) -> Vec<(String, String)> {
+    use crate::core::field_notes as fnotes;
+    let n = &pd.notes;
+    let deepest = if n.deepest_depth < 0 {
+        format!(
+            "{}, B{}",
+            level::get_level_name(n.deepest_depth).to_uppercase(),
+            -n.deepest_depth
+        )
+    } else {
+        "THE SURFACE".to_string()
+    };
+    vec![
+        ("DAYS SURVIVED".into(), n.days_survived.to_string()),
+        ("DEEPEST DIG".into(), deepest),
+        (
+            "COUNTRY SEEN".into(),
+            format!("{}/{}", n.biomes_seen_count(), fnotes::BIOME_COUNT),
+        ),
+        (
+            "PLACES FOUND".into(),
+            format!("{}/{}", n.places_found_count(), fnotes::PLACE_COUNT),
+        ),
+        (
+            "EVENTS WITNESSED".into(),
+            format!("{}/{}", n.events_witnessed_count(), fnotes::EVENT_COUNT),
+        ),
+        ("TREES FELLED".into(), n.trees_felled.to_string()),
+        ("FISH CAUGHT".into(), n.fish_caught.to_string()),
+        ("ORE PANNED".into(), n.ore_panned.to_string()),
+    ]
+}
+
+/// "THE PLAINS. THE FOREST." — the journal's seen-country footer line.
+pub fn seen_country(pd: &PlayerData) -> String {
+    use crate::core::field_notes as fnotes;
+    fnotes::ALL_BIOMES
+        .iter()
+        .filter(|b| pd.notes.biomes_seen & (1u16 << (**b as u16)) != 0)
+        .map(|b| format!("{}.", fnotes::biome_title(*b)))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Warmth-gauge cell colors, one per band step (Freezing -3 .. Scorching +3) —
@@ -948,7 +996,7 @@ impl SurvivalDisplay {
         font::draw(">", screen, PANEL_X + PANEL_W - 14, TAB_Y, color::GRAY);
 
         let slot_x0 = PANEL_X + 16;
-        let slot_w = (PANEL_W - 48) / 4;
+        let slot_w = (PANEL_W - 48) / Tab::ALL.len() as i32;
         for (i, tab) in Tab::ALL.iter().enumerate() {
             let label = tab.label();
             let w = font::text_width(label);
@@ -1536,6 +1584,40 @@ impl SurvivalDisplay {
             }
         }
     }
+
+    fn render_notes(&self, screen: &mut Screen, g: &mut Game) {
+        let Some(player) = g.entities.get(self.player_eid) else {
+            return;
+        };
+        let pd = player.player();
+        let x = 24;
+        let value_right = PANEL_X + PANEL_W - 24;
+
+        let mut y = BODY_Y + 2;
+        font::draw("FIELD NOTES", screen, x, y, COL_HEADER);
+        y += ROW_H + 2;
+        for (label, value) in notes_lines(pd) {
+            font::draw(&label, screen, x, y, color::GRAY);
+            let vx = value_right - font::text_width(&value);
+            font::draw(&value, screen, vx, y, color::WHITE);
+            y += ROW_H;
+        }
+
+        // the country, journal-style: every land that has a line in the notes
+        y += 4;
+        font::draw("THE COUNTRY", screen, x, y, COL_HEADER);
+        y += ROW_H;
+        let names = seen_country(pd);
+        if names.is_empty() {
+            font::draw("NOTHING WRITTEN YET.", screen, x, y, color::DARK_GRAY);
+        } else {
+            let w = PANEL_X + PANEL_W - 4 - x;
+            for line in font::get_lines(&names, w, BODY_BOTTOM - y, 1) {
+                font::draw(&line, screen, x, y, color::DARK_GRAY);
+                y += ROW_H;
+            }
+        }
+    }
 }
 
 impl Display for SurvivalDisplay {
@@ -1581,7 +1663,7 @@ impl Display for SurvivalDisplay {
             next += 1;
         }
         if next != cur {
-            self.tab = Tab::ALL[next.rem_euclid(4) as usize];
+            self.tab = Tab::ALL[next.rem_euclid(Tab::ALL.len() as i32) as usize];
             // crafting/equipping on other tabs mutates the inventory: entering
             // PACK with the old row list would act on stale indices (panic bug —
             // "index out of bounds" holding an item after crafting)
@@ -1597,6 +1679,7 @@ impl Display for SurvivalDisplay {
             Tab::Wear => self.tick_wear(g),
             Tab::Craft => self.tick_craft(g),
             Tab::SelfPane => {}
+            Tab::Notes => {}
         }
     }
 
@@ -1625,6 +1708,7 @@ impl Display for SurvivalDisplay {
             Tab::Wear => self.render_wear(screen, g),
             Tab::Craft => self.render_craft(screen, g),
             Tab::SelfPane => self.render_self(screen, g),
+            Tab::Notes => self.render_notes(screen, g),
         }
     }
 }

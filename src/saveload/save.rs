@@ -348,10 +348,20 @@ pub fn write_player(g: &Game, player: &Entity, data: &mut Vec<String>) {
     if let Some(head) = &pd.worn_head {
         data.push(format!("{WORN_HEAD_MARKER}{}", head.get_name()));
     }
+
+    // Field Notes ride the same tolerant-marker scheme: only written once the
+    // journal has anything in it, so untouched saves stay format-identical.
+    if pd.notes != crate::core::field_notes::FieldNotes::default() {
+        data.push(format!("{NOTES_MARKER}{}", pd.notes.encode()));
+    }
 }
 
 /// Tag of the Player-file entry carrying the HEAD wear slot (see `write_player`).
 pub const WORN_HEAD_MARKER: &str = "WornHead:";
+
+/// Tag of the Player-file entry carrying the Field Notes journal (see
+/// `core::field_notes`). The `v1` names the payload layout, not the save version.
+pub const NOTES_MARKER: &str = "Notes:v1:";
 
 /// Marks the held item's entry in the Inventory file so loading can re-equip it.
 /// Saves from before the marker load fine (their first entry just stays in the
@@ -378,6 +388,7 @@ fn entity_class_name(e: &Entity) -> &'static str {
     match &e.kind {
         EntityKind::Player(_) => "Player",
         EntityKind::Cow(_) => "Cow",
+        EntityKind::Deer(_) => "Deer",
         EntityKind::Pig(_) => "Pig",
         EntityKind::Sheep(_) => "Sheep",
         EntityKind::GlowWorm(_) => "GlowWorm",

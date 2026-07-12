@@ -309,6 +309,10 @@ pub fn tick(g: &mut Game) {
         g.events.day_number += 1;
         // the real calendar can roll over mid-session too
         g.events.season = season_now(g.events.date_override);
+        // the journal's persistent day count (day_number restarts every session)
+        if g.try_player().is_some() {
+            g.player_mut().player_mut().notes.days_survived += 1;
+        }
     }
     g.events.prev_tick_count = g.tick_count;
     if g.events.prev_time.is_none() {

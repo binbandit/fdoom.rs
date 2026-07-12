@@ -3,6 +3,7 @@
 //! per-mob files.
 
 pub mod cow;
+pub mod deer;
 pub mod feral_hound;
 pub mod ghost;
 pub mod glow_worm;

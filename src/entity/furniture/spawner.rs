@@ -27,6 +27,7 @@ pub struct SpawnerData {
 fn mob_class_name(mob: &Entity) -> &'static str {
     match &mob.kind {
         EntityKind::Cow(_) => "Cow",
+        EntityKind::Deer(_) => "Deer",
         EntityKind::Pig(_) => "Pig",
         EntityKind::Sheep(_) => "Sheep",
         EntityKind::GlowWorm(_) => "GlowWorm",

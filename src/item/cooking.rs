@@ -11,9 +11,10 @@
 /// The campfire's field-cooking path and the station recipe lists both follow this
 /// one table — if it maps here, it cooks.
 pub fn cooked_result(raw_name: &str) -> Option<&'static str> {
-    let table: [(&str, &str); 10] = [
+    let table: [(&str, &str); 11] = [
         ("Raw Pork", "Cooked Pork"),
         ("Raw Beef", "Steak"),
+        ("Venison", "Cooked Venison"),
         ("Raw Fish", "Cooked Fish"),
         ("Big Fish", "Cooked Big Fish"),
         ("Cave Eel", "Cooked Cave Eel"),
@@ -33,7 +34,7 @@ pub fn cooked_result(raw_name: &str) -> Option<&'static str> {
 /// Queasy spell when eaten. Cooking always clears the risk.
 pub fn queasy_risk(name: &str) -> bool {
     [
-        "Raw Pork", "Raw Beef", "Raw Fish", "Big Fish", "Cave Eel", "Potato",
+        "Raw Pork", "Raw Beef", "Venison", "Raw Fish", "Big Fish", "Cave Eel", "Potato",
     ]
     .iter()
     .any(|n| n.eq_ignore_ascii_case(name))

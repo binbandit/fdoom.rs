@@ -85,6 +85,7 @@ fn unpinned_files_follow_pixel_mode_rules() {
         "tiles/wet_sand_texture.png",
     ];
     const UNPINNED_RGB: &[&str] = &[
+        "mobs/deer/frames.png",
         "tiles/crop_carrot.png",
         "tiles/crop_corn.png",
         "tiles/crop_potato.png",

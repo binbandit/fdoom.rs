@@ -115,6 +115,7 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
     );
     g.level_mut(lvl).add(text, lvl);
     if damage >= tree_health {
+        g.trees_felled_pending += 1; // journal tally (drained by field_notes::tick)
         let wood = crate::item::registry::get(g, "Wood");
         drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[wood]);
         let acorn = crate::item::registry::get(g, "Acorn");

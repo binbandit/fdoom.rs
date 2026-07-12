@@ -615,6 +615,10 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items.push(food("Cooked Fish", (24, 4), get4(-1, 220, 330, 440), 3));
     items.push(food("Cooked Pork", (20, 4), get4(-1, 220, 440, 330), 3));
     items.push(food("Steak", (20, 4), get4(-1, 100, 333, 211), 3));
+    // Hunting wave: deer drops. Venison is dark game meat (raw 2, queasy risk);
+    // Cooked Venison is the premium cooked single at 4 — the stalk's payoff.
+    items.push(food("Venison", (20, 4), get4(-1, 100, 301, 412), 2));
+    items.push(food("Cooked Venison", (20, 4), get4(-1, 110, 322, 443), 4));
     items.push(food("Gold Apple", (9, 4), get4(-1, 110, 440, 550), 10));
     // Fishing wave (player_behavior::go_fishing): Big Fish is the Deep Water prize,
     // Cave Eel comes out of underground pools. Raw heals sit on the raw=1..2 scale;
@@ -740,6 +744,8 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items.push(stackable("Wood", (28, 4), get4(-1, 310, 532, 532)));
     items.push(stackable("Stone", (2, 4), get4(-1, 111, 333, 555)));
     items.push(stackable("Leather", (19, 4), get4(-1, 100, 211, 322)));
+    // Raw deer hide — tans into Leather (Hide*2 + Cord, personal crafting).
+    items.push(stackable("Hide", (19, 4), get4(-1, 100, 320, 442)));
     items.push(stackable("Wheat", (6, 4), get4(-1, 110, 330, 550)));
     items.push(stackable("Key", (26, 4), get4(-1, -1, 444, 550)));
     items.push(stackable("arrow", (13, 5), get4(-1, 111, 222, 430)));

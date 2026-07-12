@@ -743,6 +743,11 @@ Written by `write_player`, one value per line, in order:
 | 12 | potion effects | `"PotionEffects[Type1;dur1:Type2;dur2:...]"`, `"PotionEffects[]"` if none |
 | 13 | shirt_color | int |
 | 14 | skinon | `"true"`/`"false"` |
+| 15 | `"WornHead:{name}"` | **tolerant trailing marker** — only written while head gear is worn; absent in old saves |
+| 16 | `"Notes:v1:{d;b;p;e;dd;t;f;o}"` | **tolerant trailing marker** — the Field Notes journal (`core::field_notes`): days survived, biome/place/event bitmasks, deepest depth, trees/fish/ore tallies, `;`-separated. Only written once non-default; old saves open a blank journal, malformed fields read as 0 |
+
+Trailing-marker entries are parsed by prefix (`data.first().strip_prefix(...)`), so they
+are individually optional and order-tolerant — the load path never panics on their absence.
 
 Fields 8-9 being conditional is why old-version loading branches heavily on where in the
 line sequence armor data lands (§7.9 item 13). **Not saved here** (see §7.8 "what's not

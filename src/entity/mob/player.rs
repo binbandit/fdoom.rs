@@ -136,6 +136,10 @@ pub struct PlayerData {
     /// from the world): the last band that fired a cue, and the spacing between cues.
     pub temp_prev_band: i32,
     pub temp_cue_cooldown: i32,
+
+    /// Field Notes — the survivor's journal (days survived, country seen, tallies).
+    /// Persistent: rides the player save behind the `Notes:v1:` trailing marker.
+    pub notes: crate::core::field_notes::FieldNotes,
 }
 
 impl PlayerData {
@@ -296,6 +300,7 @@ pub fn new(g: &Game, previous: Option<&PlayerData>) -> Entity {
         cord_cue_done: false,
         temp_prev_band: 0,
         temp_cue_cooldown: 0,
+        notes: Default::default(),
     };
 
     if let Some(prev) = previous {

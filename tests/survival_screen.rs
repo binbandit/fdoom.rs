@@ -1,6 +1,7 @@
-//! The survival screen (UI redesign lane L2): E opens the four-tab shell, tabs
+//! The survival screen (UI redesign lane L2): E opens the five-tab shell, tabs
 //! navigate with wrap, ESC closes from anywhere, PACK categorizes with a detail
 //! card and working hold/drop actions, SELF reads temperature bands and effects.
+//! (NOTES, the fifth tab, is covered in tests/hunting_notes.rs.)
 
 use fdoom::core::temperature;
 use fdoom::core::updater::NORM_SPEED;
@@ -50,32 +51,32 @@ fn tabs_cycle_left_right_with_wrap() {
     tw.press("E");
 
     let mut xs = Vec::new();
-    for _ in 0..4 {
+    for _ in 0..5 {
         let frame = tw.render();
         xs.push(underline_x(&frame).expect("active tab underline"));
         tw.press("RIGHT");
     }
     let back = underline_x(&tw.render()).expect("active tab underline");
 
-    assert_eq!(xs.len(), 4);
+    assert_eq!(xs.len(), 5);
     for pair in xs.windows(2) {
         assert!(
             pair[1] > pair[0],
             "each RIGHT should move the underline right: {xs:?}"
         );
     }
-    assert_eq!(back, xs[0], "four RIGHTs should wrap back to PACK");
+    assert_eq!(back, xs[0], "five RIGHTs should wrap back to PACK");
 
-    // LEFT from PACK wraps to SELF (the last tab)
+    // LEFT from PACK wraps to NOTES (the last tab)
     tw.press("LEFT");
     let left_wrap = underline_x(&tw.render()).expect("active tab underline");
-    assert_eq!(left_wrap, xs[3], "LEFT from PACK should wrap to SELF");
+    assert_eq!(left_wrap, xs[4], "LEFT from PACK should wrap to NOTES");
 }
 
 #[test]
 fn esc_closes_from_every_tab() {
     let mut tw = TestWorld::infinite().name("ss_esc").build();
-    for i in 0..4 {
+    for i in 0..5 {
         tw.press("E");
         for _ in 0..i {
             tw.press("RIGHT");

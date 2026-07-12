@@ -3,6 +3,7 @@
 //! `Game` struct (see PORTING.md).
 
 pub mod events;
+pub mod field_notes;
 pub mod file_handler;
 pub mod game;
 pub mod io;

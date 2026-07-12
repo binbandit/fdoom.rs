@@ -743,6 +743,16 @@ impl Load {
             data.remove(0);
         }
 
+        // Field Notes journal: same tolerant trailing-marker scheme. Old saves have
+        // no entry and open a blank journal; a malformed payload reads as zeros.
+        if let Some(payload) = data
+            .first()
+            .and_then(|d| d.strip_prefix(crate::saveload::save::NOTES_MARKER))
+        {
+            player.player_mut().notes = crate::core::field_notes::FieldNotes::decode(payload);
+            data.remove(0);
+        }
+
         let cur = g.current_level;
         if g.levels[cur].is_some() {
             g.level_mut(cur).add(player, cur);
@@ -1175,6 +1185,7 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
         "Player" => None,
         "RemotePlayer" => None,
         "Cow" => Some(mob::cow::new(g)),
+        "Deer" => Some(mob::deer::new(g)),
         "Sheep" => Some(mob::sheep::new(g)),
         "Pig" => Some(mob::pig::new(g)),
         "Zombie" => Some(mob::zombie::new(g, moblvl)),

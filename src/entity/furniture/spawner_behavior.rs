@@ -33,6 +33,7 @@ fn init_mob(e: &mut Entity, m: Entity) {
 fn new_mob_instance(g: &Game, template: &Entity, lvl: i32) -> Option<Entity> {
     Some(match &template.kind {
         EntityKind::Cow(_) => mob::cow::new(g),
+        EntityKind::Deer(_) => mob::deer::new(g),
         EntityKind::Pig(_) => mob::pig::new(g),
         EntityKind::Sheep(_) => mob::sheep::new(g),
         EntityKind::GlowWorm(_) => mob::glow_worm::new(g),

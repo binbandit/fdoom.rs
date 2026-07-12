@@ -189,6 +189,10 @@ pub fn try_pan(
         PanFind::Gem => (Some("gem"), "A gemstone glitters in the silt!"),
     };
     if let Some(name) = name {
+        // journal tally: real ore only (stones and tubers don't count)
+        if matches!(name, "Coal" | "Iron Ore" | "Gold Ore" | "gem") && player.is_player() {
+            player.player_mut().notes.ore_panned += 1;
+        }
         let find = crate::item::registry::get(g, name);
         drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, find);
     }

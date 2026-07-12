@@ -1173,6 +1173,10 @@ pub fn go_fishing(g: &mut Game, player: &mut Entity, x: i32, y: i32, xt: i32, yt
             _ => "Slime",
         },
     };
+    // journal tally: fish only (slime and snagged junk don't count)
+    if matches!(name, "Raw Fish" | "Big Fish" | "Cave Eel") && player.is_player() {
+        player.player_mut().notes.fish_caught += 1;
+    }
     let item = registry::get(g, name);
     level::drop_item(g, lvl, x, y, item);
 }
