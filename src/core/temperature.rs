@@ -181,7 +181,9 @@ fn precip_at(g: &Game, xt: i32, yt: i32) -> Precip {
         return Precip::None;
     }
     match infinite_gen::biome_at(seed, xt, yt) {
-        Biome::Desert if !weather::desert_slice_wet(seed, day, t / weather::SLICE_LEN) => {
+        Biome::Desert | Biome::Badlands
+            if !weather::desert_slice_wet(seed, day, t / weather::SLICE_LEN) =>
+        {
             Precip::None
         }
         Biome::Tundra => Precip::Snow(i),
@@ -235,6 +237,9 @@ pub struct Modifiers {
     pub straw_hat: bool,
     pub fur_coat: bool,
     pub near_fire: bool,
+    /// Within basking range (~3 tiles) of hot-spring water — the campfire clamp's
+    /// wild cousin (content wave; see `tile/spring_water.rs`).
+    pub near_spring: bool,
 }
 
 /// The pure mitigation pipeline: ambient score in, felt score out.
@@ -258,11 +263,28 @@ pub fn apply_modifiers(ambient: f64, m: &Modifiers) -> f64 {
     if s < 0.0 && m.fur_coat {
         s = (s + COAT_SHIFT).min(0.0);
     }
-    // resting range of a lit campfire overrides cold entirely
-    if s < 0.0 && m.near_fire {
+    // resting range of a lit campfire — or basking range of a hot spring —
+    // overrides cold entirely (swimming in the spring is inside that range, so a
+    // freezing swimmer surfaces fully warmed)
+    if s < 0.0 && (m.near_fire || m.near_spring) {
         s = 0.0;
     }
     s
+}
+
+/// Radius (Chebyshev, tiles) within which hot-spring water clamps cold to comfort.
+pub const SPRING_BASK_RADIUS: i32 = 3;
+
+/// Is any Spring Water tile within basking range of `(xt, yt)`?
+fn near_hot_spring(g: &Game, lvl: usize, xt: i32, yt: i32) -> bool {
+    for dy in -SPRING_BASK_RADIUS..=SPRING_BASK_RADIUS {
+        for dx in -SPRING_BASK_RADIUS..=SPRING_BASK_RADIUS {
+            if matches!(g.tile_at(lvl, xt + dx, yt + dy).kind, TileKind::SpringWater) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Read the [`Modifiers`] off the live world for a (player) entity. Works during
@@ -285,6 +307,7 @@ pub fn modifiers_for(g: &Game, e: &Entity) -> Modifiers {
         straw_hat: worn_head(e) == Some("Straw Hat") || worn(e) == Some("Straw Hat"),
         fur_coat: worn(e) == Some("Fur Coat"),
         near_fire: crate::entity::furniture::campfire_behavior::near_lit_campfire(g, e),
+        near_spring: near_hot_spring(g, lvl, xt, yt),
     }
 }
 

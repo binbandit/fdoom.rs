@@ -146,6 +146,18 @@ pub fn make_timber_prop_tile(name: &str) -> TileDef {
 pub fn make_window_tile(name: &str) -> TileDef {
     window::make(name)
 }
+pub fn make_spring_water_tile(name: &str) -> TileDef {
+    spring_water::make(name)
+}
+pub fn make_beehive_tile(name: &str) -> TileDef {
+    beehive::make(name)
+}
+pub fn make_clay_tile(name: &str) -> TileDef {
+    clay::make(name)
+}
+pub fn make_ore_freckle_tile(name: &str) -> TileDef {
+    clay::make_freckle(name)
+}
 
 /* ---------------- dispatch (Java virtual methods) ---------------- */
 
@@ -203,6 +215,10 @@ fn render_inner(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x:
         TileKind::TimberProp => timber_prop::render(g, screen, def, lvl, x, y),
         TileKind::Window => window::render(g, screen, def, lvl, x, y),
         TileKind::Heath => heath::render(g, screen, def, lvl, x, y),
+        TileKind::SpringWater => spring_water::render(g, screen, def, lvl, x, y),
+        TileKind::Beehive => beehive::render(g, screen, def, lvl, x, y),
+        TileKind::Clay => clay::render(g, screen, def, lvl, x, y),
+        TileKind::OreFreckle => clay::freckle_render(g, screen, def, lvl, x, y),
         TileKind::Torch { .. } => torch::render(g, screen, def, lvl, x, y),
         _ => default_render(g, screen, def, lvl, x, y),
     }
@@ -262,6 +278,8 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         TileKind::TallGrass { .. } => tall_grass::tick(g, def, lvl, xt, yt),
         TileKind::TidalFlat => tidal::tick(g, lvl, xt, yt),
         TileKind::GraveStone { .. } => grave_stone::tick(g, def, lvl, xt, yt),
+        TileKind::SpringWater => spring_water::tick(g, def, lvl, xt, yt),
+        TileKind::Beehive => beehive::tick(g, def, lvl, xt, yt),
         _ => {}
     }
 }
@@ -279,6 +297,8 @@ pub fn may_pass(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32, e: &Entity)
         TileKind::DugPit | TileKind::Chasm | TileKind::Ladder => true,
         TileKind::Hole => hole::may_pass(g, def, lvl, x, y, e),
         TileKind::Water => water::may_pass(g, def, lvl, x, y, e),
+        TileKind::SpringWater => spring_water::may_pass(g, def, lvl, x, y, e),
+        TileKind::Beehive => beehive::may_pass(g, def, lvl, x, y, e),
         TileKind::Rock => rock::may_pass(g, def, lvl, x, y, e),
         TileKind::Tree => tree::may_pass(g, def, lvl, x, y, e),
         TileKind::TreeSpecies { .. } => tree_species::may_pass(g, def, lvl, x, y, e),
@@ -381,6 +401,7 @@ pub fn hurt_by(
         }
         TileKind::TimberProp => timber_prop::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         TileKind::Window => window::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
+        TileKind::Beehive => beehive::hurt_by(g, def, lvl, x, y, source, dmg, attack_dir),
         _ => false,
     }
 }
@@ -473,6 +494,11 @@ pub fn interact(
             grave_stone::interact(g, def, lvl, xt, yt, player, item, attack_dir)
         }
         TileKind::Torch { .. } => torch::interact(g, def, lvl, xt, yt, player, item, attack_dir),
+        TileKind::Beehive => beehive::interact(g, def, lvl, xt, yt, player, item, attack_dir),
+        TileKind::Clay => clay::interact(g, def, lvl, xt, yt, player, item, attack_dir),
+        TileKind::OreFreckle => {
+            clay::freckle_interact(g, def, lvl, xt, yt, player, item, attack_dir)
+        }
         _ => false,
     }
 }
@@ -483,6 +509,7 @@ pub fn connects_to(def: &TileDef, other: &TileDef, is_side: bool) -> bool {
         TileKind::Grass => grass::connects_to(def, other, is_side),
         TileKind::Hole => hole::connects_to(def, other, is_side),
         TileKind::Water => water::connects_to(def, other, is_side),
+        TileKind::SpringWater => spring_water::connects_to(def, other, is_side),
         TileKind::Sand => sand::connects_to(def, other, is_side),
         TileKind::Lava => lava::connects_to(def, other, is_side),
         TileKind::Exploded => exploded::connects_to(def, other, is_side),

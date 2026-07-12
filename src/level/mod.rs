@@ -5,6 +5,7 @@
 //! `(g, lvl)` — see PORTING.md.
 
 pub mod chunk;
+pub mod features_gen;
 pub mod infinite_gen;
 pub mod level_gen;
 pub mod structure;
@@ -705,7 +706,7 @@ fn rattler_biome(g: &Game, lvl: usize, x: i32, y: i32) -> bool {
     if g.level(lvl).is_infinite() {
         matches!(
             infinite_gen::biome_at(g.world_seed, x >> 4, y >> 4),
-            infinite_gen::Biome::Desert
+            infinite_gen::Biome::Desert | infinite_gen::Biome::Badlands
         )
     } else {
         g.tile_at(lvl, x >> 4, y >> 4).name == "SAND"
@@ -1121,6 +1122,7 @@ pub fn ensure_chunks_at(
             // first time this chunk exists: spawn structure entities (loot chests);
             // marks the chunk dirty so this never runs twice for the same chunk
             structures_gen::spawn_chunk_entities(g, lvl, cx, cy);
+            features_gen::spawn_chunk_entities(g, lvl, cx, cy);
         }
     }
 

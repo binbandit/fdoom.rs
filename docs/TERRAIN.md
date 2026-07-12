@@ -186,6 +186,12 @@ temperature field and the moisture field are decorrelated even though they share
 | `0xF06C1` | bank day | `weather::bank_day` | n/a (raw `hash`, per day) | n/a | ambient fog: ~35% of days grow the regional banks (humid-ground dawns, coastal evenings) |
 | `0xF06D5` | fog humidity | `weather::fog_moisture` | 80 | 1 (lattice) | modulates the per-biome humidity base into regional wet/dry pockets |
 | `0xF06E1` / `0xF06E2` | mist patches | `ambience::mist_patches` | 96 px / 40 px (pixel-space lattice) | 1 each | render-only drifting bank texture; never touches gen |
+| `0xBEE5_0001` | beehive scatter | `surface_tile` (Forest) | n/a (raw `hash`) | n/a | content wave: ~2% of warm-fringe broadleaf trees carry a wild Beehive |
+| `0xBAD_0001` | badlands mesa | `surface_tile` (Badlands) | 26 | 2 | mesa/hoodoo rock clusters in the Badlands |
+| `0xBAD_0003` | ore freckle | `surface_tile` (Badlands) | n/a (raw `hash`) | n/a | exposed ore pips on rich clay (gated on the shared `richness_at` field) |
+| `0xBAD_0004` / `0xBAD_0005` | freckle metal / clay strata | `tile/clay.rs` | n/a (raw `hash`) | n/a | render/drop-side: iron-vs-coal pick per freckle; strata band phase per 48-tile column |
+| `0x4807_5350_0001`..`0003` | hot spring placement / pool / rim stones | `features_gen` | n/a (raw `hash`, 192-tile cells) | n/a | content wave: warm pools in Tundra/Mountains (see §3.3.3) |
+| `0x4D1E_5AF7_0001`..`0003`, `_100D` | mine shaft placement / detail / crate / loot | `features_gen` | n/a (raw `hash`, 288-tile cells) | n/a | content wave: surface headframe + the depth -1 gallery + its supply crate (see §3.3.3) |
 
 If you add a new noise field, **pick an unused salt** (anything not in the table) —
 reusing a salt correlates two fields that should be independent and will look wrong (e.g.
@@ -207,7 +213,7 @@ land = continent + (rough - 0.5) * 0.08
   land < 0.445                         -> Beach
   belt > 0.70 && rough > 0.55          -> Mountains    (belt is its own fractal field, salt 9)
   climate < 0.30                       -> Tundra
-  climate > 0.70 && moisture < 0.42    -> Desert
+  climate > 0.70 && moisture < 0.42    -> Badlands if moisture < 0.22, else Desert
   moisture > 0.74                      -> Marsh
   moisture > 0.48                      -> Forest
   moisture < 0.34 && climate > 0.42    -> Savanna    (warm-dry only)
@@ -273,8 +279,9 @@ piecewise thresholds:
 | Mountains | `temperature(salt6)<0.42 && belt(salt9)>0.76` snow (snow-capped cold peaks) · else rock |
 | Tundra | `detail<0.030` pine · `<0.055` snow tree · `<0.062` rock · else snow |
 | Desert | `detail<0.004` fruiting cactus · `<0.014` cactus · `<0.018` dead tree · `<0.026` dry bush · `<0.032` rock · else sand |
+| Badlands | `mesa(0xBAD_0001,period26)>0.73` rock (mesas/hoodoos) · `detail<0.005` rock · `<0.011` dead tree · `<0.034` dry bush · rich ground (`richness>0.55`, freckle roll `<0.04`) Ore Freckle · else Layered Clay. **No water arm** — the dryness is the biome |
 | Marsh | `pool(salt7,period14)>0.66` water (blobby, so no lone 1-tile ponds) · `>0.60` mud · `>0.54` wet fringe (`detail<0.05` willow · `<0.50` reeds) · else `detail<0.16` tuft · `<0.175` flower · else grass |
-| Forest | `clearing(salt8,period24)>0.62` lowers tree odds to 0.03 (else 0.16); below that threshold tree — pine instead when `climate(salt6, 1 octave)<0.42` (cold fringe, same field as the Tundra gate) — then +0.008 berry bush, +0.016 mushroom, +0.066 tuft, else grass |
+| Forest | `clearing(salt8,period24)>0.62` lowers tree odds to 0.03 (else 0.16); below that threshold tree — pine instead when `climate(salt6, 1 octave)<0.42` (cold fringe, same field as the Tundra gate), and ~2% of the warm-fringe broadleafs carry a wild **Beehive** (salt `0xBEE5_0001`) — then +0.008 berry bush, +0.016 mushroom, +0.066 tuft, else grass |
 | Savanna | `parched(salt10,period18)>0.74` sand · else `detail<0.008` flat-crown tree · `<0.016` dry bush · `<0.10` tuft · else grass |
 | Plains | ponds (`pond(salt12,period40)`) + meadows (`meadow(salt11,period96)`) first · `detail<0.015` tree · `<0.020` berry bush · `<0.060` flower · `<0.105` tuft · else grass |
 
@@ -336,6 +343,37 @@ footprint, inside the plaza circle). Both are hashed per placement origin (salts
 structure write. The trail pass also treats all new scatter flora as soft
 `trail_ground`, so old routes wear through pine stands and dry brush the same way they
 do broadleaf forest.
+
+### 3.3.3 Wild features (`features_gen.rs`): hot springs + abandoned mine shafts
+
+Content-wave landforms of the inhospitable biomes, deliberately separate from
+`structures_gen` (whose kinds are settlement-shaped and biome-gated away from
+Mountains/Tundra). Placement is the `gate_in_cell` hash-grid pattern — one coarse
+cell grid per feature, at most one per cell at a jittered, biome-gated point — and
+blueprints are pure `f(seed, origin)`, stamped from `generate_chunk` after the
+structure pass and before the gate set-pieces.
+
+- **Hot springs** (grid 192, Tundra/Mountains): a 3-4 tile L-cored ragged pool of
+  `Spring Water` (id 73) with an ochre mineral rim and the odd sitting stone. The
+  tile swims like water, breathes steam wisps on its random tick, never freezes or
+  snows over, and `core::temperature` clamps cold to comfort within
+  `SPRING_BASK_RADIUS = 3` tiles (`Modifiers::near_spring`) — a found sanctuary in
+  the coldest country.
+- **Abandoned mine shafts** (grid 288, Mountains): a weathered surface headframe —
+  spoil apron, plank shed-floor remnant, two standing Timber Props, rubble — around
+  a CHASM mouth, and this is the one feature that writes TWO layers: the same
+  origin on depth -1 generates the pre-carved gallery (ragged dirt pocket, the
+  Ladder home at the exact origin, standing props that genuinely suppress cave-ins,
+  weak `RUBBLE_FLAG` rocks, and an iron/lapis vein bias whose pip count scales with
+  the shared `richness_at` field). `features_gen::spawn_chunk_entities` (called
+  beside the structures one in `ensure_chunks_at`) stocks ~65% of galleries with a
+  supply crate of mining gear — props, coal, a pan, rarely a Vice.
+
+Tests: `tests/content_wave.rs`. The Badlands tiles (Layered Clay id 75, Ore
+Freckle id 76 — pickaxe a freckle for 1-2 Iron Ore/Coal) and the forest Beehive
+(id 74, data 0 = full / 1 = regrowing on the berry-bush timer family) land in the
+same wave; ids 73-76 follow the flora-wave convention (names are the save contract,
+ids are in-memory only).
 
 ### 3.4 Mine layers (`mine_tile`, depths -1..-3)
 

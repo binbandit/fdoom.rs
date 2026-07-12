@@ -136,6 +136,13 @@ fn skerry_at(seed: i64, x: i32, y: i32) -> bool {
 const POND_BITE_SALT: u64 = 0x50_4ED1; // "pond"
 const POND_TOOTH_SALT: u64 = 0x50_4ED2;
 
+/// Salt of the wild-beehive scatter on forest broadleaf trees (raw hash).
+const BEEHIVE_SALT: u64 = 0xBEE5_0001;
+/// Salt of the Badlands mesa/hoodoo cluster field (fractal, period 26).
+const BADLANDS_MESA_SALT: u64 = 0xBAD_0001;
+/// Salt of the Badlands ore-freckle scatter (raw hash; gated on `richness_at`).
+const FRECKLE_SALT: u64 = 0xBAD_0003;
+
 /// Ragged hash-contour for pond/pool outlines: a zero-mean jitter added to the blob
 /// field before thresholding, so shorelines grow tile-scale teeth and 2x2-cell bites
 /// instead of tracing the smooth noise contour as a hard tile-grid rectangle
@@ -199,6 +206,10 @@ struct Ids {
     // farming wave
     wild_carrot: u8,
     pumpkin: u8,
+    // content wave
+    beehive: u8,
+    clay: u8,
+    ore_freckle: u8,
     iron: u8,
     gold: u8,
     gem: u8,
@@ -244,6 +255,9 @@ impl Ids {
             dry_bush: tiles.get("Dry Bush").id,
             wild_carrot: tiles.get("Wild Carrot").id,
             pumpkin: tiles.get("pumpkin").id,
+            beehive: tiles.get("Beehive").id,
+            clay: tiles.get("Layered Clay").id,
+            ore_freckle: tiles.get("Ore Freckle").id,
             iron: tiles.get("iron ore").id,
             gold: tiles.get("gold ore").id,
             gem: tiles.get("gem ore").id,
@@ -264,6 +278,9 @@ pub enum Biome {
     Mountains,
     Tundra,
     Desert,
+    /// Dry eroded canyon country: the bone-dry core of the hot-dry envelope, carved
+    /// from *inside* the Desert gate so the tundra-gap property covers it for free.
+    Badlands,
     Marsh,
     Forest,
     Savanna,
@@ -318,7 +335,14 @@ pub fn biome_at(seed: i64, x: i32, y: i32) -> Biome {
     if climate < 0.30 {
         Biome::Tundra
     } else if climate > 0.70 && moisture < 0.42 {
-        Biome::Desert
+        // the hot-dry envelope: its parched core erodes into Badlands canyon
+        // country, the rest is classic dune Desert. Both live strictly inside the
+        // `climate > 0.70` gate, so the Tundra buffer bound applies to both.
+        if moisture < 0.22 {
+            Biome::Badlands
+        } else {
+            Biome::Desert
+        }
     } else if moisture > 0.74 {
         Biome::Marsh
     } else if moisture > 0.48 {
@@ -420,6 +444,28 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
                 ids.snow
             }
         }
+        Biome::Badlands => {
+            // eroded canyon country: banded clay flats between clustered mesas and
+            // lone hoodoos, bone-dry scrub, and — where the shared richness field
+            // runs high — exposed ore freckles, fossicking's waterless surface
+            // tease. Deliberately NO water arm: the dryness IS the biome.
+            let mesa = fractal(seed, BADLANDS_MESA_SALT, x, y, 26, 2);
+            if mesa > 0.73 {
+                return ids.rock; // mesa walls and hoodoo clusters
+            }
+            if detail < 0.005 {
+                ids.rock // lone hoodoo out on the flat
+            } else if detail < 0.011 {
+                ids.dead_tree
+            } else if detail < 0.034 {
+                ids.dry_bush
+            } else if richness_at(seed, x, y) > 0.55 && unit(hash(seed, FRECKLE_SALT, x, y)) < 0.04
+            {
+                ids.ore_freckle
+            } else {
+                ids.clay
+            }
+        }
         Biome::Desert => {
             if detail < 0.004 {
                 ids.fruiting_cactus
@@ -479,6 +525,9 @@ fn surface_tile(seed: i64, x: i32, y: i32, ids: &Ids) -> u8 {
             if detail < trees {
                 if climate_at(seed, x, y) < 0.42 {
                     ids.pine
+                } else if unit(hash(seed, BEEHIVE_SALT, x, y)) < 0.02 {
+                    // bees & honey: the odd broadleaf carries a wild hive
+                    ids.beehive
                 } else {
                     ids.tree
                 }
@@ -638,6 +687,11 @@ pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) ->
     // surface structures (ruins, cemeteries, ...) — stamped before the gate set-pieces
     // below so a rare overlap always leaves the gate intact
     super::structures_gen::stamp_chunk(seed, depth, cx, cy, &mut chunk, tiles);
+
+    // wild features (hot springs, abandoned mine shafts): surface pools/headframes
+    // at depth 0, and each shaft's pre-carved gallery at depth -1 — stamped after
+    // structures (features win the vanishingly rare overlap), before the gates
+    super::features_gen::stamp_chunk(seed, depth, cx, cy, &mut chunk, tiles);
 
     // stamp stairwells: down-stairs on this layer, up-stairs from the layer above,
     // each with a small cleared apron so they're always enterable
@@ -914,7 +968,7 @@ mod tests {
                     let (x, y) = (-HALF + gx as i32 * STEP, -HALF + gy as i32 * STEP);
                     grid[gx + gy * n] = match biome_at_blended(seed, x, y) {
                         Biome::Tundra => 1,
-                        Biome::Desert | Biome::Savanna => 2,
+                        Biome::Desert | Biome::Badlands | Biome::Savanna => 2,
                         _ => 0,
                     };
                 }

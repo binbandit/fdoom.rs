@@ -208,7 +208,13 @@ pub fn make(name: &str, species: TreeSpecies) -> TileDef {
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     let species = kind_species(def);
     let inf = info(species);
-    let base = g.tiles.get(inf.base);
+    // Badlands: a sand-based snag standing in clay country renders the clay base
+    // instead — no yellow squares stamped onto the strata (content wave)
+    let base = if inf.base == "sand" && super::clay::clay_country(g, lvl, x, y) {
+        g.tiles.get("Layered Clay")
+    } else {
+        g.tiles.get(inf.base)
+    };
     dispatch::render(g, screen, &base, lvl, x, y);
 
     if let Some(edges) = canopy_edges(species) {

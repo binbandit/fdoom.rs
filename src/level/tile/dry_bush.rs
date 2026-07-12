@@ -22,8 +22,13 @@ pub fn make(name: &str) -> TileDef {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let sand = g.tiles.get("sand");
-    dispatch::render(g, screen, &sand, lvl, x, y);
+    // in Badlands clay country the parched patch is clay, not sand (content wave)
+    let base = if super::clay::clay_country(g, lvl, x, y) {
+        g.tiles.get("Layered Clay")
+    } else {
+        g.tiles.get("sand")
+    };
+    dispatch::render(g, screen, &base, lvl, x, y);
     // Dedicated tumbleweed skeleton (artgen `flora_cells` (17,28)) — true color, the
     // palette is ignored.
     let col = color::get4(-1, -1, 321, 210);
@@ -46,11 +51,15 @@ pub fn hurt_by(
 ) -> bool {
     let stick = crate::item::registry::get(g, "Stick");
     drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[stick]);
-    // restore ground to match the surroundings
-    let sandy = [(0, -1), (0, 1), (-1, 0), (1, 0)]
-        .iter()
-        .any(|&(dx, dy)| g.tile_at(lvl, x + dx, y + dy).name == "SAND");
-    let ground = g.tiles.get(if sandy { "sand" } else { "grass" });
+    // restore ground to match the surroundings (clay country wins over sand)
+    let ground = if super::clay::clay_country(g, lvl, x, y) {
+        g.tiles.get("Layered Clay")
+    } else {
+        let sandy = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+            .iter()
+            .any(|&(dx, dy)| g.tile_at(lvl, x + dx, y + dy).name == "SAND");
+        g.tiles.get(if sandy { "sand" } else { "grass" })
+    };
     g.set_tile_default(lvl, x, y, &ground);
     g.play_sound(Sound::MonsterHurt);
     true

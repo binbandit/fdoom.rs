@@ -12,6 +12,7 @@ pub fn biome_color(b: Biome) -> u32 {
         Biome::Mountains => 0x8C8C98,
         Biome::Tundra => 0xE9F1F7,
         Biome::Desert => 0xE4C468,
+        Biome::Badlands => 0xC1703F,
         Biome::Marsh => 0x4E8A66,
         Biome::Forest => 0x1F7A33,
         Biome::Savanna => 0xC9B457,
@@ -22,7 +23,7 @@ pub fn biome_color(b: Biome) -> u32 {
 /// Every biome with its display name, in legend order (water -> coast -> inland).
 /// Keep in sync with [`Biome`]; `biome_color`'s exhaustive match is the compile-time
 /// reminder when a variant is added.
-pub const BIOME_LEGEND: [(Biome, &str); 10] = [
+pub const BIOME_LEGEND: [(Biome, &str); 11] = [
     (Biome::DeepOcean, "DEEP OCEAN"),
     (Biome::Ocean, "OCEAN"),
     (Biome::Beach, "BEACH"),
@@ -32,5 +33,6 @@ pub const BIOME_LEGEND: [(Biome, &str); 10] = [
     (Biome::Marsh, "MARSH"),
     (Biome::Tundra, "TUNDRA"),
     (Biome::Desert, "DESERT"),
+    (Biome::Badlands, "BADLANDS"),
     (Biome::Mountains, "MOUNTAINS"),
 ];

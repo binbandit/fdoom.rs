@@ -260,6 +260,8 @@ impl Recipes {
             r("arrow*3", "Wood*2 + Stone*2"),
             r("Leather Armor", "leather*10"),
             r("Snake Armor", "scale*15"),
+            // bees & honey: potted comb — heal plus a brief Energy spell (interact.rs)
+            r("Honey Jar", "Honeycomb*2 + glass"),
         ];
 
         let loom = vec![
@@ -353,6 +355,8 @@ impl Recipes {
             // stocked pantry (see item/cooking.rs `is_hearty` for the eat bonus)
             r("Hearty Stew", "Raw Beef + Potato + Carrot + coal"),
             r("Fish Chowder", "Raw Fish + Potato + Corn + coal"),
+            // bees & honey: the sweet finish on a cooked catch
+            r("Honey-Glazed Fish", "Cooked Fish + Honeycomb"),
         ];
 
         let enchant = vec![

@@ -145,6 +145,11 @@ pub fn item_interact_on_tile(
         ItemKind::Torch { valid_tiles, .. } => {
             let valid_tiles = valid_tiles.clone();
             let tile = g.tile_at(lvl, xt, yt);
+            // a held torch SMOKES a beehive rather than looking for footing — hand
+            // the whole interaction to the tile (bees & honey wave)
+            if matches!(tile.kind, crate::level::tile::TileKind::Beehive) {
+                return false;
+            }
             if valid_tiles.contains(&tile.name) {
                 let torch = g.tiles.get_torch_tile(tile);
                 g.set_tile_default(lvl, xt, yt, &torch);
@@ -211,6 +216,15 @@ pub fn item_interact_on_tile(
                     g.notifications
                         .push("The hot meal warms you through".to_string());
                 }
+            }
+
+            // bees & honey: the jar's sugar rush — the heal above plus a brief
+            // Energy spell (faster stamina regen), the "brief stamina regen" half
+            // of the honey payoff
+            if success && item.get_name().eq_ignore_ascii_case("Honey Jar") {
+                apply_potion_time(g, player, PotionType::Energy, 300);
+                g.notifications
+                    .push("Sweet warmth spreads through you.".to_string());
             }
 
             // scavenge wave: aged tin rations always leave the can behind, and
@@ -364,10 +378,14 @@ pub fn item_interact_on_tile(
             g.notifications.push("Refreshing.".to_string());
             true
         }
-        // ...and the empty refills at any open water.
+        // ...and the empty refills at any open water (a hot spring counts — warm,
+        // mineral, still water).
         ItemKind::Stackable { .. } if item.get_name().eq_ignore_ascii_case("Empty Bottle") => {
             let tile = g.tile_at(lvl, xt, yt);
-            if tile.id != g.tiles.get("water").id && tile.id != g.tiles.get("Deep Water").id {
+            if tile.id != g.tiles.get("water").id
+                && tile.id != g.tiles.get("Deep Water").id
+                && !matches!(tile.kind, crate::level::tile::TileKind::SpringWater)
+            {
                 return false;
             }
             if !g.is_mode("creative") {

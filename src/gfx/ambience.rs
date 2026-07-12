@@ -331,8 +331,13 @@ pub fn heat_shimmer(
             let (tx, ty) = (tx0 + i as i32, ty0 + j as i32);
             *hcell = match g.tile_at(lvl, tx, ty).kind {
                 TileKind::Lava => true,
-                TileKind::Sand | TileKind::QuickSand if desert_noon => {
-                    infinite_gen::biome_at_blended(seed, tx, ty) == Biome::Desert
+                TileKind::Sand | TileKind::QuickSand if desert_noon => matches!(
+                    infinite_gen::biome_at_blended(seed, tx, ty),
+                    Biome::Desert | Biome::Badlands
+                ),
+                // badlands clay bakes and shimmers like the dunes do
+                TileKind::Clay | TileKind::OreFreckle if desert_noon => {
+                    infinite_gen::biome_at_blended(seed, tx, ty) == Biome::Badlands
                 }
                 _ => false,
             };

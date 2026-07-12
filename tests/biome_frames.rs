@@ -43,6 +43,7 @@ fn biome_map_overview() {
             Biome::Ocean => 0x1c4f8f,
             Biome::Beach => 0xe8d9a0,
             Biome::Desert => 0xd9b95c,
+            Biome::Badlands => 0xc1703f,
             Biome::Savanna => 0xb5a542,
             Biome::Plains => 0x7cb548,
             Biome::Forest => 0x2e7031,

@@ -188,7 +188,7 @@ fn player_on_surface(g: &Game) -> bool {
 fn precip_at_clock(g: &Game, day: i32, tick: i32) -> Precip {
     let pos = player_surface_pos(g);
     let biome = pos.map(|(x, y)| infinite_gen::biome_at(g.world_seed, x, y));
-    let gate = if biome == Some(Biome::Desert) {
+    let gate = if matches!(biome, Some(Biome::Desert | Biome::Badlands)) {
         Gate::Desert
     } else {
         Gate::Open
@@ -372,7 +372,7 @@ pub fn fog_moisture(seed: i64, x: i32, y: i32) -> f32 {
         Biome::Tundra => 0.50,
         Biome::Mountains => 0.45,
         Biome::Savanna => 0.25,
-        Biome::Desert => 0.0,
+        Biome::Desert | Biome::Badlands => 0.0,
     };
     let n = lattice_noise(seed, FOG_HUMID_SALT, x, y, 80) as f32;
     let m = (base * (0.65 + 0.55 * n)).clamp(0.0, 1.0);

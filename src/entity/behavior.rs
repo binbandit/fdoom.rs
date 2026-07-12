@@ -639,6 +639,7 @@ pub fn is_swimming(g: &Game, e: &Entity) -> bool {
     matches!(
         tile.kind,
         crate::level::tile::TileKind::Water
+            | crate::level::tile::TileKind::SpringWater
             | crate::level::tile::TileKind::Lava
             | crate::level::tile::TileKind::Seaweed
             | crate::level::tile::TileKind::Coral

@@ -8,11 +8,11 @@ use fdoom::screen::map_menu::MapMenu;
 use fdoom::testutil::TestWorld;
 
 /// Every biome has its own color. `biome_color`'s exhaustive match guarantees the
-/// palette is total; the legend (which the tools iterate) must cover all 10 variants
+/// palette is total; the legend (which the tools iterate) must cover all 11 variants
 /// and never map two biomes to one color.
 #[test]
 fn every_biome_has_a_distinct_color() {
-    assert_eq!(BIOME_LEGEND.len(), 10);
+    assert_eq!(BIOME_LEGEND.len(), 11);
     let mut seen = HashSet::new();
     for (b, name) in BIOME_LEGEND {
         assert!(

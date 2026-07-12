@@ -578,6 +578,7 @@ fn biome_factor(b: crate::level::infinite_gen::Biome) -> [i32; 3] {
         Biome::Marsh => f(0.90, 0.94, 0.86),     // darker sage
         Biome::Tundra => f(0.94, 0.98, 1.08),    // cooler
         Biome::Desert => f(1.06, 1.00, 0.90),    // warmer sand
+        Biome::Badlands => f(1.08, 0.96, 0.86),  // rust-baked canyon light
         Biome::Mountains => f(0.97, 0.98, 1.03), // faintly cool stone
         // plains stay the neutral reference; water/beach keep their painted colors
         Biome::Plains | Biome::Beach | Biome::Ocean | Biome::DeepOcean => NEUTRAL_F,

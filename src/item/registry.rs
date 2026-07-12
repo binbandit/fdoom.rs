@@ -820,6 +820,21 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items.push(armor("Fur Coat", get4(-1, 100, 210, 432), 0.3, 1));
     items.push(armor("Straw Hat", get4(-1, 110, 330, 552), 0.1, 0));
 
+    // ---- Bees & honey (content wave) — appended block, do not reorder ----
+    // Honeycomb comes off wild forest beehives (smoke them with a held torch for a
+    // sting-free harvest — tile/beehive.rs). The jar and the glaze are its two
+    // kitchen payoffs; interact.rs adds the jar's brief Energy spell on top of the
+    // heal. Heals sit on the raw=1 / cooked=3 / composed=5 scale.
+    // TODO(art): dedicated icons — these recolor the nugget/potion/fish cells amber.
+    items.push(food("Honeycomb", (10, 4), get4(-1, 210, 431, 552), 1));
+    items.push(food("Honey Jar", (27, 4), get4(-1, 210, 440, 551), 3));
+    items.push(food(
+        "Honey-Glazed Fish",
+        (24, 4),
+        get4(-1, 210, 442, 553),
+        5,
+    ));
+
     // PotionItem.getAllInstances(). Queasy is a food-sickness effect, not a brew —
     // no bottle exists for it.
     for ptype in PotionType::VALUES {

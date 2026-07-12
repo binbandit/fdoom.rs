@@ -381,9 +381,10 @@ tidal-flat razor staircase (sand family, fa5f2d4); seam stipple over sprites
 (auto 'claim N', fa5f2d4); Evening-only fireflies + black Help page (05c3301).
 
 Still open, confirmed by eye:
-- O-N1 Water glows near-fullbright violet at night (night blue gain 1.14 boosts
-  blue-dominant pixels; land darkens, water pops). p3_night_mobs. lighting.rs
-  SURFACE_KEYS / water handling. noticeable.
+- O-N1 DOWNGRADED after a staged probe: base night water grades to dark navy
+  (10,6,59) vs grass (18,36,38) — correct. The p3 violet read is the moon-glitter
+  band + wave crests over open ocean at 6x; retune glitter intensity at night if
+  it still bothers on a real monitor. nitpick.
 - O-N2 Player is a black blob at night — base radius-5 pool too weak to lift the
   dark sprite; hostiles got eye glints, the player didn't. Taste call: warm rim
   or brighter pool center. noticeable.

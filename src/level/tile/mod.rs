@@ -16,8 +16,10 @@
 //! - Structures: `door`, `fence`, `fire`, `grave_stone`, `stairs`, `torch`, `window`.
 //! - Farming: `crop`, `farm`, `pumpkin`, `wheat`.
 
+pub mod beehive;
 pub mod berry_bush;
 pub mod cactus;
+pub mod clay;
 pub mod cloud;
 pub mod cloud_cactus;
 pub mod crop;
@@ -53,6 +55,7 @@ pub mod sapling;
 pub mod snow;
 pub mod snow_tree;
 pub mod snowfall;
+pub mod spring_water;
 pub mod stairs;
 pub mod tall_grass;
 pub mod tidal;
@@ -366,6 +369,16 @@ pub enum TileKind {
     /// Mine-ceiling support post; prevents cave-ins nearby (see `fossick.rs`).
     /// Walk-through; one hit knocks it down and refunds the timber.
     TimberProp,
+    /// Geothermal pool water (hot springs): swims like water, steams, never
+    /// freezes; clamps nearby cold toward comfort (see `spring_water.rs`).
+    SpringWater,
+    /// Wild hive on a broadleaf forest tree; per-tile data 0 = full, 1 =
+    /// regrowing. Bare hands risk a sting; a held torch smokes the bees calm.
+    Beehive,
+    /// Badlands ground: banded rust strata; shovels like dirt (see `clay.rs`).
+    Clay,
+    /// Exposed ore pips on rich Badlands clay; pickaxe for 1-2 Iron Ore / Coal.
+    OreFreckle,
     GraveStone {
         broken: bool,
     },
@@ -528,6 +541,12 @@ impl Tiles {
             dispatch::make_crop_tile("Pumpkin Vine", crop::CropKind::PumpkinVine),
         );
         set(72, dispatch::make_wild_carrot_tile("Wild Carrot"));
+
+        // content wave (ids 73+): hot-spring water, forest beehives, badlands ground
+        set(73, dispatch::make_spring_water_tile("Spring Water"));
+        set(74, dispatch::make_beehive_tile("Beehive"));
+        set(75, dispatch::make_clay_tile("Layered Clay"));
+        set(76, dispatch::make_ore_freckle_tile("Ore Freckle"));
         Tiles {
             list: RefCell::new(t),
         }
