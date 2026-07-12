@@ -3,10 +3,12 @@
 //! same damage-in-data-byte accounting — but differ in base ground tile, canopy palette,
 //! health, and drops. The classic broadleaf stays `TileKind::Tree` in `tree.rs`.
 //!
-//! Each species has its own dedicated true-color cell set (artgen `flora_cells`,
-//! rows 26..=28): a 2x3 block of [TL, TR / BL, BR standalone quarters / fill,
-//! knot-fill] — the same six roles the broadleaf samples — so adjacent trees merge
-//! into one connected woodland roof exactly like `tree.rs` does.
+//! Each species has its own dedicated true-color cell set (pinned rows 26..=28): a
+//! 2x3 block of [TL, TR / BL, BR standalone quarters / fill, knot-fill] — the same
+//! six roles the broadleaf samples. Canopy-forming species additionally have an
+//! unpinned 2x6 edge sheet (`tiles/tree_*_canopy.png`) consumed by [`render_canopy`],
+//! which this module also lends to `tree.rs` so every tree family merges into
+//! little forests the same way.
 
 use super::{TileDef, TileKind, TreeSpecies, dispatch, tool_use};
 use crate::core::game::Game;
@@ -15,7 +17,97 @@ use crate::entity::particle::{new_smash_particle, new_text_particle};
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, color};
 use crate::item::{Item, ToolType};
+use crate::level::infinite_gen::hash;
 use crate::level::{drop_item, drop_items_counted};
+
+/// Salt for the interior-canopy variation hash — pure `f(seed, x, y)` like the
+/// excavation contours in `depth.rs`, so forests render identically every frame.
+const CANOPY_SALT: u64 = 0xCA_0F_00_57;
+
+/// Cell addresses for one tree family's merged-canopy art: the lone quarters and
+/// interior fills every family always had, plus the 2x6 edge sheet
+/// (`tiles/tree_canopy.png` and friends: top strips / side strips / south-face
+/// strips with trunk / inner corners / fill variants) that lets orthogonally
+/// adjacent trees of the same family join into one woodland roof.
+pub(super) struct CanopyArt {
+    /// TL, TR, BL, BR standalone quarters (the traced lone-tree cells).
+    pub lone: [i32; 4],
+    /// Interior leaf texture.
+    pub fill: i32,
+    /// Interior texture with a bark knot.
+    pub knot: i32,
+    /// Top-left cell of the 2x6 edge sheet.
+    pub edges: i32,
+}
+
+/// Neighbor-aware canopy assembly, one 8x8 quarter at a time. Each quarter looks at
+/// the same-family neighbors on its two orthogonal sides (`v`/`h`) plus its diagonal:
+/// no neighbor keeps the lone-tree silhouette, one neighbor swaps in an edge strip
+/// (crown line or side contour continues into the next tile; south-face strips keep
+/// the trunk, matching the original game's read), and both neighbors fill solid —
+/// hash-varied between plain texture, a bark knot, and a sunlit tuft so big canopies
+/// stay calm with sparse clustered detail rather than a periodic stamp.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn render_canopy(
+    g: &mut Game,
+    screen: &mut Screen,
+    def: &TileDef,
+    lvl: usize,
+    x: i32,
+    y: i32,
+    art: &CanopyArt,
+    col: i32,
+) {
+    let u = g.tile_at(lvl, x, y - 1).same_tile(def);
+    let l = g.tile_at(lvl, x - 1, y).same_tile(def);
+    let r = g.tile_at(lvl, x + 1, y).same_tile(def);
+    let d = g.tile_at(lvl, x, y + 1).same_tile(def);
+    let corners = [
+        g.tile_at(lvl, x - 1, y - 1).same_tile(def),
+        g.tile_at(lvl, x + 1, y - 1).same_tile(def),
+        g.tile_at(lvl, x - 1, y + 1).same_tile(def),
+        g.tile_at(lvl, x + 1, y + 1).same_tile(def),
+    ];
+    for qy in 0..2i32 {
+        for qx in 0..2i32 {
+            let v = if qy == 0 { u } else { d };
+            let h = if qx == 0 { l } else { r };
+            let diag = corners[(qy * 2 + qx) as usize];
+            let cell = match (v, h) {
+                (false, false) => art.lone[(qy * 2 + qx) as usize],
+                (true, true) if diag => interior_cell(g.world_seed, x * 2 + qx, y * 2 + qy, art),
+                // diagonal gap: fill with a rounded notch so clearings stay organic
+                (true, true) => art.edges + 96 + qy * 32 + qx,
+                // runs vertically: straight-ish side contour
+                (true, false) => art.edges + 32 + qx,
+                // runs horizontally: crown-top strip up top, trunk strip on the south face
+                (false, true) => art.edges + qy * 64 + qx,
+            };
+            screen.render(x * 16 + qx * 8, y * 16 + qy * 8, cell, col, 0);
+        }
+    }
+}
+
+/// Interior canopy texture for the half-tile at `(qx, qy)` (quarter coordinates,
+/// 2 per tile axis): mostly plain fill, with sparse knots and sunlit tufts.
+fn interior_cell(seed: i64, qx: i32, qy: i32, art: &CanopyArt) -> i32 {
+    match hash(seed, CANOPY_SALT, qx, qy) % 16 {
+        0 => art.knot,
+        1 | 2 => art.edges + 160, // sunlit tuft
+        3..=8 => art.edges + 161, // offset texture, breaks the 8px repeat
+        _ => art.fill,
+    }
+}
+
+/// The edge sheet of species whose crowns merge into a shared canopy. Palm, dead
+/// tree, willow and flat-crown stay individual: lone silhouettes are their whole
+/// read (a bare snag or a leaning palm has no canopy to share).
+fn canopy_edges(species: TreeSpecies) -> Option<i32> {
+    match species {
+        TreeSpecies::Pine => Some(crate::assets::sprite_pos("tiles/tree_pine_canopy")),
+        _ => None,
+    }
+}
 
 /// Per-species config: base ground tile, health, canopy palette, dead-look darken.
 struct Info {
@@ -112,9 +204,31 @@ pub fn make(name: &str, species: TreeSpecies) -> TileDef {
 
 /// Same canopy assembly as `tree.rs::render`, parameterized by species base + palette.
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let inf = info(kind_species(def));
+    let species = kind_species(def);
+    let inf = info(species);
     let base = g.tiles.get(inf.base);
     dispatch::render(g, screen, &base, lvl, x, y);
+
+    if let Some(edges) = canopy_edges(species) {
+        let (bx, by) = inf.art;
+        let pos = |cx: i32, cy: i32| cx + cy * 32;
+        let art = CanopyArt {
+            lone: [
+                pos(bx, by),
+                pos(bx + 1, by),
+                pos(bx, by + 1),
+                pos(bx + 1, by + 1),
+            ],
+            fill: pos(bx, by + 2),
+            knot: pos(bx + 1, by + 2),
+            edges,
+        };
+        render_canopy(g, screen, def, lvl, x, y, &art, inf.col);
+        if inf.darken > 0 {
+            screen.darken_rect(x * 16, y * 16, 16, 16, inf.darken);
+        }
+        return;
+    }
 
     let u = g.tile_at(lvl, x, y - 1).same_tile(def);
     let l = g.tile_at(lvl, x - 1, y).same_tile(def);

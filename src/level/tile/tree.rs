@@ -10,12 +10,9 @@ use crate::gfx::{Screen, color};
 use crate::item::{Item, ToolType};
 use crate::level::{drop_item, drop_items_counted};
 
-/// Java `TreeTile.col` (leaf color, set in the constructor).
+/// Legacy leaf palette — the classic cells are true-color art, so this only matters
+/// for the rare palette pixel and is kept for compatibility.
 const COL: i32 = color::get4(10, 30, 151, -1);
-/// Java `TreeTile.col1`.
-const COL1: i32 = color::get4(10, 30, 430, -1);
-/// Java `TreeTile.col2`.
-const COL2: i32 = color::get4(10, 30, 320, -1);
 
 /// Java `TreeTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -28,38 +25,16 @@ pub fn make(name: &str) -> TileDef {
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     let grass = g.tiles.get("grass");
     dispatch::render(g, screen, &grass, lvl, x, y);
-    let bark_col1 = COL1;
-    let bark_col2 = COL2;
 
-    let u = g.tile_at(lvl, x, y - 1).same_tile(def);
-    let l = g.tile_at(lvl, x - 1, y).same_tile(def);
-    let r = g.tile_at(lvl, x + 1, y).same_tile(def);
-    let d = g.tile_at(lvl, x, y + 1).same_tile(def);
-    let ul = g.tile_at(lvl, x - 1, y - 1).same_tile(def);
-    let ur = g.tile_at(lvl, x + 1, y - 1).same_tile(def);
-    let dl = g.tile_at(lvl, x - 1, y + 1).same_tile(def);
-    let dr = g.tile_at(lvl, x + 1, y + 1).same_tile(def);
-
-    if u && ul && l {
-        screen.render(x * 16, y * 16, 10 + 32, COL, 0);
-    } else {
-        screen.render(x * 16, y * 16, 9, COL, 0);
-    }
-    if u && ur && r {
-        screen.render(x * 16 + 8, y * 16, 10 + 2 * 32, bark_col2, 0);
-    } else {
-        screen.render(x * 16 + 8, y * 16, 10, COL, 0);
-    }
-    if d && dl && l {
-        screen.render(x * 16, y * 16 + 8, 10 + 2 * 32, bark_col2, 0);
-    } else {
-        screen.render(x * 16, y * 16 + 8, 9 + 32, bark_col1, 0);
-    }
-    if d && dr && r {
-        screen.render(x * 16 + 8, y * 16 + 8, 10 + 32, COL, 0);
-    } else {
-        screen.render(x * 16 + 8, y * 16 + 8, 10 + 3 * 32, bark_col2, 0);
-    }
+    // The traced classic cells at their historical pinned addresses (TL/TR/BL at
+    // `tree_pieces`, BR + knot fill at `tree_fill`), plus the broadleaf edge sheet.
+    let art = super::tree_species::CanopyArt {
+        lone: [9, 10, 9 + 32, 10 + 3 * 32],
+        fill: 10 + 32,
+        knot: 10 + 2 * 32,
+        edges: crate::assets::sprite_pos("tiles/tree_canopy"),
+    };
+    super::tree_species::render_canopy(g, screen, def, lvl, x, y, &art, COL);
 }
 
 pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {

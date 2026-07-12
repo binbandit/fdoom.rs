@@ -79,7 +79,12 @@ fn unpinned_files_follow_pixel_mode_rules() {
         "tiles/timber_prop.png",
         "tiles/wet_sand_texture.png",
     ];
-    const UNPINNED_RGB: &[&str] = &["tiles/mushroom_cluster.png"];
+    const UNPINNED_RGB: &[&str] = &[
+        "tiles/mushroom_cluster.png",
+        "tiles/tree_canopy.png",
+        "tiles/tree_pine_canopy.png",
+        "tiles/tree_snow_pine_canopy.png",
+    ];
 
     let pinned: std::collections::HashSet<String> = parse_manifest(&manifest_text())
         .unwrap()
