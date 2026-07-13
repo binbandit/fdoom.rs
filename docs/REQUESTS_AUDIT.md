@@ -130,9 +130,29 @@ Status: ✅ done & verified · 🔄 in flight (agent working now) · 📋 planne
 - ✅ Text overflow "hard to read": draw_fit ellipsis rule across all panes + pixel
      guard-band tests (deb066c; recipe list follow-up in 14dfa5c)
 - ✅ Crash holding item after crafting (stale pack rows) fixed structurally (e8473c3)
-- 🔄 Resizable window that shows MORE (dynamic logical resolution 288x192→640x400,
-     integer scaling, denser lists) — gpt-5.5 migration in flight
+- ✅ Resizable window that shows MORE: dynamic logical resolution 288x192→640x400,
+     integer scaling, denser lists (d68ce77); survival-pane full Layout migration
+     remains a noted follow-up
 - ✅ Playtest program: docs/PLAYTEST.md top-10 fully landed (combat juice e1427d4,
      notifications 4dacdd9, saves 0a460f3, cave-ins 3e38de0, map e525614, village
      light 94bae2d, first-day thread 660f09f); README + hero shots (b1609fe)
 \n
+
+## Expansion era ("add more everything" / "make the world more full")
+- ✅ Crude Shovel missing from the early chain — digging reachable bare-handed +
+     console give suggests near-matches (965d7ad)
+- ✅ Maintainability part 1: Screen::fill_rect, tile Neighbors, sprite cell(),
+     module doc-indexes — zero behavior change (b26031c)
+- ✅ Hot springs, abandoned mine shafts (gen-time galleries), bees & honey,
+     Badlands biome + Layered Clay + Ore Freckles (b8da79c)
+- ✅ Severe weather: blizzards (campfire sanctuary preserved) + thunderstorms
+     (telegraphed, town/player-safe lightning; self-limiting fires) (1f51cbb)
+- ✅ Rivers: gradient-normalized winding channels, climate-aware pannable banks
+     (+0.10 richness), estuary handoff, trail bridges (d05d71b)
+- ✅ Deer hunting (grass-stalk prey, venison/hide->leather) + FIELD NOTES journal
+     tab (x/11 country, places, events, tallies; Notes:v1 marker) (6860c50)
+- ✅ PM hands-on play sessions: corner-rounded blending, tidal sand family, seams
+     off sprites, empty-name Create World, night fireflies, direct Help
+     (fa5f2d4, 05c3301); crash class killed structurally (e8473c3, b8e26e5)
+- 🔄 structures_gen -> structures/ module split (gpt-5.5, in flight)
+
