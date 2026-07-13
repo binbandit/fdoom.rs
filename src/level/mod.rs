@@ -9,6 +9,7 @@ pub mod features_gen;
 pub mod infinite_gen;
 pub mod level_gen;
 pub mod structure;
+pub mod structures;
 pub mod structures_gen;
 pub mod tile;
 
