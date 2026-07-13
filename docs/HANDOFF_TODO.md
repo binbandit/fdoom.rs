@@ -47,8 +47,8 @@ DayZ/7DtD north star + Minecraft approachability + world-coherence rules).
 ### Product-owner expansion: ALL LANDED
 Content wave 2 b8da79c (springs/shafts/bees/badlands) · severe weather 1f51cbb ·
 rivers d05d71b · hunting + field notes 6860c50 (incl. Badlands journal weld).
-Helper wave part 1 b26031c. NOW UNBLOCKED: structures_gen -> structures/ module
-split (spec in scratchpad/cleanup_spec.md §2a) — no lane holds the file anymore.
+Helper wave part 1 b26031c; part 2 structures/ split 2ba29dc. Maintainability
+wave COMPLETE. Board is clear — next work comes from the Queue below.
 
 ### Queue (dispatch order)
 1. ODDITIES.md noticeable tier (14 items), then nitpicks (O1-O5 + waterlines DONE).

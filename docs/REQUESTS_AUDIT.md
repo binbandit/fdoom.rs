@@ -154,5 +154,5 @@ Status: ✅ done & verified · 🔄 in flight (agent working now) · 📋 planne
 - ✅ PM hands-on play sessions: corner-rounded blending, tidal sand family, seams
      off sprites, empty-name Create World, night fireflies, direct Help
      (fa5f2d4, 05c3301); crash class killed structurally (e8473c3, b8e26e5)
-- 🔄 structures_gen -> structures/ module split (gpt-5.5, in flight)
+- ✅ structures_gen -> structures/ module split behind a 3-line shim (2ba29dc)
 
