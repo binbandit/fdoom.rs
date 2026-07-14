@@ -400,3 +400,25 @@ Still open, confirmed by eye:
 - O-N5 Wet|dry sand still steps at art level (tint now grades; the cells lack a
   connector lap like water's). Queue wet-sand connector art. nitpick.
 
+## Self-review round 2 (PM hands-on, target/verify/review2/)
+Fixed on the spot:
+- Bench-use trap: E's 12px use box couldn't reach facing-tile furniture (attack
+  could) and fell through to the pack silently; use reach now matches attack
+  reach, and modules fit directly from the bench screen's PACK tab (7cecdc2).
+- Corner-rounding glow ring around lone freckles — the corner pass now honors
+  the lone() rule like edge strips (89bddb8).
+False alarm, verified: "sand beside snow" at a dawn coast is Beach next to
+Tundra — honest cold-shore geography (the adjacency guard covers Desert/
+Savanna by design); the pink cast was the rose-gold dawn wash on snow.
+Recorded, not fixed:
+- R2-1 Badlands may be too rare to ever find: nearest at ~3,900 tiles from
+  origin on seed 7777 (grid-swept). Consider widening the moisture band a
+  touch or seeding a badlands-biased region gate. noticeable (discovery).
+- R2-2 Bench sprite is a workbench recolor — fine at 1x but the two stations
+  are near-twins side by side. Art queue (module sockets on the top edge).
+- R2-3 Demo scripts cannot pin a world seed (typed-seed navigation is fragile
+  blind); worth a `seed` arg on FDOOM_DEMO or a console `seed` readback for
+  scripted verification. dev-tooling nitpick.
+What sang in play: canopy forests with clustered mushrooms; night beach
+gradient dry->wet->water; field-notes country cues landing mid-explore.
+
