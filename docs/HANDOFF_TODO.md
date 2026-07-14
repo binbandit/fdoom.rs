@@ -50,14 +50,19 @@ rivers d05d71b · hunting + field notes 6860c50 (incl. Badlands journal weld).
 Helper wave part 1 b26031c; part 2 structures/ split 2ba29dc. Maintainability
 wave COMPLETE. Board is clear — next work comes from the Queue below.
 
-### Queue (dispatch order)
-1. ODDITIES.md noticeable tier (14 items), then nitpicks (O1-O5 + waterlines DONE).
-2. UI L6: gentle thirst (water bottles exist; HUD slot reserved at y=182).
-3. Field-notes recipe VARIANTS layer (additive only — never gates progress).
-4. Armor free-repair loophole (re-equip refreshes hits; needs item-data change —
-   flagged by L3).
-5. Bench nice-to-haves: dedicated bench/module art (TODO(art) marks), fit-from-
-   screen (hold-to-fit shipped), in-game sprite reload key (studio v3 note).
+### Queue — CURRENT (everything above this line is landed; see git log)
+Landed since the last rewrite: thirst a81d129 · armor meter 78dab9c · noticeable
+oddities 9665d29 (+ corner-lone 89bddb8) · bench reach + fit-from-screen 7cecdc2 ·
+wide-window panes e9ea8a9 · field-notes variants ae1322c · structures split
+2ba29dc · deer flake pin 891ba0f.
+Remaining, in order:
+1. O19 (boulders bisected by structures) + ODDITIES nitpick tier O20-O27 +
+   O-N2 (player night presence, taste pass).
+2. Art batch: thirst droplet cell, wet-sand connector cells (O-N5), bench with
+   visible sockets + module icons, deer stag variant, scavenge item icons
+   (TODO(art) markers everywhere).
+3. Dev-tooling nitpick R2-3: seed pinning for FDOOM_DEMO scripted verification.
+4. Studio nice-to-have: in-game sprite reload key.
 
 ### UI redesign program: COMPLETE (design 634dbbd; L1 5fb146c; L2 2e553cd;
 ### L3 4ba7f3e; L4 deb066c incl. text-overflow rule; L5 14dfa5c THE BENCH).
