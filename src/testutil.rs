@@ -231,8 +231,15 @@ impl TestWorld {
     /// Render one frame headlessly and return the framebuffer pixels (XRGB `i32`s,
     /// `screen::W` x `screen::H`).
     pub fn render(&mut self) -> Vec<i32> {
+        self.render_at(screen::W, screen::H)
+    }
+
+    /// Render one frame headlessly at an arbitrary logical size (`w` x `h` pixels)
+    /// — the dynamic-resolution path a resized window takes.
+    pub fn render_at(&mut self, w: i32, h: i32) -> Vec<i32> {
         self.g.has_gui = true; // let the renderer draw in headless mode
         let r = self.renderer.get_or_insert_with(renderer);
+        r.resize(w, h);
         r.render(&mut self.g);
         r.screen.pixels.clone()
     }
@@ -242,6 +249,14 @@ impl TestWorld {
         let pixels = self.render();
         let path = verify_path(name);
         save_png(&path, &pixels, screen::W as usize, screen::H as usize, 1);
+        path
+    }
+
+    /// [`Self::screenshot`] at an arbitrary logical size.
+    pub fn screenshot_at(&mut self, name: &str, w: i32, h: i32) -> PathBuf {
+        let pixels = self.render_at(w, h);
+        let path = verify_path(name);
+        save_png(&path, &pixels, w as usize, h as usize, 1);
         path
     }
 }

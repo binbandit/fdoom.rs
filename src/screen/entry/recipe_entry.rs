@@ -70,7 +70,7 @@ impl ListEntry for RecipeEntry {
             // the divider so long names ellipsize instead of bleeding into the
             // cost card (the product-owner overflow rule).
             let text = self.to_display_string(g);
-            let max_w = crate::screen::survival_display::list_clip_width(x);
+            let max_w = crate::screen::survival_display::list_clip_width(g, x);
             font::draw_fit(&text, screen, x, y, col, max_w);
             self.item.sprite.render(screen, x, y);
         }

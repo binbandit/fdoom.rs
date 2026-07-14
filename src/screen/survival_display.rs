@@ -29,7 +29,10 @@ use super::rel_pos::RelPos;
 
 /* ------------------------------- geometry (the spec) ------------------------------- */
 // Every coordinate below comes from the mockups (`target/verify/ui_mock/mock_*.png`),
-// which were composed at real screen coordinates.
+// which were composed at real screen coordinates on the classic 288x192 screen.
+// These constants are the CLASSIC REFERENCE values: [`Layout`] derives the runtime
+// geometry from them, and `Layout::new(288, 192)` must reproduce every one exactly
+// (pinned by tests/dynamic_resolution.rs).
 
 // (pub(crate): the container variant in `container_display` is the same shell.)
 pub(crate) const PANEL_X: i32 = 8;
@@ -49,19 +52,31 @@ const DETAIL_X: i32 = 154;
 pub(crate) const DETAIL_RIGHT: i32 = 276;
 
 pub(crate) const ROW_H: i32 = 10;
-const MAX_ROWS: i32 = (BODY_BOTTOM - BODY_Y) / ROW_H; // 13
 
 pub(crate) const LEGEND_Y: i32 = 170;
 
-/// Runtime survival/container shell geometry. Classic dimensions intentionally map
-/// byte-for-byte to the original constants; taller panels expose more list rows.
-#[allow(dead_code)] // fields are consumed incrementally by the individual pane renderers.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Layout {
+/// Growth caps: on large logical screens the panel stops widening so line lengths
+/// stay readable; the world shows around the shell instead.
+const PANEL_W_MAX: i32 = 336;
+const PANEL_H_MAX: i32 = 224;
+
+// The container shell's classic rows (mock_chest): the rule under the two titles
+// and the first list row of the two-column variant.
+const RULE_Y: i32 = 25;
+const CONT_LIST_Y: i32 = 33;
+
+/// Runtime survival/container shell geometry, derived from the live screen size.
+/// Classic dimensions map byte-for-byte to the reference constants above; bigger
+/// windows grow the panel to the caps (centered), give the list ~55% of the extra
+/// width, and expose more rows (a taller panel also relaxes the row pitch).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Layout {
     pub panel_x: i32,
     pub panel_y: i32,
     pub panel_w: i32,
     pub panel_h: i32,
+    pub tab_y: i32,
+    pub underline_y: i32,
     pub body_y: i32,
     pub body_bottom: i32,
     pub list_x: i32,
@@ -69,35 +84,76 @@ pub(crate) struct Layout {
     pub divider_x: i32,
     pub detail_x: i32,
     pub detail_right: i32,
+    pub legend_y: i32,
     pub row_h: i32,
     pub max_rows: i32,
+    /// WEAR pane: the slot boxes' left edge and their label column.
+    pub wear_box_x: i32,
+    pub wear_label_x: i32,
+    /// WEAR pane: the portrait frame's left edge (in the detail column).
+    pub wear_port_x: i32,
+    /// Container shell: the two-pane split, title rule, first list row, rows per
+    /// pane, and the pane-local list spans.
+    pub mid_x: i32,
+    pub rule_y: i32,
+    pub cont_list_y: i32,
+    pub cont_max_rows: i32,
+    pub l_right: i32,
+    pub r_left: i32,
 }
 
 impl Layout {
-    pub(crate) fn new(w: i32, h: i32) -> Self {
-        let panel_w = (w - 16).clamp(PANEL_W, 336);
-        let panel_h = (h - 16).clamp(PANEL_H, 224);
+    pub fn new(w: i32, h: i32) -> Self {
+        // the 9-slice frame walks in 8px sprite cells: keep the panel a multiple
+        // of 8 so its edges land exactly (the caps and classic dims already are)
+        let snap8 = |v: i32| v / 8 * 8;
+        let panel_w = snap8((w - 16).clamp(PANEL_W, PANEL_W_MAX));
+        let panel_h = snap8((h - 16).clamp(PANEL_H, PANEL_H_MAX));
         let panel_x = (w - panel_w) / 2;
         let panel_y = (h - panel_h) / 2;
-        let body_y = panel_y + 20;
-        let body_bottom = panel_y + panel_h - 18;
-        let divider_x = panel_x + panel_w / 2 + 4;
+        let body_y = panel_y + (BODY_Y - PANEL_Y);
+        let body_bottom = panel_y + panel_h - (PANEL_Y + PANEL_H - BODY_BOTTOM);
+        // the list|detail split: names benefit more than the card, so the list
+        // takes ~55% of any extra width
+        let divider_x = panel_x + (DIVIDER_X - PANEL_X) + (panel_w - PANEL_W) * 55 / 100;
+        let list_x = panel_x + (LIST_X - PANEL_X);
+        let detail_x = divider_x + (DETAIL_X - DIVIDER_X);
+        // a tall panel relaxes the row pitch a hair — more air, still more rows
         let row_h = if panel_h > 200 { 11 } else { ROW_H };
+        let mid_x = panel_x + panel_w / 2;
+        let cont_list_y = panel_y + (CONT_LIST_Y - PANEL_Y);
         Self {
             panel_x,
             panel_y,
             panel_w,
             panel_h,
+            tab_y: panel_y + (TAB_Y - PANEL_Y),
+            underline_y: panel_y + (UNDERLINE_Y - PANEL_Y),
             body_y,
             body_bottom,
-            list_x: panel_x + 4,
-            list_right: divider_x - 2,
+            list_x,
+            list_right: divider_x - (DIVIDER_X - LIST_RIGHT),
             divider_x,
-            detail_x: divider_x + 6,
-            detail_right: panel_x + panel_w - 4,
+            detail_x,
+            detail_right: panel_x + panel_w - (PANEL_X + PANEL_W - DETAIL_RIGHT),
+            legend_y: panel_y + panel_h - (PANEL_Y + PANEL_H - LEGEND_Y),
             row_h,
             max_rows: ((body_bottom - body_y) / row_h).max(1),
+            wear_box_x: list_x + 14,
+            wear_label_x: list_x + 36,
+            wear_port_x: detail_x + 42,
+            mid_x,
+            rule_y: panel_y + (RULE_Y - PANEL_Y),
+            cont_list_y,
+            cont_max_rows: ((body_bottom - cont_list_y) / row_h).max(1),
+            l_right: mid_x - 6,
+            r_left: mid_x + 8,
         }
+    }
+
+    /// The classic 288x192 geometry — equal to the reference constants.
+    pub fn classic() -> Self {
+        Self::new(crate::gfx::screen::W, crate::gfx::screen::H)
     }
 }
 
@@ -113,8 +169,10 @@ pub(crate) const SCROLLBAR_RGB: i32 = 0x9A9A9A;
 
 /// The pixel width left for a list entry starting at `x` before the craft pane's
 /// divider — recipe entries clip their text here (overflow rule; see font::draw_fit).
-pub(crate) fn list_clip_width(x: i32) -> i32 {
-    (DIVIDER_X - 2 - x).max(8)
+/// Reads the live screen size so the clip follows the widened list column.
+pub(crate) fn list_clip_width(g: &Game, x: i32) -> i32 {
+    let layout = Layout::new(g.screen_size.0, g.screen_size.1);
+    (layout.divider_x - 2 - x).max(8)
 }
 
 /* ------------------------------------- tabs ------------------------------------- */
@@ -385,6 +443,9 @@ pub struct SurvivalDisplay {
     tab: Tab,
     player_eid: i32,
 
+    /// Live shell geometry — recomputed from the screen size each tick/render
+    /// (`ensure_layout`); at 288x192 it equals the classic constants.
+    layout: Layout,
     /// The glass panel + 9-slice edge, as an empty framed menu (house styling).
     shell_menu: Menu,
 
@@ -411,7 +472,9 @@ pub struct SurvivalDisplay {
     bench_rack: Option<[bool; 3]>,
     /// The bench entity this screen was opened at (fit-from-screen target).
     bench_eid: Option<i32>,
-    craft_y0: i32,
+    /// Station/rack header height above the CRAFT list (0 on the personal screen);
+    /// the list starts at `layout.body_y + craft_header_h`.
+    craft_header_h: i32,
 }
 
 impl SurvivalDisplay {
@@ -474,36 +537,27 @@ impl SurvivalDisplay {
         recipes: Vec<Recipe>,
     ) -> SurvivalDisplay {
         let inventory = &player.player().inventory;
+        let layout = Layout::new(g.screen_size.0, g.screen_size.1);
         // the bench rack needs a second header row under the station name
-        let header_h = match (&station, &bench_rack) {
+        let craft_header_h = match (&station, &bench_rack) {
             (Some(_), Some(_)) => 36, // name + rack + fit hint
             (Some(_), None) => 12,
             _ => 0,
         };
-        let craft_y0 = BODY_Y + header_h;
 
         let mut recipes: Vec<Rc<RefCell<Recipe>>> = recipes
             .into_iter()
             .map(|r| Rc::new(RefCell::new(r)))
             .collect();
-        let craft_menu = Self::build_craft_menu(g, &mut recipes, inventory, 0, craft_y0);
-
-        let shell_menu = MenuBuilder::new(true, 0, RelPos::Center, Vec::new())
-            .set_bounds(Rectangle::new(
-                PANEL_X,
-                PANEL_Y,
-                PANEL_W,
-                PANEL_H,
-                Rectangle::CORNER_DIMS,
-            ))
-            .set_selectable(false)
-            .create_menu(g);
+        let craft_menu =
+            Self::build_craft_menu(g, &mut recipes, inventory, 0, &layout, craft_header_h);
 
         let mut display = SurvivalDisplay {
             base: DisplayBase::new(false, true, Vec::new()),
             tab,
             player_eid: player.c.eid,
-            shell_menu,
+            layout,
+            shell_menu: Self::build_shell_menu(g, &layout),
             pack_rows: Vec::new(),
             pack_sel: 0,
             pack_off: 0,
@@ -514,10 +568,46 @@ impl SurvivalDisplay {
             station,
             bench_rack,
             bench_eid: None,
-            craft_y0,
+            craft_header_h,
         };
         display.rebuild_pack(inventory.items());
         display
+    }
+
+    /// The glass panel + 9-slice frame at the layout's panel rect.
+    fn build_shell_menu(g: &Game, layout: &Layout) -> Menu {
+        MenuBuilder::new(true, 0, RelPos::Center, Vec::new())
+            .set_bounds(Rectangle::new(
+                layout.panel_x,
+                layout.panel_y,
+                layout.panel_w,
+                layout.panel_h,
+                Rectangle::CORNER_DIMS,
+            ))
+            .set_selectable(false)
+            .create_menu(g)
+    }
+
+    /// Recompute the layout from the live screen size; on a change, rebind the
+    /// menus whose bounds were baked at the old size (same pattern the HUD uses —
+    /// geometry follows the window every frame, cheap when nothing changed).
+    fn ensure_layout(&mut self, g: &Game, w: i32, h: i32) {
+        let layout = Layout::new(w, h);
+        if layout == self.layout {
+            return;
+        }
+        self.layout = layout;
+        self.shell_menu = Self::build_shell_menu(g, &layout);
+        if let Some(player) = g.entities.get(self.player_eid) {
+            self.craft_menu = Self::build_craft_menu(
+                g,
+                &mut self.recipes,
+                &player.player().inventory,
+                self.craft_menu.get_selection(),
+                &layout,
+                self.craft_header_h,
+            );
+        }
     }
 
     pub fn current_tab(&self) -> Tab {
@@ -567,8 +657,14 @@ impl SurvivalDisplay {
             .into_iter()
             .map(|r| Rc::new(RefCell::new(r)))
             .collect();
-        self.craft_menu =
-            Self::build_craft_menu(g, &mut self.recipes, &inventory, 0, self.craft_y0);
+        self.craft_menu = Self::build_craft_menu(
+            g,
+            &mut self.recipes,
+            &inventory,
+            0,
+            &self.layout,
+            self.craft_header_h,
+        );
     }
 
     fn build_craft_menu(
@@ -576,7 +672,8 @@ impl SurvivalDisplay {
         recipes: &mut [Rc<RefCell<Recipe>>],
         inventory: &crate::item::Inventory,
         selection: i32,
-        y0: i32,
+        layout: &Layout,
+        header_h: i32,
     ) -> Menu {
         for r in recipes.iter() {
             r.borrow_mut().check_can_craft(g, inventory);
@@ -585,20 +682,21 @@ impl SurvivalDisplay {
         recipes.sort_by_key(|r| !r.borrow().get_can_craft());
         let entries = RecipeEntry::use_recipes(g, recipes);
         let n = entries.len() as i32;
+        let y0 = layout.body_y + header_h;
         MenuBuilder::new(
             false,
-            ROW_H - super::entry::entry_height(),
+            layout.row_h - super::entry::entry_height(),
             RelPos::Left,
             entries,
         )
         .set_bounds(Rectangle::new(
-            LIST_X,
+            layout.list_x,
             y0,
-            LIST_RIGHT - LIST_X,
-            BODY_BOTTOM - y0,
+            layout.list_right - layout.list_x,
+            layout.body_bottom - y0,
             Rectangle::CORNER_DIMS,
         ))
-        .set_display_length(n.min((BODY_BOTTOM - y0) / ROW_H))
+        .set_display_length(n.min((layout.body_bottom - y0) / layout.row_h))
         .set_selectable(true)
         .set_scroll_policies(1.0, false)
         .set_selection(selection)
@@ -632,7 +730,7 @@ impl SurvivalDisplay {
             .or_else(|| item_rows.last())
             .copied()
             .unwrap_or(0);
-        let max_off = (self.pack_rows.len() as i32 - MAX_ROWS).max(0) as usize;
+        let max_off = (self.pack_rows.len() as i32 - self.layout.max_rows).max(0) as usize;
         self.pack_off = self.pack_off.min(max_off);
         if !item_rows.is_empty() {
             self.scroll_pack();
@@ -679,13 +777,14 @@ impl SurvivalDisplay {
     }
 
     fn scroll_pack(&mut self) {
+        let max_rows = self.layout.max_rows;
         let sel = self.pack_sel as i32;
         let mut off = self.pack_off as i32;
         if sel < off {
             off = sel;
         }
-        if sel >= off + MAX_ROWS {
-            off = sel - MAX_ROWS + 1;
+        if sel >= off + max_rows {
+            off = sel - max_rows + 1;
         }
         // reveal a category header sitting directly above the top row
         if off > 0
@@ -1084,11 +1183,18 @@ impl SurvivalDisplay {
     /* ---------------------------------- rendering ---------------------------------- */
 
     fn render_tabs(&self, screen: &mut Screen) {
-        font::draw("<", screen, PANEL_X + 6, TAB_Y, color::GRAY);
-        font::draw(">", screen, PANEL_X + PANEL_W - 14, TAB_Y, color::GRAY);
+        let l = self.layout;
+        font::draw("<", screen, l.panel_x + 6, l.tab_y, color::GRAY);
+        font::draw(
+            ">",
+            screen,
+            l.panel_x + l.panel_w - 14,
+            l.tab_y,
+            color::GRAY,
+        );
 
-        let slot_x0 = PANEL_X + 16;
-        let slot_w = (PANEL_W - 48) / Tab::ALL.len() as i32;
+        let slot_x0 = l.panel_x + 16;
+        let slot_w = (l.panel_w - 48) / Tab::ALL.len() as i32;
         for (i, tab) in Tab::ALL.iter().enumerate() {
             let label = tab.label();
             let w = font::text_width(label);
@@ -1099,37 +1205,39 @@ impl SurvivalDisplay {
             } else {
                 color::DARK_GRAY
             };
-            font::draw(label, screen, x, TAB_Y, col);
+            font::draw(label, screen, x, l.tab_y, col);
             if active {
-                screen.fill_rect(x - 1, UNDERLINE_Y, w + 2, 1, GOLD_RGB);
+                screen.fill_rect(x - 1, l.underline_y, w + 2, 1, GOLD_RGB);
             }
         }
     }
 
     fn render_divider(&self, screen: &mut Screen) {
+        let l = self.layout;
         fill_rect(
             screen,
-            DIVIDER_X,
-            BODY_Y,
+            l.divider_x,
+            l.body_y,
             1,
-            BODY_BOTTOM - BODY_Y,
+            l.body_bottom - l.body_y,
             DIVIDER_RGB,
         );
     }
 
     fn render_pack(&mut self, screen: &mut Screen, g: &mut Game) {
         self.sync_pack(g);
-        let max_rows = Layout::new(screen.w, screen.h).max_rows;
+        let l = self.layout;
         self.render_divider(screen);
 
         if self.item_row_indices().is_empty() {
             // onboarding empty state, carried over from the old inventory panel
-            let w = LIST_RIGHT - LIST_X - 4;
-            let lines = font::get_lines("Empty - gather something.", w, BODY_BOTTOM - BODY_Y, 1);
+            let w = l.list_right - l.list_x - 4;
+            let lines =
+                font::get_lines("Empty - gather something.", w, l.body_bottom - l.body_y, 1);
             let line_h = font::text_height() + 1;
-            let mut y = BODY_Y + (BODY_BOTTOM - BODY_Y - lines.len() as i32 * line_h) / 2;
+            let mut y = l.body_y + (l.body_bottom - l.body_y - lines.len() as i32 * line_h) / 2;
             for line in &lines {
-                let x = LIST_X + (LIST_RIGHT - LIST_X - font::text_width(line)) / 2;
+                let x = l.list_x + (l.list_right - l.list_x - font::text_width(line)) / 2;
                 font::draw(line, screen, x, y, color::DARK_GRAY);
                 y += line_h;
             }
@@ -1142,12 +1250,12 @@ impl SurvivalDisplay {
         });
 
         // the list
-        let end = ((self.pack_off as i32 + max_rows) as usize).min(self.pack_rows.len());
+        let end = ((self.pack_off as i32 + l.max_rows) as usize).min(self.pack_rows.len());
         for (slot, row_idx) in (self.pack_off..end).enumerate() {
-            let y = BODY_Y + slot as i32 * ROW_H;
+            let y = l.body_y + slot as i32 * l.row_h;
             match self.pack_rows[row_idx] {
                 PackRow::Header(label) => {
-                    font::draw(label, screen, LIST_X + 2, y, COL_HEADER);
+                    font::draw(label, screen, l.list_x + 2, y, COL_HEADER);
                 }
                 PackRow::Item(inv_idx) => {
                     let Some(player) = g.entities.get(self.player_eid) else {
@@ -1156,30 +1264,30 @@ impl SurvivalDisplay {
                     let item = player.player().inventory.get(inv_idx).clone();
                     let selected = row_idx == self.pack_sel;
                     if selected {
-                        font::draw(">", screen, LIST_X + 2, y, color::YELLOW);
+                        font::draw(">", screen, l.list_x + 2, y, color::YELLOW);
                     }
-                    item.sprite.render(screen, LIST_X + 8, y);
+                    item.sprite.render(screen, l.list_x + 8, y);
                     let col = if selected { color::WHITE } else { color::GRAY };
                     // name clips before the count column so neither ever collides
-                    let mut name_w = LIST_RIGHT - 6 - (LIST_X + 17);
+                    let mut name_w = l.list_right - 6 - (l.list_x + 17);
                     if item.count() > 1 {
                         let count = item.count().min(999).to_string();
-                        let cx = LIST_RIGHT - 6 - font::text_width(&count);
+                        let cx = l.list_right - 6 - font::text_width(&count);
                         font::draw(&count, screen, cx, y, col);
-                        name_w = cx - 4 - (LIST_X + 17);
+                        name_w = cx - 4 - (l.list_x + 17);
                     }
-                    font::draw_fit(&bare_name(g, &item), screen, LIST_X + 17, y, col, name_w);
+                    font::draw_fit(&bare_name(g, &item), screen, l.list_x + 17, y, col, name_w);
                 }
             }
         }
 
         // 1px scrollbar on the divider when the list overflows
         let rows = self.pack_rows.len() as i32;
-        if rows > max_rows {
-            let body_h = BODY_BOTTOM - BODY_Y;
-            let bar_h = (body_h * max_rows / rows).max(8);
-            let bar_y = BODY_Y + body_h * self.pack_off as i32 / rows;
-            fill_rect(screen, DIVIDER_X, bar_y, 1, bar_h, SCROLLBAR_RGB);
+        if rows > l.max_rows {
+            let body_h = l.body_bottom - l.body_y;
+            let bar_h = (body_h * l.max_rows / rows).max(8);
+            let bar_y = l.body_y + body_h * self.pack_off as i32 / rows;
+            fill_rect(screen, l.divider_x, bar_y, 1, bar_h, SCROLLBAR_RGB);
         }
 
         // the detail card
@@ -1189,22 +1297,23 @@ impl SurvivalDisplay {
     }
 
     fn render_item_card(&self, screen: &mut Screen, g: &Game, item: &Item) {
-        item.sprite.render(screen, DETAIL_X + 2, BODY_Y + 6);
+        let l = self.layout;
+        item.sprite.render(screen, l.detail_x + 2, l.body_y + 6);
         let name = bare_name(g, item);
         font::draw_fit(
             &name,
             screen,
-            DETAIL_X + 14,
-            BODY_Y + 6,
+            l.detail_x + 14,
+            l.body_y + 6,
             color::WHITE,
-            DETAIL_RIGHT - (DETAIL_X + 14),
+            l.detail_right - (l.detail_x + 14),
         );
 
-        let mut y = BODY_Y + 26;
+        let mut y = l.body_y + 26;
         match &item.kind {
             ItemKind::Tool { dur, ttype, .. } if ttype.durability() > 0 => {
-                font::draw("DURABILITY", screen, DETAIL_X, y, color::DARK_GRAY);
-                y += ROW_H;
+                font::draw("DURABILITY", screen, l.detail_x, y, color::DARK_GRAY);
+                y += l.row_h;
                 let pct = (dur * 100 / ttype.durability()).clamp(0, 100);
                 let bar_w = 80;
                 let fill_w = bar_w * pct / 100;
@@ -1215,33 +1324,33 @@ impl SurvivalDisplay {
                 } else {
                     0xC03A2B
                 };
-                fill_rect(screen, DETAIL_X, y + 2, bar_w, 2, 0x303030);
-                fill_rect(screen, DETAIL_X, y + 2, fill_w, 2, rgb);
+                fill_rect(screen, l.detail_x, y + 2, bar_w, 2, 0x303030);
+                fill_rect(screen, l.detail_x, y + 2, fill_w, 2, rgb);
                 let pct_text = format!("{pct}%");
                 font::draw(
                     &pct_text,
                     screen,
-                    DETAIL_RIGHT - font::text_width(&pct_text),
+                    l.detail_right - font::text_width(&pct_text),
                     y,
                     color::GRAY,
                 );
-                y += ROW_H + 2;
+                y += l.row_h + 2;
             }
             _ if item.is_stackable() => {
                 font::draw(
                     &format!("COUNT {}", item.count()),
                     screen,
-                    DETAIL_X,
+                    l.detail_x,
                     y,
                     color::GRAY,
                 );
-                y += ROW_H + 2;
+                y += l.row_h + 2;
             }
             _ => {}
         }
 
-        for line in font::get_lines(&info_line(item), DETAIL_RIGHT - DETAIL_X, 40, 1) {
-            font::draw(&line, screen, DETAIL_X, y, color::DARK_GRAY);
+        for line in font::get_lines(&info_line(item), l.detail_right - l.detail_x, 40, 1) {
+            font::draw(&line, screen, l.detail_x, y, color::DARK_GRAY);
             y += font::text_height() + 1;
         }
 
@@ -1251,36 +1360,43 @@ impl SurvivalDisplay {
             ItemKind::Clothing { .. } => "DYE SHIRT",
             _ => "HOLD IT",
         };
-        font::draw("ENTER", screen, DETAIL_X, BODY_BOTTOM - 26, color::WHITE);
+        font::draw(
+            "ENTER",
+            screen,
+            l.detail_x,
+            l.body_bottom - 26,
+            color::WHITE,
+        );
         font::draw(
             action,
             screen,
-            DETAIL_X + 56,
-            BODY_BOTTOM - 26,
+            l.detail_x + 56,
+            l.body_bottom - 26,
             color::WHITE,
         );
-        font::draw("Q", screen, DETAIL_X, BODY_BOTTOM - 16, color::WHITE);
+        font::draw("Q", screen, l.detail_x, l.body_bottom - 16, color::WHITE);
         font::draw(
             "DROP ONE",
             screen,
-            DETAIL_X + 56,
-            BODY_BOTTOM - 16,
+            l.detail_x + 56,
+            l.body_bottom - 16,
             color::WHITE,
         );
     }
 
     fn render_wear(&self, screen: &mut Screen, g: &mut Game) {
         self.render_divider(screen);
+        let l = self.layout;
         let Some(player) = g.entities.get(self.player_eid) else {
             return;
         };
         let pd = player.player();
 
         // ---- left: the slot list (mock_wear geometry) ----
-        const BOX_X: i32 = LIST_X + 14;
-        const SLOT_Y0: i32 = BODY_Y + 5;
+        let box_x = l.wear_box_x;
+        let slot_y0 = l.body_y + 5;
         const SLOT_PITCH: i32 = 26;
-        const LABEL_X: i32 = BOX_X + 22;
+        let label_x = l.wear_label_x;
 
         let slots: [(&str, Option<&Item>, bool); 4] = [
             ("HEAD", pd.worn_head.as_ref(), true),
@@ -1289,7 +1405,7 @@ impl SurvivalDisplay {
             ("CHARM", None, false), // reserved slot, ships disabled
         ];
         for (i, (label, item, live)) in slots.iter().enumerate() {
-            let y = SLOT_Y0 + i as i32 * SLOT_PITCH;
+            let y = slot_y0 + i as i32 * SLOT_PITCH;
             let selected = *live && i == self.wear_sel;
             let border = if selected {
                 0xFFFFFF
@@ -1298,23 +1414,23 @@ impl SurvivalDisplay {
             } else {
                 0x4A4A4A
             };
-            fill_rect(screen, BOX_X, y, 16, 1, border);
-            fill_rect(screen, BOX_X, y + 15, 16, 1, border);
-            fill_rect(screen, BOX_X, y, 1, 16, border);
-            fill_rect(screen, BOX_X + 15, y, 1, 16, border);
+            fill_rect(screen, box_x, y, 16, 1, border);
+            fill_rect(screen, box_x, y + 15, 16, 1, border);
+            fill_rect(screen, box_x, y, 1, 16, border);
+            fill_rect(screen, box_x + 15, y, 1, 16, border);
             if selected {
-                font::draw(">", screen, LIST_X, y + 5, color::YELLOW);
+                font::draw(">", screen, l.list_x, y + 5, color::YELLOW);
             }
             font::draw(
                 label,
                 screen,
-                LABEL_X,
+                label_x,
                 y + 1,
                 if *live { COL_HEADER } else { color::DARK_GRAY },
             );
             match item {
                 Some(it) => {
-                    it.sprite.render(screen, BOX_X + 4, y + 4);
+                    it.sprite.render(screen, box_x + 4, y + 4);
                     let mut name = bare_name(g, it);
                     if it.count() > 1 {
                         name.push_str(&format!(" X{}", it.count()));
@@ -1323,20 +1439,20 @@ impl SurvivalDisplay {
                     font::draw_fit(
                         &name,
                         screen,
-                        LABEL_X,
+                        label_x,
                         y + 10,
                         color::WHITE,
-                        DIVIDER_X - 4 - LABEL_X,
+                        l.divider_x - 4 - label_x,
                     );
                 }
                 None => {
-                    font::draw("-", screen, BOX_X + 6, y + 5, color::DARK_GRAY);
+                    font::draw("-", screen, box_x + 6, y + 5, color::DARK_GRAY);
                     let empty = if i == WEAR_HELD {
                         "EMPTY HANDS"
                     } else {
                         "NOTHING"
                     };
-                    font::draw(empty, screen, LABEL_X, y + 10, color::DARK_GRAY);
+                    font::draw(empty, screen, label_x, y + 10, color::DARK_GRAY);
                 }
             }
         }
@@ -1351,8 +1467,8 @@ impl SurvivalDisplay {
         font::draw(
             &format!("ARMOR {} HITS", pd.armor),
             screen,
-            LIST_X + 2,
-            BODY_Y + 104,
+            l.list_x + 2,
+            l.body_y + 104,
             armor_col,
         );
         let coat = pd
@@ -1362,8 +1478,8 @@ impl SurvivalDisplay {
         font::draw(
             &format!("WARMTH +{}", if coat { 2 } else { 0 }),
             screen,
-            LIST_X + 2,
-            BODY_Y + 113,
+            l.list_x + 2,
+            l.body_y + 113,
             COL_WARMTH,
         );
         if pd
@@ -1371,30 +1487,30 @@ impl SurvivalDisplay {
             .as_ref()
             .is_some_and(|a| a.get_name() == "Straw Hat")
         {
-            font::draw("SHADE +1", screen, LIST_X + 2, BODY_Y + 122, COL_WARMTH);
+            font::draw("SHADE +1", screen, l.list_x + 2, l.body_y + 122, COL_WARMTH);
         }
 
         // ---- right: the player portrait (real sprite, palette-correct) ----
-        const PORT_X: i32 = 196;
-        const PORT_Y: i32 = BODY_Y + 2;
+        let port_x = l.wear_port_x;
+        let port_y = l.body_y + 2;
         const PORT_W: i32 = 36;
         const PORT_H: i32 = 28;
-        screen.darken_rect_screen(PORT_X, PORT_Y, PORT_W, PORT_H, 60);
-        fill_rect(screen, PORT_X, PORT_Y, PORT_W, 1, 0x8A8A8A);
-        fill_rect(screen, PORT_X, PORT_Y + PORT_H - 1, PORT_W, 1, 0x8A8A8A);
-        fill_rect(screen, PORT_X, PORT_Y, 1, PORT_H, 0x8A8A8A);
-        fill_rect(screen, PORT_X + PORT_W - 1, PORT_Y, 1, PORT_H, 0x8A8A8A);
+        screen.darken_rect_screen(port_x, port_y, PORT_W, PORT_H, 60);
+        fill_rect(screen, port_x, port_y, PORT_W, 1, 0x8A8A8A);
+        fill_rect(screen, port_x, port_y + PORT_H - 1, PORT_W, 1, 0x8A8A8A);
+        fill_rect(screen, port_x, port_y, 1, PORT_H, 0x8A8A8A);
+        fill_rect(screen, port_x + PORT_W - 1, port_y, 1, PORT_H, 0x8A8A8A);
         let shirt = color::get4(-1, 100, pd.shirt_color, 532);
-        SPRITES[0][0].render_color(screen, PORT_X + (PORT_W - 16) / 2, PORT_Y + 6, shirt);
+        SPRITES[0][0].render_color(screen, port_x + (PORT_W - 16) / 2, port_y + 6, shirt);
 
         // ---- right: FITS ON <slot> ----
         let slot = wear_row_slot(self.wear_sel);
         let slot_name = ["HEAD", "BODY", "HELD"][self.wear_sel];
-        let fits_y = BODY_Y + 40;
+        let fits_y = l.body_y + 40;
         font::draw(
             &format!("FITS ON {slot_name}"),
             screen,
-            DETAIL_X,
+            l.detail_x,
             fits_y,
             COL_HEADER,
         );
@@ -1404,7 +1520,7 @@ impl SurvivalDisplay {
             font::draw(
                 "PICK FROM THE PACK TAB.",
                 screen,
-                DETAIL_X,
+                l.detail_x,
                 fits_y + 12,
                 color::DARK_GRAY,
             );
@@ -1425,9 +1541,13 @@ impl SurvivalDisplay {
         }
         if rows.is_empty() {
             let mut y = fits_y + 12;
-            for line in font::get_lines("NOTHING IN THE PACK FITS.", DETAIL_RIGHT - DETAIL_X, 30, 1)
-            {
-                font::draw(&line, screen, DETAIL_X, y, color::DARK_GRAY);
+            for line in font::get_lines(
+                "NOTHING IN THE PACK FITS.",
+                l.detail_right - l.detail_x,
+                30,
+                1,
+            ) {
+                font::draw(&line, screen, l.detail_x, y, color::DARK_GRAY);
                 y += font::text_height() + 1;
             }
             return;
@@ -1437,14 +1557,14 @@ impl SurvivalDisplay {
         let mut y = fits_y + 12;
         for (it, worn) in rows.iter().take(max_fit) {
             if *worn {
-                font::draw(">", screen, DETAIL_X, y, color::YELLOW);
+                font::draw(">", screen, l.detail_x, y, color::YELLOW);
             }
-            it.sprite.render(screen, DETAIL_X + 8, y);
-            let fit_w = DETAIL_RIGHT - (DETAIL_X + 18);
+            it.sprite.render(screen, l.detail_x + 8, y);
+            let fit_w = l.detail_right - (l.detail_x + 18);
             font::draw_fit(
                 &bare_name(g, it),
                 screen,
-                DETAIL_X + 18,
+                l.detail_x + 18,
                 y,
                 color::WHITE,
                 fit_w,
@@ -1455,14 +1575,14 @@ impl SurvivalDisplay {
             } else {
                 color::GRAY
             };
-            font::draw_fit(&effect, screen, DETAIL_X + 18, y + 9, ecol, fit_w);
+            font::draw_fit(&effect, screen, l.detail_x + 18, y + 9, ecol, fit_w);
             y += FIT_PITCH;
         }
         if rows.len() > max_fit {
             font::draw(
                 &format!("+{} MORE IN THE PACK", rows.len() - max_fit),
                 screen,
-                DETAIL_X,
+                l.detail_x,
                 y,
                 color::DARK_GRAY,
             );
@@ -1470,11 +1590,12 @@ impl SurvivalDisplay {
     }
 
     fn render_craft(&mut self, screen: &mut Screen, g: &mut Game) {
-        let y0 = self.craft_y0;
+        let l = self.layout;
+        let y0 = l.body_y + self.craft_header_h;
         // station context: the station's name as a sub-header over the whole body
         // (mock_bench) — the list and divider start one row lower to make room
         if let Some(name) = &self.station {
-            font::draw_centered(name, screen, BODY_Y + 1, color::YELLOW);
+            font::draw_centered(name, screen, l.body_y + 1, color::YELLOW);
         }
         // THE BENCH's module rack: SAW built in, then one socket per module —
         // filled sockets lit, empty ones a dim ? with the next fit hint under it
@@ -1482,8 +1603,8 @@ impl SurvivalDisplay {
             use crate::entity::furniture::crafter::Module;
             let socket_w = 42; // wide enough for a full 4-char label at 8px
             let rack_w = socket_w * 4;
-            let rack_x = PANEL_X + (PANEL_W - rack_w) / 2;
-            let rack_y = BODY_Y + 12;
+            let rack_x = l.panel_x + (l.panel_w - rack_w) / 2;
+            let rack_y = l.body_y + 12;
             let labels = ["SAW", "VICE", "SPND", "ASSY"];
             let lit = [true, fitted[0], fitted[1], fitted[2]];
             for i in 0..4 {
@@ -1516,7 +1637,7 @@ impl SurvivalDisplay {
                 font::draw_centered(&hint, screen, rack_y + 12, color::DARK_GRAY);
             }
         }
-        fill_rect(screen, DIVIDER_X, y0, 1, BODY_BOTTOM - y0, DIVIDER_RGB);
+        fill_rect(screen, l.divider_x, y0, 1, l.body_bottom - y0, DIVIDER_RGB);
 
         if self.recipes.is_empty() {
             return;
@@ -1528,14 +1649,14 @@ impl SurvivalDisplay {
         let recipe = self.recipes[self.craft_menu.get_selection() as usize].clone();
         let recipe = recipe.borrow();
         let product = recipe.get_product(g);
-        product.sprite.render(screen, DETAIL_X + 2, y0 + 6);
+        product.sprite.render(screen, l.detail_x + 2, y0 + 6);
         font::draw_fit(
             &bare_name(g, &product),
             screen,
-            DETAIL_X + 14,
+            l.detail_x + 14,
             y0 + 6,
             color::WHITE,
-            DETAIL_RIGHT - (DETAIL_X + 14),
+            l.detail_right - (l.detail_x + 14),
         );
 
         let Some(player) = g.entities.get(self.player_eid) else {
@@ -1544,8 +1665,8 @@ impl SurvivalDisplay {
         let inventory = &player.player().inventory;
 
         let mut y = y0 + 24;
-        font::draw("NEEDS", screen, DETAIL_X, y, color::DARK_GRAY);
-        y += ROW_H;
+        font::draw("NEEDS", screen, l.detail_x, y, color::DARK_GRAY);
+        y += l.row_h;
         for (name, amount) in recipe.get_costs() {
             let cost = registry::get(g, name);
             let have = inventory.count(&cost);
@@ -1557,38 +1678,45 @@ impl SurvivalDisplay {
             font::draw_fit(
                 &format!("{}/{} {}", amount, have, bare_name(g, &cost)),
                 screen,
-                DETAIL_X,
+                l.detail_x,
                 y,
                 col,
-                DETAIL_RIGHT - DETAIL_X,
+                l.detail_right - l.detail_x,
             );
-            y += ROW_H;
+            y += l.row_h;
         }
         y += 4;
         font::draw(
             &format!("YOU HAVE {}", inventory.count(&product)),
             screen,
-            DETAIL_X,
+            l.detail_x,
             y,
             color::GRAY,
         );
 
-        font::draw("ENTER", screen, DETAIL_X, BODY_BOTTOM - 16, color::WHITE);
+        font::draw(
+            "ENTER",
+            screen,
+            l.detail_x,
+            l.body_bottom - 16,
+            color::WHITE,
+        );
         font::draw(
             "CRAFT",
             screen,
-            DETAIL_X + 56,
-            BODY_BOTTOM - 16,
+            l.detail_x + 56,
+            l.body_bottom - 16,
             color::WHITE,
         );
     }
 
     fn render_self(&self, screen: &mut Screen, g: &mut Game) {
+        let l = self.layout;
         let Some(player) = g.entities.get(self.player_eid) else {
             return;
         };
         let pd = player.player();
-        let x = 24;
+        let x = l.list_x + 12;
 
         // day, time of day, place
         let day_line = format!(
@@ -1596,12 +1724,12 @@ impl SurvivalDisplay {
             g.events.day_number + 1,
             g.get_time().to_string().to_uppercase()
         );
-        font::draw(&day_line, screen, x, BODY_Y + 2, color::WHITE);
+        font::draw(&day_line, screen, x, l.body_y + 2, color::WHITE);
         font::draw(
             &location_line(g, player),
             screen,
             x,
-            BODY_Y + 12,
+            l.body_y + 12,
             color::DARK_GRAY,
         );
 
@@ -1627,7 +1755,7 @@ impl SurvivalDisplay {
                 mirror_y,
             ),
         ];
-        let mut y = BODY_Y + 26;
+        let mut y = l.body_y + 26;
         for (tile, col, label, value, bits) in meters {
             screen.render(x, y, tile + 12 * 32, col, bits);
             font::draw(label, screen, x + 10, y, color::WHITE);
@@ -1638,7 +1766,7 @@ impl SurvivalDisplay {
                 y,
                 color::WHITE,
             );
-            y += ROW_H;
+            y += l.row_h;
         }
 
         // warmth gauge: the 7 temperature bands as cells with a marker
@@ -1646,7 +1774,7 @@ impl SurvivalDisplay {
         let steps = band.steps();
         y += 6;
         font::draw("WARMTH", screen, x, y, COL_HEADER);
-        y += ROW_H;
+        y += l.row_h;
         for s in -3..=3 {
             let cx = x + (s + 3) * 14;
             fill_rect(screen, cx, y, 12, 6, band_cell_rgb(s));
@@ -1674,14 +1802,21 @@ impl SurvivalDisplay {
         // still clear the legend at LEGEND_Y.
         y += 10;
         font::draw("EFFECTS", screen, x, y, COL_HEADER);
-        y += ROW_H;
+        y += l.row_h;
         let lines = effect_lines(pd);
         if lines.is_empty() {
             font::draw("NONE.", screen, x, y, color::DARK_GRAY);
         } else {
             for line in lines.iter().take(2) {
-                font::draw_fit(line, screen, x, y, color::WHITE, PANEL_X + PANEL_W - 4 - x);
-                y += ROW_H;
+                font::draw_fit(
+                    line,
+                    screen,
+                    x,
+                    y,
+                    color::WHITE,
+                    l.panel_x + l.panel_w - 4 - x,
+                );
+                y += l.row_h;
             }
             if lines.len() > 2 {
                 font::draw(
@@ -1696,35 +1831,36 @@ impl SurvivalDisplay {
     }
 
     fn render_notes(&self, screen: &mut Screen, g: &mut Game) {
+        let l = self.layout;
         let Some(player) = g.entities.get(self.player_eid) else {
             return;
         };
         let pd = player.player();
-        let x = 24;
-        let value_right = PANEL_X + PANEL_W - 24;
+        let x = l.list_x + 12;
+        let value_right = l.panel_x + l.panel_w - 24;
 
-        let mut y = BODY_Y + 2;
+        let mut y = l.body_y + 2;
         font::draw("FIELD NOTES", screen, x, y, COL_HEADER);
-        y += ROW_H + 2;
+        y += l.row_h + 2;
         for (label, value) in notes_lines(pd) {
             font::draw(&label, screen, x, y, color::GRAY);
             let vx = value_right - font::text_width(&value);
             font::draw(&value, screen, vx, y, color::WHITE);
-            y += ROW_H;
+            y += l.row_h;
         }
 
         // the country, journal-style: every land that has a line in the notes
         y += 4;
         font::draw("THE COUNTRY", screen, x, y, COL_HEADER);
-        y += ROW_H;
+        y += l.row_h;
         let names = seen_country(pd);
         if names.is_empty() {
             font::draw("NOTHING WRITTEN YET.", screen, x, y, color::DARK_GRAY);
         } else {
-            let w = PANEL_X + PANEL_W - 4 - x;
-            for line in font::get_lines(&names, w, BODY_BOTTOM - y, 1) {
+            let w = l.panel_x + l.panel_w - 4 - x;
+            for line in font::get_lines(&names, w, l.body_bottom - y, 1) {
                 font::draw(&line, screen, x, y, color::DARK_GRAY);
-                y += ROW_H;
+                y += l.row_h;
             }
         }
     }
@@ -1740,6 +1876,10 @@ impl Display for SurvivalDisplay {
     }
 
     fn tick(&mut self, g: &mut Game) {
+        // follow the live window size (the renderer refreshes g.screen_size)
+        let (w, h) = g.screen_size;
+        self.ensure_layout(g, w, h);
+
         // E, X, and ESC close from any tab
         if g.input.get_key("exit").clicked
             || g.input.get_key("menu").clicked
@@ -1794,7 +1934,8 @@ impl Display for SurvivalDisplay {
     }
 
     fn render(&mut self, screen: &mut Screen, g: &mut Game) {
-        let layout = Layout::new(screen.w, screen.h);
+        self.ensure_layout(g, screen.w, screen.h);
+        let layout = self.layout;
         // deepen the frame's default 185 glass to the survival panel's 200 spec
         screen.darken_rect_screen(
             layout.panel_x,
@@ -1803,15 +1944,13 @@ impl Display for SurvivalDisplay {
             layout.panel_h,
             55,
         );
-        if layout.panel_w == PANEL_W && layout.panel_h == PANEL_H {
-            self.shell_menu.render(screen, g);
-        }
+        self.shell_menu.render(screen, g);
         self.render_tabs(screen);
         let legend = match self.tab {
             Tab::Wear => "ENTER WEAR   Q TAKE OFF   ESC CLOSE",
             _ => "< > SWITCH TAB   ESC CLOSE",
         };
-        font::draw_centered(legend, screen, LEGEND_Y, color::GRAY);
+        font::draw_centered(legend, screen, layout.legend_y, color::GRAY);
 
         match self.tab {
             Tab::Pack => self.render_pack(screen, g),

@@ -15,26 +15,12 @@ use crate::item::Item;
 use super::display::{Display, DisplayBase};
 use super::menu::{Menu, MenuBuilder};
 use super::rel_pos::RelPos;
-use super::survival_display::{
-    BODY_BOTTOM, DETAIL_RIGHT, DIVIDER_RGB, GOLD_RGB, LEGEND_Y, LIST_X, PANEL_H, PANEL_W, PANEL_X,
-    PANEL_Y, ROW_H, SCROLLBAR_RGB, TAB_Y, bare_name,
-};
+use super::survival_display::{DIVIDER_RGB, GOLD_RGB, Layout, SCROLLBAR_RGB, bare_name};
 
-/* ------------------------- geometry (mock_chest, exact) ------------------------- */
-
-/// The vertical divider splits the panel into two equal panes.
-const MID_X: i32 = PANEL_X + PANEL_W / 2; // 144
-/// The horizontal rule under the two titles.
-const RULE_Y: i32 = 25;
-/// First list row.
-const LIST_Y: i32 = 33;
-const MAX_ROWS: i32 = (BODY_BOTTOM - LIST_Y) / ROW_H; // 13
-
-/// Left pane list span (cursor at LIST_X, count right-aligned at the pane edge).
-const L_RIGHT: i32 = MID_X - 6;
-/// Right pane list span.
-const R_LEFT: i32 = MID_X + 8;
-const R_RIGHT: i32 = DETAIL_RIGHT;
+/* ------------------------------ geometry (mock_chest) ------------------------------ */
+// The two-pane split (mid/rule/list rows and both pane spans) lives on
+// [`Layout`] next to the survival shell's classic constants — at 288x192 the
+// fields reproduce the mock exactly (mid 144, rule 25, first row 33, 13 rows).
 
 const SIDE_CONTAINER: usize = 0;
 const SIDE_PACK: usize = 1;
@@ -45,6 +31,8 @@ pub struct ContainerDisplay {
     chest_eid: i32,
     /// The container's display title (its furniture name, upcased at draw time).
     title: String,
+    /// Live shell geometry — recomputed from the screen size each tick/render.
+    layout: Layout,
     /// The glass panel + 9-slice edge (house shell styling).
     shell_menu: Menu,
     /// Focused side: 0 = the container, 1 = the pack.
@@ -60,16 +48,8 @@ impl ContainerDisplay {
             .expect("container must be furniture")
             .name
             .clone();
-        let shell_menu = MenuBuilder::new(true, 0, RelPos::Center, Vec::new())
-            .set_bounds(Rectangle::new(
-                PANEL_X,
-                PANEL_Y,
-                PANEL_W,
-                PANEL_H,
-                Rectangle::CORNER_DIMS,
-            ))
-            .set_selectable(false)
-            .create_menu(g);
+        let layout = Layout::new(g.screen_size.0, g.screen_size.1);
+        let shell_menu = Self::build_shell_menu(g, &layout);
 
         // an emptied container greets you on the pack side — there is nothing to
         // take, so the cursor starts where the action is
@@ -80,6 +60,7 @@ impl ContainerDisplay {
             player_eid: player.c.eid,
             chest_eid: chest.c.eid,
             title,
+            layout,
             shell_menu,
             side: if chest_empty {
                 SIDE_PACK
@@ -89,6 +70,31 @@ impl ContainerDisplay {
             sel: [0, 0],
             off: [0, 0],
         }
+    }
+
+    /// The glass panel + 9-slice frame at the layout's panel rect.
+    fn build_shell_menu(g: &Game, layout: &Layout) -> Menu {
+        MenuBuilder::new(true, 0, RelPos::Center, Vec::new())
+            .set_bounds(Rectangle::new(
+                layout.panel_x,
+                layout.panel_y,
+                layout.panel_w,
+                layout.panel_h,
+                Rectangle::CORNER_DIMS,
+            ))
+            .set_selectable(false)
+            .create_menu(g)
+    }
+
+    /// Recompute the layout from the live screen size; on a change, rebind the
+    /// shell frame whose bounds were baked at the old size.
+    fn ensure_layout(&mut self, g: &Game, w: i32, h: i32) {
+        let layout = Layout::new(w, h);
+        if layout == self.layout {
+            return;
+        }
+        self.layout = layout;
+        self.shell_menu = Self::build_shell_menu(g, &layout);
     }
 
     /// The focused side — public for tests.
@@ -119,18 +125,19 @@ impl ContainerDisplay {
         for side in 0..2 {
             let n = self.side_items(g, side).len() as i32;
             self.sel[side] = self.sel[side].min(n - 1).max(0);
-            let max_off = (n - MAX_ROWS).max(0);
+            let max_off = (n - self.layout.cont_max_rows).max(0);
             self.off[side] = self.off[side].min(max_off).max(0);
         }
     }
 
     fn scroll(&mut self) {
+        let max_rows = self.layout.cont_max_rows;
         let side = self.side;
         if self.sel[side] < self.off[side] {
             self.off[side] = self.sel[side];
         }
-        if self.sel[side] >= self.off[side] + MAX_ROWS {
-            self.off[side] = self.sel[side] - MAX_ROWS + 1;
+        if self.sel[side] >= self.off[side] + max_rows {
+            self.off[side] = self.sel[side] - max_rows + 1;
         }
     }
 
@@ -182,10 +189,11 @@ impl ContainerDisplay {
     }
 
     fn render_side(&self, screen: &mut Screen, g: &Game, side: usize) {
+        let l = self.layout;
         let (x0, x1) = if side == SIDE_CONTAINER {
-            (LIST_X, L_RIGHT)
+            (l.list_x, l.l_right)
         } else {
-            (R_LEFT, R_RIGHT)
+            (l.r_left, l.detail_right)
         };
         let items = self.side_items(g, side);
 
@@ -196,16 +204,16 @@ impl ContainerDisplay {
                 "PACK IS EMPTY."
             };
             let x = x0 + (x1 - x0 - font::text_width(msg)) / 2;
-            font::draw(msg, screen, x, LIST_Y + 4, color::DARK_GRAY);
+            font::draw(msg, screen, x, l.cont_list_y + 4, color::DARK_GRAY);
             return;
         }
 
         let focused = side == self.side;
         let off = self.off[side] as usize;
-        let end = (off + MAX_ROWS as usize).min(items.len());
+        let end = (off + l.cont_max_rows as usize).min(items.len());
         for (slot, idx) in (off..end).enumerate() {
             let item = &items[idx];
-            let y = LIST_Y + slot as i32 * ROW_H;
+            let y = l.cont_list_y + slot as i32 * l.row_h;
             let selected = focused && idx as i32 == self.sel[side];
             if selected {
                 font::draw(">", screen, x0, y, color::YELLOW);
@@ -232,14 +240,14 @@ impl ContainerDisplay {
 
         // 1px scrollbar on the pane's divider edge when the list overflows
         let rows = items.len() as i32;
-        if rows > MAX_ROWS {
-            let body_h = BODY_BOTTOM - LIST_Y;
-            let bar_h = (body_h * MAX_ROWS / rows).max(8);
-            let bar_y = LIST_Y + body_h * self.off[side] / rows;
+        if rows > l.cont_max_rows {
+            let body_h = l.body_bottom - l.cont_list_y;
+            let bar_h = (body_h * l.cont_max_rows / rows).max(8);
+            let bar_y = l.cont_list_y + body_h * self.off[side] / rows;
             let bar_x = if side == SIDE_CONTAINER {
-                MID_X - 1
+                l.mid_x - 1
             } else {
-                MID_X + 1
+                l.mid_x + 1
             };
             fill_rect(screen, bar_x, bar_y, 1, bar_h, SCROLLBAR_RGB);
         }
@@ -256,6 +264,10 @@ impl Display for ContainerDisplay {
     }
 
     fn tick(&mut self, g: &mut Game) {
+        // follow the live window size (the renderer refreshes g.screen_size)
+        let (w, h) = g.screen_size;
+        self.ensure_layout(g, w, h);
+
         // ESC, X, and E all return to the world; a broken/taken container closes too
         let chest_gone = g
             .entities
@@ -306,8 +318,10 @@ impl Display for ContainerDisplay {
     }
 
     fn render(&mut self, screen: &mut Screen, g: &mut Game) {
+        self.ensure_layout(g, screen.w, screen.h);
+        let l = self.layout;
         // deepen the frame's default 185 glass to the shell's 200 spec
-        screen.darken_rect_screen(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 55);
+        screen.darken_rect_screen(l.panel_x, l.panel_y, l.panel_w, l.panel_h, 55);
         self.shell_menu.render(screen, g);
 
         // the two titles, centered over their panes; the focused one carries the
@@ -315,9 +329,9 @@ impl Display for ContainerDisplay {
         let titles = [self.title.to_uppercase(), "PACK".to_string()];
         for (side, title) in titles.iter().enumerate() {
             let center = if side == SIDE_CONTAINER {
-                (PANEL_X + MID_X) / 2
+                (l.panel_x + l.mid_x) / 2
             } else {
-                (MID_X + PANEL_X + PANEL_W) / 2
+                (l.mid_x + l.panel_x + l.panel_w) / 2
             };
             let w = font::text_width(title);
             let x = center - w / 2;
@@ -327,27 +341,27 @@ impl Display for ContainerDisplay {
             } else {
                 color::DARK_GRAY
             };
-            font::draw(title, screen, x, TAB_Y, col);
+            font::draw(title, screen, x, l.tab_y, col);
             if active {
-                fill_rect(screen, x - 1, TAB_Y + 9, w + 2, 1, GOLD_RGB);
+                fill_rect(screen, x - 1, l.tab_y + 9, w + 2, 1, GOLD_RGB);
             }
         }
 
         // the rule under the titles and the center divider
         fill_rect(
             screen,
-            LIST_X,
-            RULE_Y,
-            DETAIL_RIGHT - LIST_X,
+            l.list_x,
+            l.rule_y,
+            l.detail_right - l.list_x,
             1,
             DIVIDER_RGB,
         );
         fill_rect(
             screen,
-            MID_X,
-            RULE_Y,
+            l.mid_x,
+            l.rule_y,
             1,
-            BODY_BOTTOM - RULE_Y + 8,
+            l.body_bottom - l.rule_y + 8,
             DIVIDER_RGB,
         );
 
@@ -357,7 +371,7 @@ impl Display for ContainerDisplay {
         font::draw_centered(
             "ENTER MOVE   Q ONE   < > SIDE   ESC",
             screen,
-            LEGEND_Y,
+            l.legend_y,
             color::GRAY,
         );
     }
