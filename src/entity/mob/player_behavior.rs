@@ -759,9 +759,16 @@ pub fn resolve_held_item(g: &mut Game, player: &mut Entity) {
     }
 }
 
+/// Furniture-use reach (the E key). Deliberately matches ATTACK_DIST rather than
+/// INTERACT_DIST: furniture placed on the facing tile sits ~14px out, so the
+/// classic 12px use box couldn't reach a bench the player just placed — you could
+/// HIT it but not USE it without shuffling closer, and E silently opened the pack
+/// instead (found playing). Tool/tile targeting still uses INTERACT_DIST.
+const FURNITURE_USE_DIST: i32 = ATTACK_DIST;
+
 /// Java `use()` — this actually ends up calling another use method down below.
 fn player_use(g: &mut Game, e: &mut Entity) -> bool {
-    let area = get_interaction_box(e, INTERACT_DIST);
+    let area = get_interaction_box(e, FURNITURE_USE_DIST);
     use_area(g, e, &area)
 }
 

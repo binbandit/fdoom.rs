@@ -195,3 +195,56 @@ fn oven_and_furnace_stay_their_own_stations() {
         "the oven stays buildable"
     );
 }
+
+/// The play-shaped flow (found in a PM self-review session): stand at the bench,
+/// E opens it, and ENTER on a module in the PACK tab fits it straight from the
+/// screen — no walk-away-and-hold ritual. Also pins the widened furniture-use
+/// reach: E must use a bench standing one full tile away (where attack reaches).
+#[test]
+fn fit_module_from_the_bench_screen() {
+    let mut tw = TestWorld::infinite().name("bench_fitscreen").build();
+    let lvl = tw.current_level;
+    let (px, py) = tw.player_tile();
+    for dy in -2..=2 {
+        for dx in -2..=2 {
+            tw.place("grass", dx, dy);
+        }
+    }
+    // place the bench exactly like play: hold the furniture item, SPACE
+    tw.give("Bench", 1);
+    tw.press("E");
+    tw.press("ENTER");
+    tw.press("SPACE");
+    assert!(
+        tw.g.entities.entities_on_level(lvl).any(
+            |e| matches!(&e.kind, EntityKind::Crafter(c) if c.crafter_type == CrafterType::Bench)
+        ),
+        "bench placed at ({px},{py})'s facing tile"
+    );
+
+    tw.give("Vice", 1);
+    tw.press("E"); // one tile away: must open THE BENCH, not the pack
+    tw.press("LEFT");
+    tw.press("LEFT"); // CRAFT -> WEAR -> PACK
+    tw.press("ENTER"); // fit
+    let modules =
+        tw.g.entities
+            .entities_on_level(lvl)
+            .find_map(|e| match &e.kind {
+                EntityKind::Crafter(c) if c.crafter_type == CrafterType::Bench => {
+                    Some(c.modules.clone())
+                }
+                _ => None,
+            })
+            .expect("bench still placed");
+    assert_eq!(
+        modules,
+        vec![Module::Vice],
+        "fit-from-screen bolts the vice"
+    );
+    assert!(
+        tw.g.notifications.iter().any(|n| n.contains("bolts onto")),
+        "the fit announces itself: {:?}",
+        tw.g.notifications
+    );
+}

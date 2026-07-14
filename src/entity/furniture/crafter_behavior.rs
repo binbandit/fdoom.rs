@@ -47,9 +47,11 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
             return false;
         };
         let fitted = fitted_mask(&c.modules);
+        let bench_eid = e.c.eid;
         g.set_menu(crate::screen::survival_display::SurvivalDisplay::at_bench(
             g,
             player,
+            bench_eid,
             bench_recipes(g, &c.modules),
             fitted,
         ));

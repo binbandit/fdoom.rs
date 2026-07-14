@@ -409,6 +409,8 @@ pub struct SurvivalDisplay {
     /// THE BENCH's module rack (`Module::VALUES` order), when opened at a bench:
     /// filled sockets light up, empty ones show a dim `?` with a fit hint.
     bench_rack: Option<[bool; 3]>,
+    /// The bench entity this screen was opened at (fit-from-screen target).
+    bench_eid: Option<i32>,
     craft_y0: i32,
 }
 
@@ -447,17 +449,20 @@ impl SurvivalDisplay {
     pub fn at_bench(
         g: &Game,
         player: &Entity,
+        bench_eid: i32,
         recipes: Vec<Recipe>,
         fitted: [bool; 3],
     ) -> SurvivalDisplay {
-        Self::build(
+        let mut d = Self::build(
             g,
             player,
             Tab::Craft,
             Some("THE BENCH".to_string()),
             Some(fitted),
             recipes,
-        )
+        );
+        d.bench_eid = Some(bench_eid);
+        d
     }
 
     fn build(
@@ -508,6 +513,7 @@ impl SurvivalDisplay {
             craft_menu,
             station,
             bench_rack,
+            bench_eid: None,
             craft_y0,
         };
         display.rebuild_pack(inventory.items());
@@ -545,6 +551,24 @@ impl SurvivalDisplay {
                     .unwrap_or_default(),
             })
             .collect()
+    }
+
+    /// Swap in a new recipe set (a module was fitted mid-screen) and rebuild the
+    /// craft menu at the same scroll home.
+    fn replace_recipes(&mut self, g: &Game, recipes: Vec<Recipe>) {
+        let Some(inventory) = g
+            .entities
+            .get(self.player_eid)
+            .map(|p| p.player().inventory.clone())
+        else {
+            return;
+        };
+        self.recipes = recipes
+            .into_iter()
+            .map(|r| Rc::new(RefCell::new(r)))
+            .collect();
+        self.craft_menu =
+            Self::build_craft_menu(g, &mut self.recipes, &inventory, 0, self.craft_y0);
     }
 
     fn build_craft_menu(
@@ -741,13 +765,37 @@ impl SurvivalDisplay {
             /// A legacy bench-shaped station in the pack breaks down into its
             /// bench module (your grandfathered anvil becomes the VICE).
             BreakDown(crate::entity::furniture::crafter::Module),
+            /// At THE BENCH, ENTER on a module fits it straight from the pack —
+            /// the doc's fit-from-screen promise (holding it also works).
+            Fit(crate::entity::furniture::crafter::Module),
             Hold,
         }
+        let at_bench = self.bench_eid.is_some();
         let act = match g
             .entities
             .get(self.player_eid)
             .map(|p| &p.player().inventory.get(idx).kind)
         {
+            Some(ItemKind::Stackable { .. })
+                if at_bench
+                    && crate::entity::furniture::crafter::Module::from_item_name(
+                        g.entities
+                            .get(self.player_eid)
+                            .map(|p| p.player().inventory.get(idx).get_name())
+                            .unwrap_or(""),
+                    )
+                    .is_some() =>
+            {
+                Act::Fit(
+                    crate::entity::furniture::crafter::Module::from_item_name(
+                        g.entities
+                            .get(self.player_eid)
+                            .map(|p| p.player().inventory.get(idx).get_name())
+                            .unwrap_or(""),
+                    )
+                    .expect("checked above"),
+                )
+            }
             Some(ItemKind::Armor { .. }) => Act::Wear,
             Some(ItemKind::Clothing { player_col, .. }) => Act::Dye(*player_col),
             Some(ItemKind::Furniture { furniture, .. }) => {
@@ -771,6 +819,7 @@ impl SurvivalDisplay {
         match act {
             Act::Wear => self.equip_from_pack(g, idx),
             Act::Dye(col) => self.dye_from_pack(g, idx, col),
+            Act::Fit(m) => self.fit_module_from_pack(g, idx, m),
             Act::BreakDown(m) => {
                 let module = registry::get(g, m.item_name());
                 if let Some(player) = g.entities.get_mut(self.player_eid) {
@@ -842,6 +891,49 @@ impl SurvivalDisplay {
             g.play_sound(Sound::Craft);
             self.rebuild_pack_from_arena(g);
         }
+    }
+
+    /// Fit a module from the pack onto the bench this screen was opened at:
+    /// consume one, bolt it on, refresh the rack + recipe list in place.
+    fn fit_module_from_pack(
+        &mut self,
+        g: &mut Game,
+        idx: i32,
+        m: crate::entity::furniture::crafter::Module,
+    ) {
+        let Some(bench_eid) = self.bench_eid else {
+            return;
+        };
+        let already = match g.entities.get(bench_eid).map(|e| &e.kind) {
+            Some(crate::entity::EntityKind::Crafter(c)) => c.modules.contains(&m),
+            _ => return, // bench vanished (picked up?) — quietly do nothing
+        };
+        if already {
+            g.push_ambient(&format!("The bench already has a {}.", m.item_name()));
+            return;
+        }
+        if let Some(player) = g.entities.get_mut(self.player_eid) {
+            let _consumed = take_one(&mut player.player_mut().inventory, idx);
+        }
+        let modules = {
+            let Some(e) = g.entities.get_mut(bench_eid) else {
+                return;
+            };
+            let crate::entity::EntityKind::Crafter(c) = &mut e.kind else {
+                return;
+            };
+            c.modules.push(m);
+            c.modules.clone()
+        };
+        g.push_ambient(&format!("The {} bolts onto the bench.", m.item_name()));
+        g.play_sound(Sound::Craft);
+        // refresh rack + recipes in place
+        self.bench_rack = Some(crate::entity::furniture::crafter_behavior::fitted_mask(
+            &modules,
+        ));
+        let recipes = crate::entity::furniture::crafter_behavior::bench_recipes(g, &modules);
+        self.replace_recipes(g, recipes);
+        self.rebuild_pack_from_arena(g);
     }
 
     /// Q / SHIFT-Q — drop one / drop the stack (the classic inventory drop rules,
