@@ -204,6 +204,7 @@ pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
                 g,
                 &mut container,
                 kind,
+                p.kind,
                 town_age(seed, p),
                 hash(seed, 0x5CAF_100D, tx, ty),
             );
@@ -232,7 +233,7 @@ pub fn spawn_chunk_entities(g: &mut Game, lvl: usize, cx: i32, cy: i32) {
 }
 
 /// Modest early-game loot, deterministic per chest position.
-fn fill_structure_chest(
+pub fn fill_structure_chest(
     g: &mut Game,
     chest: &mut crate::entity::Entity,
     kind: StructureKind,
@@ -274,6 +275,9 @@ fn fill_structure_chest(
             // kit behind (the module recipes at the bench remain the sure path)
             (9, "Vice", 1),
             (11, "Assay Kit", 1),
+            // field-notes journal: the claim's fletcher wrote down the trade
+            // (teaches a variant only — a find, never a gate)
+            (10, "Fletcher's Diary", 1),
         ],
         _ => &[
             (2, "Torch", 2),
@@ -303,10 +307,11 @@ fn fill_structure_chest(
 /// capsule (old coins, metal, the odd prospector's note), a SETTLED one still has
 /// useful supplies on the shelf. Camps and ruins draw whatever age their spot hashes
 /// to: some caches are simply older than others.
-fn fill_scav_container(
+pub fn fill_scav_container(
     g: &mut Game,
     container: &mut crate::entity::Entity,
     kind: crate::entity::furniture::scav_container::ScavKind,
+    structure: StructureKind,
     age: TownAge,
     h: u64,
 ) {
@@ -364,7 +369,19 @@ fn fill_scav_container(
         ],
     };
     let inventory = &mut container.chest_mut().expect("scav container").inventory;
-    for &(chance, name, num) in base.iter().chain(lean) {
+    // Field-notes journals — a found technique, never a gate (UI_REDESIGN §4).
+    // Each rides its own row, never sharing a slot with the Prospector's Note
+    // entries in the age leans above: Tanner's in hamlet cupboards, Wickmaker's
+    // in camp crates, Trapper's in overgrown-town time capsules.
+    let journal: &[(i32, &str, i32)] = match (structure, kind) {
+        (StructureKind::Hamlet, ScavKind::Cupboard) => &[(9, "Tanner's Notes", 1)],
+        (StructureKind::Camp, ScavKind::Crate) => &[(8, "Wickmaker's Page", 1)],
+        (StructureKind::Hamlet | StructureKind::Village, _) if age == TownAge::Overgrown => {
+            &[(12, "Trapper's Field Guide", 1)]
+        }
+        _ => &[],
+    };
+    for &(chance, name, num) in base.iter().chain(lean).chain(journal) {
         let item = get(g, name);
         inventory.try_add_num(&mut rnd, chance, Some(item), num);
     }

@@ -316,6 +316,20 @@ pub fn item_interact_on_tile(
             book,
             has_title_page,
         } => {
+            // Field-notes journals teach their recipe variant on first read. The
+            // book stays (a keepsake, re-readable); learning is idempotent, so a
+            // re-read never repeats the toast.
+            if let Some(v) = crate::core::field_notes::RecipeVariant::from_journal(item.get_name())
+            {
+                let pd = player.player_mut();
+                if pd.variants_learned & v.bit() == 0 {
+                    pd.variants_learned |= v.bit();
+                    // two stacked ticker lines: the long titles ("FLETCHER'S
+                    // FEATHERING") would clip a single line at minimum resolution
+                    g.push_cue(&format!("{}.", v.title()));
+                    g.push_cue("NEW VARIANT LEARNED.");
+                }
+            }
             // A None book shows the default blank book. The registry stores the raw
             // asset text, so split it into pages here.
             let text = book.map(|b| {

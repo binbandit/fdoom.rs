@@ -155,6 +155,11 @@ pub struct PlayerData {
     /// Field Notes — the survivor's journal (days survived, country seen, tallies).
     /// Persistent: rides the player save behind the `Notes:v1:` trailing marker.
     pub notes: crate::core::field_notes::FieldNotes,
+
+    /// Recipe variants learned from found journals, bit per
+    /// [`RecipeVariant`](crate::core::field_notes::RecipeVariant) in declaration
+    /// order. Persistent behind the `Variants:v1:` marker; old saves know none.
+    pub variants_learned: u8,
 }
 
 impl PlayerData {
@@ -342,6 +347,7 @@ pub fn new(g: &Game, previous: Option<&PlayerData>) -> Entity {
         thirst_tick: 0,
         thirst_cued: false,
         notes: Default::default(),
+        variants_learned: 0,
     };
 
     if let Some(prev) = previous {

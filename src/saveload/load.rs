@@ -782,6 +782,16 @@ impl Load {
             data.remove(0);
         }
 
+        // Journal-learned recipe variants: tolerant trailing marker. Old saves have
+        // no entry and know none; a malformed payload reads as none.
+        if let Some(payload) = data
+            .first()
+            .and_then(|d| d.strip_prefix(crate::saveload::save::VARIANTS_MARKER))
+        {
+            player.player_mut().variants_learned = payload.trim().parse().unwrap_or(0);
+            data.remove(0);
+        }
+
         let cur = g.current_level;
         if g.levels[cur].is_some() {
             g.level_mut(cur).add(player, cur);

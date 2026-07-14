@@ -240,3 +240,112 @@ pub fn tick(g: &mut Game) {
         g.push_cue(&cue);
     }
 }
+
+/* ------------------------- field-notes recipe variants -------------------------
+ *
+ * Scavenged journals each teach one recipe VARIANT — a cheaper stitch, a longer
+ * burn — never a family unlock, never gating progression (UI_REDESIGN §4 "the
+ * runner-up"). Every variant is a pure bonus: its original recipe stays on the
+ * list, and the variant appends after it once learned. Learned state is a bitmask
+ * on PlayerData (`variants_learned`), persisted behind the tolerant
+ * `Variants:v1:` marker; old saves know none. The journal is a keepsake —
+ * reading it learns the variant, re-reading is silent, the book is never consumed.
+ */
+
+use crate::item::Recipe;
+
+/// How many variants exist (the NOTES pane's "x/N" denominator).
+pub const VARIANT_COUNT: u32 = 4;
+
+/// One journal-taught recipe variant. Bit order is declaration order — append new
+/// variants at the end, never reorder (same rule as the journal bitmasks above).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipeVariant {
+    /// Tanner's Notes: bark-tannin does the binding — the cord stays in your pocket.
+    TannersStitch,
+    /// Wickmaker's Page: split finer, wind tighter — three torches from the billet.
+    WickmakersWick,
+    /// Fletcher's Diary: read the grain, knap small — five arrows where there were three.
+    FletchersFeathering,
+    /// Trapper's Field Guide: diagonal cuts, one drawstring — four furs, not five.
+    TrappersPattern,
+}
+
+/// Every variant, declaration order (= learned-bit order).
+pub const ALL_VARIANTS: [RecipeVariant; 4] = [
+    RecipeVariant::TannersStitch,
+    RecipeVariant::WickmakersWick,
+    RecipeVariant::FletchersFeathering,
+    RecipeVariant::TrappersPattern,
+];
+
+impl RecipeVariant {
+    pub fn bit(self) -> u8 {
+        1u8 << (self as u8)
+    }
+
+    /// The journal item that teaches this variant (registry name).
+    pub fn journal_item(self) -> &'static str {
+        match self {
+            RecipeVariant::TannersStitch => "Tanner's Notes",
+            RecipeVariant::WickmakersWick => "Wickmaker's Page",
+            RecipeVariant::FletchersFeathering => "Fletcher's Diary",
+            RecipeVariant::TrappersPattern => "Trapper's Field Guide",
+        }
+    }
+
+    /// Toast/annotation name: "NEW VARIANT LEARNED - {title}."
+    pub fn title(self) -> &'static str {
+        match self {
+            RecipeVariant::TannersStitch => "TANNER'S STITCH",
+            RecipeVariant::WickmakersWick => "WICKMAKER'S WICK",
+            RecipeVariant::FletchersFeathering => "FLETCHER'S FEATHERING",
+            RecipeVariant::TrappersPattern => "TRAPPER'S PATTERN",
+        }
+    }
+
+    /// The variant recipe. Originals for reference (item/recipe.rs):
+    /// Leather*2 = Hide*2 + Cord; Torch*2 = Wood + coal;
+    /// arrow*3 = Wood*2 + Stone*2; Fur Coat = Fur*5 + Cord*2.
+    pub fn recipe(self) -> Recipe {
+        let (product, costs) = match self {
+            RecipeVariant::TannersStitch => ("Leather*2", "Hide*2"),
+            RecipeVariant::WickmakersWick => ("Torch*3", "Wood + coal"),
+            RecipeVariant::FletchersFeathering => ("arrow*5", "Wood*2 + Stone*2"),
+            RecipeVariant::TrappersPattern => ("Fur Coat", "Fur*4 + Cord"),
+        };
+        Recipe::parse(product, costs).tag_field_notes()
+    }
+
+    /// The variant a journal item teaches, if the item is one.
+    pub fn from_journal(item_name: &str) -> Option<RecipeVariant> {
+        ALL_VARIANTS
+            .into_iter()
+            .find(|v| v.journal_item().eq_ignore_ascii_case(item_name))
+    }
+}
+
+/// Append every learned variant whose original lives in `recipes` (matched by
+/// product name). Appending after the original keeps the base recipe listed first,
+/// and scoping to the base's presence puts each variant only where its family
+/// already crafts (torches on both the personal and workbench lists, arrows at the
+/// workbench only) — a station without the original never shows the variant.
+pub fn append_learned_variants(learned: u8, recipes: &mut Vec<Recipe>) {
+    for v in ALL_VARIANTS {
+        if learned & v.bit() == 0 {
+            continue;
+        }
+        let variant = v.recipe();
+        if recipes
+            .iter()
+            .any(|r| !r.is_from_field_notes() && r.product_name() == variant.product_name())
+        {
+            recipes.push(variant);
+        }
+    }
+}
+
+/// How many variants a `variants_learned` bitmask knows (NOTES pane "x/4").
+pub fn variants_learned_count(learned: u8) -> u32 {
+    (learned & ((1u8 << VARIANT_COUNT) - 1)).count_ones()
+}

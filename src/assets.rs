@@ -99,6 +99,12 @@ pub const STORY_GUIDE_TXT: &str = include_str!("../assets/story_guide.txt");
 /// Scavenge-wave lore find: a dead prospector's field notes (teaches seep-stains,
 /// panning, and cave-in props diegetically).
 pub const PROSPECTORS_NOTE_TXT: &str = include_str!("../assets/prospectors_note.txt");
+/// Field-notes journals: found books that each teach one recipe *variant*
+/// (`core::field_notes::RecipeVariant`) — never a family unlock.
+pub const TANNERS_NOTES_TXT: &str = include_str!("../assets/tanners_notes.txt");
+pub const WICKMAKERS_PAGE_TXT: &str = include_str!("../assets/wickmakers_page.txt");
+pub const FLETCHERS_DIARY_TXT: &str = include_str!("../assets/fletchers_diary.txt");
+pub const TRAPPERS_FIELD_GUIDE_TXT: &str = include_str!("../assets/trappers_field_guide.txt");
 
 pub const SOUND_PLAYER_HURT: &[u8] = include_bytes!("../assets/playerhurt.wav");
 pub const SOUND_PLAYER_DEATH: &[u8] = include_bytes!("../assets/death.wav");

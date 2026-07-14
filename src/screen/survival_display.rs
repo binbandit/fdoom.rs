@@ -405,6 +405,14 @@ pub fn notes_lines(pd: &PlayerData) -> Vec<(String, String)> {
             "EVENTS WITNESSED".into(),
             format!("{}/{}", n.events_witnessed_count(), fnotes::EVENT_COUNT),
         ),
+        (
+            "VARIANTS LEARNED".into(),
+            format!(
+                "{}/{}",
+                fnotes::variants_learned_count(pd.variants_learned),
+                fnotes::VARIANT_COUNT
+            ),
+        ),
         ("TREES FELLED".into(), n.trees_felled.to_string()),
         ("FISH CAUGHT".into(), n.fish_caught.to_string()),
         ("ORE PANNED".into(), n.ore_panned.to_string()),
@@ -545,6 +553,15 @@ impl SurvivalDisplay {
             _ => 0,
         };
 
+        // Journal-learned variants append after their originals, wherever the
+        // original is on this list (personal, station, or bench context) — so the
+        // list picks up a newly read journal on its next open, and the base
+        // recipe always renders first.
+        let mut recipes = recipes;
+        crate::core::field_notes::append_learned_variants(
+            player.player().variants_learned,
+            &mut recipes,
+        );
         let mut recipes: Vec<Rc<RefCell<Recipe>>> = recipes
             .into_iter()
             .map(|r| Rc::new(RefCell::new(r)))
@@ -1693,6 +1710,11 @@ impl SurvivalDisplay {
             y,
             color::GRAY,
         );
+        // journal-learned variants show their provenance on the card
+        if recipe.is_from_field_notes() {
+            y += ROW_H;
+            font::draw("FIELD NOTES", screen, DETAIL_X, y, color::YELLOW);
+        }
 
         font::draw(
             "ENTER",

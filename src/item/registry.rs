@@ -367,6 +367,32 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
         Some(crate::assets::PROSPECTORS_NOTE_TXT),
         false,
     ));
+    // Field-notes journals — each teaches one recipe variant on first read
+    // (core::field_notes::RecipeVariant); found in scavenge loot, never crafted.
+    items.push(book(
+        "Tanner's Notes",
+        get4(-1, 210, 431, 542),
+        Some(crate::assets::TANNERS_NOTES_TXT),
+        false,
+    ));
+    items.push(book(
+        "Wickmaker's Page",
+        get4(-1, 210, 443, 554),
+        Some(crate::assets::WICKMAKERS_PAGE_TXT),
+        false,
+    ));
+    items.push(book(
+        "Fletcher's Diary",
+        get4(-1, 210, 342, 453),
+        Some(crate::assets::FLETCHERS_DIARY_TXT),
+        false,
+    ));
+    items.push(book(
+        "Trapper's Field Guide",
+        get4(-1, 210, 322, 433),
+        Some(crate::assets::TRAPPERS_FIELD_GUIDE_TXT),
+        false,
+    ));
 
     // TileItem.getAllInstances()
     items.push(tile_item(

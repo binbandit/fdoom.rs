@@ -19,6 +19,9 @@ pub struct Recipe {
     product: String,
     amount: i32,
     can_craft: bool,
+    /// A variant learned from a found journal (`core::field_notes::RecipeVariant`):
+    /// the CRAFT card annotates it with a FIELD NOTES tag so its provenance shows.
+    from_field_notes: bool,
 }
 
 impl Recipe {
@@ -47,6 +50,7 @@ impl Recipe {
             product,
             amount,
             can_craft: false,
+            from_field_notes: false,
         }
     }
 
@@ -101,6 +105,19 @@ impl Recipe {
 
     pub fn get_can_craft(&self) -> bool {
         self.can_craft
+    }
+
+    /// Tag this recipe as a journal-learned variant (consuming builder, for the
+    /// `RecipeVariant` tables). Variants are strictly-better or sidegrade alternates
+    /// that live *alongside* their originals — the original never disappears.
+    pub fn tag_field_notes(mut self) -> Recipe {
+        self.from_field_notes = true;
+        self
+    }
+
+    /// True for journal-learned variants — the CRAFT card shows a FIELD NOTES tag.
+    pub fn is_from_field_notes(&self) -> bool {
+        self.from_field_notes
     }
 
     /// Java `checkCanCraft(player)` — updates and returns the cached flag.
