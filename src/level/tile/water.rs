@@ -32,27 +32,54 @@ pub fn may_pass(_g: &Game, _def: &TileDef, _lvl: usize, _x: i32, _y: i32, e: &En
     can_swim(e)
 }
 
+/// Day/night lerp of a readable color (digits 0-5 per channel). The water body was
+/// one fixed indigo around the clock, so open water at noon read as night sky
+/// (ODDITIES O18); the palette now rides the ambient brightness — night keeps the
+/// classic dark ints exactly.
+fn day_lerp(night: i32, day: i32, f: f32) -> i32 {
+    let ch = |v: i32| [v / 100, v / 10 % 10, v % 10];
+    let (n, d) = (ch(night), ch(day));
+    let mix = |i: usize| n[i] + ((d[i] - n[i]) as f32 * f).round() as i32;
+    mix(0) * 100 + mix(1) * 10 + mix(2)
+}
+
+/// 0 = night/dusk palette, 1 = full noon palette.
+fn day_factor(g: &Game, lvl: usize) -> f32 {
+    let b = crate::gfx::lighting::ambient_for(g, lvl).brightness;
+    ((b - 0.50) / 0.35).clamp(0.0, 1.0)
+}
+
+/// The two body slots (deep shade, ripple body) at day factor `f`.
+fn body_slots(f: f32) -> (i32, i32) {
+    (day_lerp(3, 114, f), day_lerp(105, 124, f))
+}
+
 /// Waterline palette against one neighboring ground, when that ground family wants
-/// its own lap tint. Slot 2 is the wet shadow ring, slot 3 the lap line the water
-/// leaves on the bank (see `tiles/water_sparse.png`): sand gets foam-yellow, snow an
-/// icy margin, mud a dark wet lap that melts into the bog — so shorelines read as
-/// the same treatment everywhere, tinted by what the water touches.
-fn shore_palette(tile: &TileDef) -> Option<i32> {
+/// its own lap tint. `body` carries the day-graded water slots 0/1; slot 2 is the
+/// wet shadow ring, slot 3 the lap line the water leaves on the bank (see
+/// `tiles/water_sparse.png`): sand gets foam-yellow, snow an icy margin, mud a dark
+/// wet lap that melts into the bog — so shorelines read as the same treatment
+/// everywhere, tinted by what the water touches.
+fn shore_palette(tile: &TileDef, body: (i32, i32)) -> Option<i32> {
+    let (b0, b1) = body;
     match tile.kind {
-        TileKind::Snow => Some(color::get4(3, 105, 334, 455)),
-        TileKind::Mud => Some(color::get4(3, 105, 100, 210)),
+        TileKind::Snow => Some(color::get4(b0, b1, 334, 455)),
+        TileKind::Mud => Some(color::get4(b0, b1, 100, 210)),
         // the exposed intertidal flat is damp sand: a softer foam than dry beach
-        TileKind::TidalFlat => Some(color::get4(3, 105, 431, 543)),
+        TileKind::TidalFlat => Some(color::get4(b0, b1, 431, 543)),
         _ if !tile.connects_to_water && tile.connects_to_sand => {
-            Some(color::get4(3, 105, 440, 550))
+            Some(color::get4(b0, b1, 440, 550))
         }
         _ => None,
     }
 }
 
-/// Java anonymous `ConnectorSprite.getSparseColor` override.
+/// Java anonymous `ConnectorSprite.getSparseColor` override. The body slots are
+/// lifted from the incoming color, so the day-graded palette the render pass
+/// chose survives the per-neighbor shore recolor chain.
 pub fn get_sparse_color(_def: &TileDef, tile: &TileDef, orig_col: i32) -> i32 {
-    shore_palette(tile).unwrap_or(orig_col)
+    let r = color::separate_encoded_sprite_readable(orig_col);
+    shore_palette(tile, (r[0], r[1])).unwrap_or(orig_col)
 }
 
 /// Does the tile at `(x, y)` read as open water *right now*? Like
@@ -77,11 +104,25 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         .wrapping_add(x as i64 * 3271612)
         .wrapping_add(y as i64 * 3412987161);
 
+    // Day-graded body palette (ODDITIES O18): lighter mid-blue at noon, the
+    // classic dark indigo at night. Deep water darkens this same base, so the
+    // shallow/deep contrast rides along.
+    let f = day_factor(g, lvl);
+    let (b0, b1) = body_slots(f);
+
     let mut tmp = def.clone();
     let cs = tmp.csprite.as_mut().expect("water has a csprite");
-    cs.full = Sprite::random_dots(seed, cs.full.color);
+    cs.full = Sprite::random_dots(
+        seed,
+        color::get4(
+            day_lerp(5, 115, f),
+            b1,
+            day_lerp(115, 235, f),
+            day_lerp(115, 235, f),
+        ),
+    );
     let full = cs.full.color;
-    let sparse = color::get4(3, 105, 211, dirt::d_col(g.level(lvl).depth));
+    let sparse = color::get4(b0, b1, 211, dirt::d_col(g.level(lvl).depth));
     // two-sprite ConnectorSprite: sides share the sparse sprite, so the side color
     // must follow the sparse recolor
     dispatch::csprite_render(g, screen, &tmp, lvl, x, y, Some((sparse, sparse, full)));
@@ -105,7 +146,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
             if wet(dx, dy) {
                 return prev;
             }
-            shore_palette(&g.tile_at(lvl, x + dx, y + dy)).unwrap_or(prev)
+            shore_palette(&g.tile_at(lvl, x + dx, y + dy), (b0, b1)).unwrap_or(prev)
         };
         let sp = &tmp.csprite.as_ref().expect("water has a csprite").sparse;
         let mut quad = |n: (i32, i32), h: (i32, i32), cx: i32, cy: i32, px: i32, py: i32| {

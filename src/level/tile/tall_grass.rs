@@ -44,8 +44,9 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let TileKind::TallGrass { kind } = def.kind else {
         return;
     };
-    // draw the grass ground first, then the tuft over it
-    let on_type = g.tiles.get("grass");
+    // draw the actual ground first, then the tuft over it — overgrowth tufts on a
+    // cemetery/town dirt plot used to stamp grass-green squares (ODDITIES O6)
+    let on_type = g.tiles.get(super::ground_beneath(g, lvl, x, y, "grass"));
     dispatch::render(g, screen, &on_type, lvl, x, y);
     match kind {
         0 => small().render(screen, x * 16, y * 16),

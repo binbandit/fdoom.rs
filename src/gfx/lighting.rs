@@ -79,6 +79,7 @@ pub const FX_DEPTH_FOG: u32 = 1 << 8;
 pub const FX_AMBIENT_FOG: u32 = 1 << 9;
 pub const FX_BLIZZARD: u32 = 1 << 10;
 pub const FX_THUNDER: u32 = 1 << 11;
+pub const FX_PRECIP: u32 = 1 << 12;
 
 /// Bitmask of effects currently disabled. The game never touches this — it exists so
 /// `tests/visuals.rs` can render true A/B pairs of the same frame.
@@ -402,35 +403,56 @@ pub fn render_pass(
             ambience::water_glitter(screen, g, lvl, x_scroll, y_scroll, amb.brightness);
         }
         fish_bubbles(screen, g, lvl, x_scroll, y_scroll, amb.brightness);
+        // Precipitation identity is per-column on the infinite surface: the kind
+        // used to be chosen once at the player, so blue rain streaked across the
+        // snowfield on the far side of a climate border (ODDITIES O9). Both passes
+        // now run and self-filter by `weather::snow_climate` at the column they
+        // draw in; the player-side kind still carries the storm boost.
+        let per_column = g.level(lvl).is_infinite();
         match ctx.precip {
-            Precip::Rain(i) => {
+            Precip::Rain(i) if fx_on(FX_PRECIP) => {
                 // A thunderstorm turns the rain torrential: streak coverage up.
-                let i = match ctx.storm {
+                let ri = match ctx.storm {
                     weather::Storm::Thunderstorm(sev) if fx_on(FX_THUNDER) => {
                         (i + 0.45 * sev).min(1.0)
                     }
                     _ => i,
                 };
-                rain_streaks(screen, g, i, amb.brightness, x_scroll, y_scroll);
+                let only = per_column.then_some(false);
+                rain_streaks(screen, g, ri, amb.brightness, x_scroll, y_scroll, only);
+                if per_column {
+                    snow_flecks(screen, g, i, amb.brightness, x_scroll, y_scroll, Some(true));
+                }
             }
-            Precip::Snow(i) => {
+            Precip::Snow(i) if fx_on(FX_PRECIP) => {
                 // A blizzard doubles down: full fleck coverage plus wind-driven
                 // streaks racing sideways through the veil.
-                let i = if blizzard > 0.0 {
+                let si = if blizzard > 0.0 {
                     (i + 0.6 * blizzard).min(1.0)
                 } else {
                     i
                 };
-                snow_flecks(screen, g, i, amb.brightness, x_scroll, y_scroll);
+                let only = per_column.then_some(true);
+                snow_flecks(screen, g, si, amb.brightness, x_scroll, y_scroll, only);
                 if blizzard > 0.0 {
                     wind_flecks(screen, g, blizzard, amb.brightness, x_scroll, y_scroll);
                 }
-            }
-            Precip::None => {
-                if fx_on(FX_MOTES) {
-                    ambience::drift_motes(screen, g, x_scroll, y_scroll, amb.brightness);
+                if per_column {
+                    rain_streaks(
+                        screen,
+                        g,
+                        i,
+                        amb.brightness,
+                        x_scroll,
+                        y_scroll,
+                        Some(false),
+                    );
                 }
             }
+            Precip::None if fx_on(FX_MOTES) => {
+                ambience::drift_motes(screen, g, x_scroll, y_scroll, amb.brightness);
+            }
+            _ => {}
         }
         // Lightning on top of the rain: the 2 s ground-shimmer telegraph, then the
         // bolt itself (the frame-wide pulse already lifted the grade above).
@@ -630,6 +652,8 @@ fn weather_grade(amb: Ambient, precip: Precip) -> Ambient {
 /// while per-cell hash jitter (phase along the lane, offset within it, 3-4 px length)
 /// keeps the full downpour from reading as a ruled grid. The epoch coordinate rides
 /// the fall offset, so each drop streaks down its lane and re-rolls next cycle.
+/// `only_snow`: `Some(want)` draws only in columns whose `weather::snow_climate`
+/// equals `want` (per-column precip identity, ODDITIES O9); `None` draws everywhere.
 fn rain_streaks(
     screen: &mut Screen,
     g: &Game,
@@ -637,6 +661,7 @@ fn rain_streaks(
     ambient: f32,
     x_scroll: i32,
     y_scroll: i32,
+    only_snow: Option<bool>,
 ) {
     const RAIN_SALT: u64 = 0xDA0B5;
     const LANE: i32 = 11; // d-units between lanes
@@ -667,6 +692,12 @@ fn rain_streaks(
             let s0 = ((h >> 8) % (SEG - len) as u64) as i32; // phase along the lane
             let dq = q * LANE + ((h >> 24) % (LANE - 2) as u64) as i32; // offset in lane
             let wy0 = (e as i64 * SEG as i64 + fall) as i32 + s0;
+            if let Some(want) = only_snow {
+                let wx0 = (dq - wy0).div_euclid(3);
+                if weather::snow_climate(g.world_seed, wx0 >> 4, wy0 >> 4) != want {
+                    continue;
+                }
+            }
             for k in 0..len {
                 let wy = wy0 + k;
                 let wx = (dq - wy).div_euclid(3);
@@ -679,6 +710,7 @@ fn rain_streaks(
 /// Tundra snowfall: slow-drifting single white specks on a world-anchored cell grid —
 /// same Bayer-ordered activation as the rain, but falling at a third of the speed
 /// with a gentle side-to-side sway.
+/// `only_snow`: see [`rain_streaks`].
 fn snow_flecks(
     screen: &mut Screen,
     g: &Game,
@@ -686,6 +718,7 @@ fn snow_flecks(
     ambient: f32,
     x_scroll: i32,
     y_scroll: i32,
+    only_snow: Option<bool>,
 ) {
     const SNOW_SALT: u64 = 0x5A02;
     const CELL: i32 = 13;
@@ -709,6 +742,11 @@ fn snow_flecks(
             let sway = [0, 1, 0, -1][((t / 14 + ((h >> 40) & 0xF) as i64) & 3) as usize];
             let wx = i * CELL + ((h >> 8) % CELL as u64) as i32 + sway;
             let wy = (j as i64 * CELL as i64 + fall) as i32 + ((h >> 16) % CELL as u64) as i32;
+            if let Some(want) = only_snow
+                && weather::snow_climate(g.world_seed, wx >> 4, wy >> 4) != want
+            {
+                continue;
+            }
             let (sx, sy) = (wx - x_scroll, wy - y_scroll);
             screen.add_rgb(sx, sy, a, a, a + 10);
             screen.add_rgb(sx, sy + 1, a / 2, a / 2, a / 2 + 6); // soft tail
@@ -853,10 +891,22 @@ fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], 
             seed, tx, ty,
         )))
     };
+    // Prop tiles (species trees, cacti, tall grass) render whatever ground really
+    // surrounds them (`tile::ground_beneath`, ODDITIES O6/O7); classify them by
+    // that same vote so the seam carry agrees with the pixels underneath.
+    let beneath =
+        |default: &'static str| match crate::level::tile::ground_beneath(g, lvl, tx, ty, default) {
+            "snow" => (SNOW_F, GroundFam::Snow),
+            "sand" => (SAND_F, GroundFam::Sand),
+            "mud" => (MUD_F, GroundFam::Mud),
+            "heath" => (NEUTRAL_F, GroundFam::Heath),
+            "dirt" => (biome(), GroundFam::Dirt),
+            "Layered Clay" => (biome(), GroundFam::Other),
+            _ => (biome(), GroundFam::Grass),
+        };
     match g.tile_at(lvl, tx, ty).kind {
-        TileKind::Sand | TileKind::Cactus | TileKind::FruitingCactus | TileKind::QuickSand => {
-            (SAND_F, GroundFam::Sand)
-        }
+        TileKind::Sand | TileKind::QuickSand => (SAND_F, GroundFam::Sand),
+        TileKind::Cactus | TileKind::FruitingCactus => beneath("sand"),
         // The intertidal band is damp sand — same family as the dry beach above,
         // darker factor. It classified as Other and got NO treatment at all: the
         // wet/dry boundary was a razor staircase (found playing, session 2).
@@ -874,17 +924,13 @@ fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], 
         // on snow, dead tree and palm on sand); classifying them all as grass used
         // to stipple meadow-green seams into snowfields and dunes (playtest bug #6).
         TileKind::TreeSpecies { species } => {
-            match crate::level::tile::tree_species::base_tile(species) {
-                "snow" => (SNOW_F, GroundFam::Snow),
-                "sand" => (SAND_F, GroundFam::Sand),
-                _ => (biome(), GroundFam::Grass),
-            }
+            beneath(crate::level::tile::tree_species::base_tile(species))
         }
         // The dry bush renders a sand base too (dry_bush.rs) — same seam rule.
         TileKind::DryBush => (SAND_F, GroundFam::Sand),
+        TileKind::TallGrass { .. } => beneath("grass"),
         TileKind::Grass
         | TileKind::Flower
-        | TileKind::TallGrass { .. }
         | TileKind::Tree
         | TileKind::Sapling { .. }
         | TileKind::BerryBush => (biome(), GroundFam::Grass),

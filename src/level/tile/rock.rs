@@ -114,8 +114,15 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         dispatch::render(g, screen, &under, lvl, x, y);
     }
     let col = color::get4(111, 444, 555, -1);
-    let full = def.csprite.as_ref().map(|cs| cs.full.color).unwrap_or(0);
-    dispatch::csprite_render(g, screen, def, lvl, x, y, Some((col, col, full)));
+    // Per-tile shuffle/flip of the fractured-plate cells: the static order tiled
+    // the massif as one repeated 16px quilt block — pale pillows and crack ticks
+    // on a wall-to-wall lattice (ODDITIES O16).
+    let mut tmp = def.clone();
+    let cs = tmp.csprite.as_mut().expect("rock has a csprite");
+    let h = infinite_gen::hash(g.world_seed, 0x0C10_0016, x, y);
+    cs.full = Sprite::dots_at_hashed(25, 3, cs.full.color, h);
+    let full = cs.full.color;
+    dispatch::csprite_render(g, screen, &tmp, lvl, x, y, Some((col, col, full)));
 
     let (px, py) = (x * 16, y * 16);
     let data = g.level(lvl).get_data(x, y);

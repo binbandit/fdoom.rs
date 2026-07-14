@@ -64,8 +64,10 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let TileKind::GraveStone { broken } = def.kind else {
         return;
     };
-    let grass = g.tiles.get("grass");
-    dispatch::render(g, screen, &grass, lvl, x, y);
+    // stand the marker on the plot's actual ground — a hardcoded grass base punched
+    // bright green squares into cemetery dirt (ODDITIES O6)
+    let under = g.tiles.get(super::ground_beneath(g, lvl, x, y, "grass"));
+    dispatch::render(g, screen, &under, lvl, x, y);
 
     let (cx, cy) = shape(x, y, broken);
     // the marker art is true color; the palette word is inert and kept only for the

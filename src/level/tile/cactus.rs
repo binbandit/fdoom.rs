@@ -36,8 +36,8 @@ pub fn fruiting_render(
     x: i32,
     y: i32,
 ) {
-    let sand = g.tiles.get("sand");
-    dispatch::render(g, screen, &sand, lvl, x, y);
+    let under = g.tiles.get(super::ground_beneath(g, lvl, x, y, "sand"));
+    dispatch::render(g, screen, &under, lvl, x, y);
     // dedicated fruiting-saguaro art (artgen `flora_cells` (25,26)): staggered arms
     // carrying coral-pink fruit — true color, distinct from the plain cactus
     Sprite::new(25, 26, 2, 2, 0, 0).render(screen, x * 16, y * 16);
@@ -68,8 +68,10 @@ pub fn fruiting_hurt_by(
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let sand = g.tiles.get("sand");
-    dispatch::render(g, screen, &sand, lvl, x, y);
+    // border bands can strand a cactus on grass-side ground — render what's really
+    // under it, not an unconditional sand square (ODDITIES O7)
+    let under = g.tiles.get(super::ground_beneath(g, lvl, x, y, "sand"));
+    dispatch::render(g, screen, &under, lvl, x, y);
     if let Some(sprite) = &def.sprite {
         sprite.render(screen, x * 16, y * 16);
     }

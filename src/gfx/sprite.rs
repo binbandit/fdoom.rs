@@ -171,6 +171,38 @@ impl Sprite {
         make_sprite(2, 2, col, 0, false, &[base, base + 1, base + 2, base + 3])
     }
 
+    /// Like `dots_at`, but the four texture cells are shuffled among the quadrants
+    /// and flipped by a position hash. `dots_at` stamps the same four cells in the
+    /// same order on every tile, so any motif that touches a cell edge lines up
+    /// with its neighbor and rules the whole field (dune ripple lines, the rock
+    /// quilt — ODDITIES O16/O17). Feed `h` a pure per-tile hash and the phase
+    /// breaks at every tile seam while the palette and texture density stay put.
+    pub fn dots_at_hashed(sx: i32, sy: i32, col: i32, h: u64) -> Sprite {
+        let base = sx + sy * 32;
+        let mut idx = [0usize, 1, 2, 3];
+        // three hashed transpositions reach 4 arrangements per pair pattern —
+        // plenty, given each quadrant also gets independent flip bits below
+        if h & 1 != 0 {
+            idx.swap(0, 1);
+            idx.swap(2, 3);
+        }
+        if h & 2 != 0 {
+            idx.swap(0, 2);
+            idx.swap(1, 3);
+        }
+        if h & 4 != 0 {
+            idx.swap(1, 2);
+        }
+        let px = |q: usize| {
+            let pos = base + idx[q] as i32;
+            Px {
+                sheet_pos: pos,
+                mirror: ((h >> (3 + 2 * q)) & 3) as i32,
+            }
+        };
+        Sprite::from_pixels(vec![vec![px(0), px(1)], vec![px(2), px(3)]], col)
+    }
+
     /// Java `Sprite.randomDots(seed, col)`.
     pub fn random_dots(seed: i64, col: i32) -> Sprite {
         let mut ran = Rng::new(seed);

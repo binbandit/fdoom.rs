@@ -219,6 +219,51 @@ impl ConnectorSprite {
     }
 }
 
+/// The ground a prop/flora tile stands on, judged by majority vote over its
+/// neighbors' actual ground tiles (cardinals count double). Props used to hardcode
+/// their base — gravestones and overgrowth stamped grass squares into cemetery
+/// dirt, border-band pines stamped snow squares onto grass country (ODDITIES
+/// O6/O7). Other props/floors/water don't vote; if nothing votes (e.g. deep inside
+/// a same-species tree cluster) the caller's `default` stands.
+pub fn ground_beneath(g: &Game, lvl: usize, x: i32, y: i32, default: &'static str) -> &'static str {
+    // vote slots double as the tie-break order: hard/rare grounds outrank fillers
+    let mut names = [
+        ("snow", 0i32),
+        ("sand", 0),
+        ("Layered Clay", 0),
+        ("heath", 0),
+        ("mud", 0),
+        ("dirt", 0),
+        ("grass", 0),
+    ];
+    for (dx, dy) in [
+        (0, -1),
+        (0, 1),
+        (-1, 0),
+        (1, 0),
+        (-1, -1),
+        (1, -1),
+        (-1, 1),
+        (1, 1),
+    ] {
+        let cardinal = dx == 0 || dy == 0;
+        let slot = match g.tile_at(lvl, x + dx, y + dy).kind {
+            TileKind::Snow => 0,
+            TileKind::Sand => 1,
+            TileKind::Clay | TileKind::OreFreckle => 2,
+            TileKind::Heath => 3,
+            TileKind::Mud => 4,
+            TileKind::Dirt | TileKind::Farm => 5,
+            TileKind::Grass => 6,
+            _ => continue,
+        };
+        names[slot].1 += if cardinal { 2 } else { 1 };
+    }
+    // max_by_key keeps the LAST maximum, so reverse: ties go to the earlier slot
+    let (name, votes) = names.iter().rev().max_by_key(|(_, n)| *n).unwrap();
+    if *votes > 0 { name } else { default }
+}
+
 /// One Java tile class instance (e.g. "GRASS", or "WOOD DOOR").
 #[derive(Debug, Clone)]
 pub struct TileDef {

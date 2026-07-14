@@ -53,7 +53,11 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     cs.full = if stepped_on {
         stepped_on_sprite()
     } else {
-        normal_sprite()
+        // per-tile shuffle/flip of the ripple cells: the static cell order made
+        // every ripple dash continue its neighbor's at the same y, ruling the
+        // whole desert with unbroken horizontal lines (ODDITIES O17)
+        let h = crate::level::infinite_gen::hash(g.world_seed, 0x5A9D_0017, x, y);
+        Sprite::dots_at_hashed(26, 0, color::get4(552, 550, 440, 440), h)
     };
 
     dispatch::csprite_render(g, screen, &tmp, lvl, x, y, None);
