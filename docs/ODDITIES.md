@@ -411,9 +411,9 @@ False alarm, verified: "sand beside snow" at a dawn coast is Beach next to
 Tundra — honest cold-shore geography (the adjacency guard covers Desert/
 Savanna by design); the pink cast was the rose-gold dawn wash on snow.
 Recorded, not fixed:
-- R2-1 Badlands may be too rare to ever find: nearest at ~3,900 tiles from
-  origin on seed 7777 (grid-swept). Consider widening the moisture band a
-  touch or seeding a badlands-biased region gate. noticeable (discovery).
+- R2-1 RETRACTED: the scout scanned top-left-first and reported scan order,
+  not distance. Proper Chebyshev-nearest across 5 seeds: 320-1440 tiles with
+  800-1650 cells per 8000-tile sweep — badlands is findably rare as intended.
 - R2-2 Bench sprite is a workbench recolor — fine at 1x but the two stations
   are near-twins side by side. Art queue (module sockets on the top edge).
 - R2-3 Demo scripts cannot pin a world seed (typed-seed navigation is fragile
