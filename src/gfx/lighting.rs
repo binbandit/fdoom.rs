@@ -1210,9 +1210,18 @@ fn seam_carry(
             // here, drawn after the loop: `strip` holds the screen borrow.)
             const CORNERS: [(i32, i32); 4] = [(-1, -1), (1, -1), (-1, 1), (1, 1)];
             for &(hdx, vdy) in &CORNERS {
-                let vn = fam[(tj as i32 + 1 + vdy) as usize * tw + ti + 1];
-                let hn = fam[(tj + 1) * tw + (ti as i32 + 1 + hdx) as usize];
+                let (vgi, vgj) = (ti + 1, (tj as i32 + 1 + vdy) as usize);
+                let (hgi, hgj) = ((ti as i32 + 1 + hdx) as usize, tj + 1);
+                let vn = fam[vgj * tw + vgi];
+                let hn = fam[hgj * tw + hgi];
                 if vn != hn || vn == f || vn == GroundFam::Other {
+                    continue;
+                }
+                // never round toward one-tile freckles: full-strength corners on
+                // all four neighbors of a lone tile paint a glow ring brighter
+                // than the freckle itself (found in PM self-review round 2 — the
+                // same halo class the lone() rule kills for edge strips)
+                if lone(vgi, vgj) || lone(hgi, hgj) {
                     continue;
                 }
                 corners_to_round.push((tx, ty, hdx, vdy, fam_color(vn)));
