@@ -22,8 +22,13 @@ it. Village decay observations are framed as dressing notes, not bugs.
 
 ## Ranked list
 
-Status: O1-O3 FIXED in be7b198 (screen-blend glow, real ground under rock,
-edge-scaled carry + tint clamp). O4/O5/O13/O14/O15 in flight (water-family lane).
+Status: BREAKS-IMMERSION tier all fixed (O1-O3 be7b198; O4/O5 + waterlines
+39c7970). NOTICEABLE tier: O6-O9, O16-O18 fixed in 9665d29 (with O-N3 proven
+fixed by side effect and O-N4 resolved via O16); O10-O15 landed earlier
+(39c7970, 94bae2d, fa5f2d4). Remaining open: O19 boulders bisected by
+structures (noticeable), the nitpick tier O20-O27, and play-session notes
+O-N2 (player night presence, taste call) + O-N5 (wet-sand connector art —
+art queue).
 
 Breaks-immersion:
 1.  O1  [FIXED be7b198] Emitter light pools split in half at ground seams
