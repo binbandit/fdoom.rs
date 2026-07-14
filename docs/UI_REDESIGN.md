@@ -154,11 +154,12 @@ Element by element:
   Empty hands: dim fist glyph instead of `-`.
 - **Ammo/arrow counter**: contextual — attaches to the plate only when the held item
   consumes a counted resource (bow → arrows, knives → stack). No bow, no counter.
-- **Thirst (probable follow-up system)**: row y=182, five droplets
-  (`mock_hud_alert`), same hide-at-full rule; gentle by design — 5 units, halves
-  later if needed. Until the stat ships, the row simply never renders; the slot is
-  the design commitment. (Water bottles today restore stamina, `interact.rs:316` —
-  they become the thirst refill when the stat lands.)
+- **Thirst (SHIPPED — gentle thirst, L6)**: row y=182, droplets on the shared
+  0..=10 stat scale (ten cells like every vitals row, not the mock's five), same
+  hide-at-full / linger / low-pulse rules. Water bottles are the thirst refill
+  (+6, keeping their +4 stamina sip); bare hands drink at open water. TODO(art):
+  a dedicated droplet cell — today the heart cell renders Y-mirrored in water
+  blues.
 - **Unchanged**: ambient ticker top-left, centered warning band, save toast
   bottom-right (one interaction note: while the held-item name label is up, the
   toast lifts ~20px — both are transient, collision is rare).
@@ -401,10 +402,24 @@ Acceptance: bench screen matches `mock_bench` (rack, hint line, grouped families
 all four absorb-targets reachable via modules; oven/furnace untouched; old-save
 world with placed stations fully playable; `just check` green.
 
-### L6 — `feat(survival): thirst` (deferred — design slot reserved)
-`player.thirst` (5 units), water bottle/standing-water drink wiring
-(`interact.rs:316` reroute), HUD row y=182, SELF row, tuning doc. Ships only when
-the survival pacing wants it; the HUD and SELF layouts above already hold its seat.
+### L6 — `feat(survival): gentle thirst` (SHIPPED)
+`pd.thirst` 0..=10 on the shared stat scale (the reserved seat sketched 5 units;
+it shipped as 10 so every vitals row reads alike). As built (tests/thirst.rs pins
+all of it):
+- **Drain**: 1 unit / 9000 ticks of comfortable play — full-to-low (10 -> 3,
+  where effects begin) is ~one full day; >=3x slower per unit than exertion-driven
+  hunger. Hot/Scorching bands drain 2x (the desert asks for water); Cold/Freezing
+  bands and swimming pause the drain. Ticks wherever hunger ticks (menus
+  included), pauses in bed and creative.
+- **Ladder**: 10..=4 nothing; 3..=1 stamina-recharge drag (~2/3 speed, worst-of
+  composed with Queasy and the temperature drag — never stacked) plus one "Your
+  throat is dry." ambient cue on band entry; 0 = one heart / 360 ticks, flooring
+  at **4 hearts** with no override — thirst never kills.
+- **Drinking**: Water Bottle +6 (keeps its +4 stamina); bare hands at open water
+  +2 with a 1-in-6 mild Queasy gamble; bare hands at spring water +3, always safe;
+  Honey Jar +1; Hearty Stew / Fish Chowder +2 (broths count).
+- **Surfaces**: HUD droplet row y=182 (hide-at-full/linger/pulse), SELF WATER
+  row, `Thirst:` tolerant save marker (old saves load at full).
 
 Mockup caveat for implementers: recipe costs, flavor copy, and module names in the
 mocks are illustrative; layout geometry, colors (game palette via `color::get4`

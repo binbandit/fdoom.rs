@@ -25,6 +25,7 @@ pub const MAX_STAT: i32 = 10;
 pub const MAX_HEALTH: i32 = MAX_STAT;
 pub const MAX_STAMINA: i32 = MAX_STAT;
 pub const MAX_HUNGER: i32 = MAX_STAT;
+pub const MAX_THIRST: i32 = MAX_STAT;
 pub const MAX_ARMOR: i32 = 100;
 
 pub const MAX_STAMINA_RECHARGE: i32 = 10;
@@ -140,6 +141,16 @@ pub struct PlayerData {
     /// from the world): the last band that fired a cue, and the spacing between cues.
     pub temp_prev_band: i32,
     pub temp_cue_cooldown: i32,
+
+    /// GENTLE THIRST (UI_REDESIGN L6): 0..=[`MAX_THIRST`], starts full. Drains far
+    /// slower than hunger (see `player_behavior`'s thirst tuning consts); persisted
+    /// behind the tolerant `Thirst:` trailing marker (old saves load at full).
+    pub thirst: i32,
+    /// Drain accumulator, the `stam_hunger_ticks` of thirst (session-only).
+    pub thirst_tick: i32,
+    /// One-shot flag for the dry-throat ambient cue: set on entering the low band,
+    /// cleared once thirst recovers above it (session-only).
+    pub thirst_cued: bool,
 
     /// Field Notes — the survivor's journal (days survived, country seen, tallies).
     /// Persistent: rides the player save behind the `Notes:v1:` trailing marker.
@@ -327,6 +338,9 @@ pub fn new(g: &Game, previous: Option<&PlayerData>) -> Entity {
         cord_cue_done: false,
         temp_prev_band: 0,
         temp_cue_cooldown: 0,
+        thirst: MAX_THIRST,
+        thirst_tick: 0,
+        thirst_cued: false,
         notes: Default::default(),
     };
 

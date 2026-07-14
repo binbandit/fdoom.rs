@@ -360,6 +360,12 @@ pub fn write_player(g: &Game, player: &Entity, data: &mut Vec<String>) {
     if pd.notes != crate::core::field_notes::FieldNotes::default() {
         data.push(format!("{NOTES_MARKER}{}", pd.notes.encode()));
     }
+
+    // Gentle thirst (L6): same tolerant-marker scheme, written only below full —
+    // old saves (and fresh ones) simply lack the entry and load at full thirst.
+    if pd.thirst < crate::entity::mob::player::MAX_THIRST {
+        data.push(format!("{THIRST_MARKER}{}", pd.thirst));
+    }
 }
 
 /// Tag of the Player-file entry carrying the HEAD wear slot (see `write_player`).
@@ -372,6 +378,9 @@ pub const ARMOR_METER_MARKER: &str = "ArmorMeter:";
 /// Tag of the Player-file entry carrying the Field Notes journal (see
 /// `core::field_notes`). The `v1` names the payload layout, not the save version.
 pub const NOTES_MARKER: &str = "Notes:v1:";
+
+/// Tag of the Player-file entry carrying the thirst stat (gentle thirst, L6).
+pub const THIRST_MARKER: &str = "Thirst:";
 
 /// Marks the held item's entry in the Inventory file so loading can re-equip it.
 /// Saves from before the marker load fine (their first entry just stays in the

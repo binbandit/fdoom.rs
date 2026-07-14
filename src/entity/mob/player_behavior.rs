@@ -15,7 +15,7 @@ use crate::entity::furniture::{bed_behavior, behavior as furniture_behavior, dea
 use crate::entity::mob::player::{
     ATTACK_DIST, CARRY_SPRITES, CARRY_SUIT_SPRITES, HUNGER_STEP_COUNT, HUNGER_TICK_COUNT,
     INTERACT_DIST, MAX_HEALTH, MAX_HUNGER, MAX_HUNGER_STAMS, MAX_HUNGER_TICKS, MAX_STAMINA,
-    MAX_STAMINA_RECHARGE, MIN_STARVE_HEALTH, PLAYER_HURT_TIME, SPRITES, SUIT_SPRITES,
+    MAX_STAMINA_RECHARGE, MAX_THIRST, MIN_STARVE_HEALTH, PLAYER_HURT_TIME, SPRITES, SUIT_SPRITES,
 };
 use crate::entity::particle::{
     new_bobber_particle, new_material_puff, new_smash_particle, new_text_particle,
@@ -164,10 +164,11 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
     }
 
     if g.is_mode("creative") {
-        // prevent stamina/hunger decay in creative mode.
+        // prevent stamina/hunger/thirst decay in creative mode.
         let pd = e.player_mut();
         pd.stamina = MAX_STAMINA;
         pd.hunger = MAX_HUNGER;
+        pd.thirst = MAX_THIRST;
     }
 
     {
@@ -305,6 +306,9 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
 
     // temperature wave: ambient heat/cold effects (see core::temperature)
     temperature_tick(g, e);
+
+    // gentle thirst (UI_REDESIGN L6): the slow companion stat, linked to the bands
+    thirst_tick(g, e);
 
     if g.save_cooldown > 0 && !g.saving {
         g.save_cooldown -= 1;
@@ -602,6 +606,123 @@ pub fn apply_temperature_effects(g: &mut Game, e: &mut Entity, score: f64) {
     }
 }
 
+// ---- Gentle thirst tuning (UI_REDESIGN L6; taste rule: pressure teaches) ----
+/// Ticks of comfortable play per thirst unit. Meaningfully slower than hunger: an
+/// exerting player (stamina below max, normal difficulty) loses a hunger unit every
+/// `MAX_HUNGER_TICKS * MAX_HUNGER_STAMS[1]` = 2800 ticks; thirst takes over 3x
+/// longer. Full-to-low (10 -> 3, where effects begin) is 7 units = 63000 ticks —
+/// about one full day (`DAY_LENGTH` 64800) of normal play before thirst matters.
+pub const THIRST_UNIT_TICKS: i32 = 9000;
+/// Drain accumulates this much faster in the Hot/Scorching bands — the desert asks
+/// for water. (Cold/Freezing bands and swimming pause the drain entirely.)
+pub const THIRST_HOT_MULT: i32 = 2;
+/// Effects begin at/below this (the HUD row's 30% pulse threshold): the recharge
+/// drag plus the one dry-throat cue.
+pub const THIRST_LOW: i32 = 3;
+/// One heart per this many ticks while parched (same slow cadence as temperature).
+pub const THIRST_DAMAGE_PERIOD: i32 = 360;
+/// Thirst damage stops here, no exceptions — one heart HIGHER than temperature's
+/// floor and with no `DEADLY_SCORE`-style override: thirst never kills anyone
+/// paying attention, it only insists they find water.
+pub const THIRST_DAMAGE_FLOOR: i32 = 4;
+/// Drinking: a full Water Bottle; bare hands at open water (a 1-in-6 Queasy
+/// gamble); bare hands at a spring (always safe — the reward for finding one).
+pub const BOTTLE_THIRST: i32 = 6;
+pub const HAND_DRINK_THIRST: i32 = 2;
+pub const SPRING_DRINK_THIRST: i32 = 3;
+/// Odds denominator of the ordinary-water stomach gamble.
+pub const HAND_DRINK_QUEASY_IN: i32 = 6;
+
+/// Per-tick thirst drain + effects, derived from the live world (band + swimming).
+/// Runs wherever hunger runs — including under open menus — and pauses in bed and
+/// in creative, exactly like the hunger system.
+fn thirst_tick(g: &mut Game, e: &mut Entity) {
+    if g.is_mode("creative") || bed_behavior::in_bed(g, e.c.eid) {
+        return;
+    }
+    let steps = temperature::band_for(g, e).steps();
+    let swimming = is_swimming(g, e);
+    apply_thirst_effects(g, e, steps, swimming);
+}
+
+/// The thirst mechanism, split from the world reads so tests can drive it with
+/// pinned band steps / swimming flags (the `apply_temperature_effects` pattern).
+/// The ladder, mirroring hunger's gentleness:
+/// - 10..=4: nothing (and the HUD row hides while full);
+/// - 3..=1: stamina-recharge drag + one ambient cue on band entry. The drag
+///   composes worst-of with the Queasy and cold/heat drags — when either of those
+///   is already slowing recharge, this one stands down (never stacked);
+/// - 0: slow chip damage flooring at [`THIRST_DAMAGE_FLOOR`] hearts, then stops.
+pub fn apply_thirst_effects(g: &mut Game, e: &mut Entity, temp_steps: i32, swimming: bool) {
+    // Drain: paused while swimming or in the Cold/Freezing bands (cold country
+    // never asks for water); accelerated in Hot/Scorching.
+    if !swimming && temp_steps > -2 {
+        let pd = e.player_mut();
+        pd.thirst_tick += if temp_steps >= 2 { THIRST_HOT_MULT } else { 1 };
+        if pd.thirst_tick >= THIRST_UNIT_TICKS {
+            pd.thirst_tick -= THIRST_UNIT_TICKS;
+            if pd.thirst > 0 {
+                pd.thirst -= 1;
+            }
+        }
+    }
+
+    let thirst = e.player().thirst;
+    // The one ambient cue, band-entry only: fires when thirst first reaches the
+    // low band, then stays quiet until it has recovered above it.
+    if thirst > THIRST_LOW {
+        e.player_mut().thirst_cued = false;
+    } else if !e.player().thirst_cued {
+        e.player_mut().thirst_cued = true;
+        g.push_ambient("Your throat is dry.");
+    }
+
+    // Low-band drag: same ~2/3 recharge speed as the cold/heat drag, worst-of
+    // composed — Queasy's 1/2 wins outright, and while the temperature drag is
+    // already running this one stands down (identical magnitude, never doubled).
+    if thirst <= THIRST_LOW {
+        let queasy = e.player().potioneffects.contains_key(&PotionType::Queasy);
+        if !queasy && temp_steps.abs() < 2 && g.game_time % 3 == 0 {
+            let pd = e.player_mut();
+            if pd.stamina_recharge > 0 {
+                pd.stamina_recharge -= 1;
+            }
+        }
+    }
+
+    // Parched: slow chip damage with the absolute mercy floor.
+    if thirst == 0
+        && g.game_time % THIRST_DAMAGE_PERIOD == 0
+        && e.player().mob.health > THIRST_DAMAGE_FLOOR
+    {
+        do_hurt(g, e, 1, Direction::None);
+    }
+}
+
+/// Bare hands at open water: cup them and drink. Ordinary water restores a little
+/// and gambles 1-in-[`HAND_DRINK_QUEASY_IN`] on a mild Queasy spell; spring water
+/// is always safe and restores more. (The itemful path — Water Bottle — is in
+/// `item::interact` and restores [`BOTTLE_THIRST`].)
+pub fn drink_from_water(g: &mut Game, e: &mut Entity, spring: bool) {
+    let gain = if spring {
+        SPRING_DRINK_THIRST
+    } else {
+        HAND_DRINK_THIRST
+    };
+    {
+        let pd = e.player_mut();
+        pd.thirst = (pd.thirst + gain).min(MAX_THIRST);
+    }
+    if spring {
+        item_interact::place_note(g, "Warm, clean spring water.");
+    } else if g.random.next_int_bound(HAND_DRINK_QUEASY_IN) == 0 {
+        item_interact::apply_potion_time(g, e, PotionType::Queasy, PotionType::Queasy.duration());
+        g.notifications.push("Your stomach turns...".to_string());
+    } else {
+        item_interact::place_note(g, "You drink from your hands.");
+    }
+}
+
 /// Java `Player.resolveHeldItem()` — removes a held item and places it back into the
 /// inventory. Looks complicated so it can handle the powerglove.
 pub fn resolve_held_item(g: &mut Game, player: &mut Entity) {
@@ -885,6 +1006,27 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
 
     if done {
         return; // skip the rest if interaction was handled.
+    }
+
+    // Gentle thirst: empty hands facing open water = kneel and drink (only while
+    // thirst is actually down — a topped-up survivor swings through as before).
+    if e.player().active_item.is_none() && e.player().thirst < MAX_THIRST {
+        let t = get_interaction_tile(e);
+        let in_bounds = g.level(lvl).is_infinite() || {
+            let l = g.level(lvl);
+            t.x >= 0 && t.y >= 0 && t.x < l.w && t.y < l.h
+        };
+        if in_bounds {
+            let tile = g.tile_at(lvl, t.x, t.y);
+            let spring = matches!(tile.kind, TileKind::SpringWater);
+            let open_water =
+                tile.id == g.tiles.get("water").id || tile.id == g.tiles.get("Deep Water").id;
+            if spring || open_water {
+                drink_from_water(g, e, spring);
+                e.player_mut().attack_time = 10;
+                return;
+            }
+        }
     }
 
     if e.player().active_item.is_none()

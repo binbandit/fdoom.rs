@@ -768,6 +768,20 @@ impl Load {
             data.remove(0);
         }
 
+        // Gentle thirst (L6): tolerant trailing marker. Old saves have no entry and
+        // load at full thirst; a malformed payload also reads as full, never a panic.
+        if let Some(payload) = data
+            .first()
+            .and_then(|d| d.strip_prefix(crate::saveload::save::THIRST_MARKER))
+        {
+            use crate::entity::mob::player::MAX_THIRST;
+            player.player_mut().thirst = payload
+                .parse::<i32>()
+                .map(|t| t.clamp(0, MAX_THIRST))
+                .unwrap_or(MAX_THIRST);
+            data.remove(0);
+        }
+
         let cur = g.current_level;
         if g.levels[cur].is_some() {
             g.level_mut(cur).add(player, cur);

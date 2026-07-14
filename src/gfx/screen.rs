@@ -26,8 +26,8 @@ pub fn fill_rect(screen: &mut Screen, x: i32, y: i32, w: i32, h: i32, rgb: i32) 
 
 const MAXDARK: i32 = 128;
 
-const BIT_MIRROR_X: i32 = 0x01;
-const BIT_MIRROR_Y: i32 = 0x02;
+pub const BIT_MIRROR_X: i32 = 0x01;
+pub const BIT_MIRROR_Y: i32 = 0x02;
 
 /* Java comment, kept: the dither values are the minimum light level (0-25 scale) a pixel
 must have in order to remain lit, repeating every 4 pixels in both directions. */

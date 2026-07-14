@@ -47,9 +47,11 @@ struct HudMem {
     last_health: i32,
     last_stamina: i32,
     last_hunger: i32,
+    last_thirst: i32,
     health_show: i32,
     stamina_show: i32,
     hunger_show: i32,
+    thirst_show: i32,
     last_armor: i32,
     armor_flash: i32,
     held_label: Option<String>,
@@ -67,9 +69,11 @@ impl HudMem {
             last_health: 0,
             last_stamina: 0,
             last_hunger: 0,
+            last_thirst: 0,
             health_show: 0,
             stamina_show: 0,
             hunger_show: 0,
+            thirst_show: 0,
             last_armor: 0,
             armor_flash: 0,
             held_label: None,
@@ -397,11 +401,12 @@ impl Renderer {
         let hearts_y = hud_h - 34;
         let stamina_y = hud_h - 26;
         let food_y = hud_h - 18;
+        let thirst_y = hud_h - 10; // the L6-reserved slot, below hunger
         let badge_y = hud_h - 46;
         let plate_x = hud_w - 22;
         let plate_y = hud_h - 22;
         // ---- HUD memory: which meters moved recently (drives every transient) ----
-        let (health, stamina, stamina_recharge_delay, hunger, armor, cur_armor_color) = {
+        let (health, stamina, stamina_recharge_delay, hunger, thirst, armor, cur_armor_color) = {
             let p = g.player();
             let pd = p.player();
             (
@@ -409,6 +414,7 @@ impl Renderer {
                 pd.stamina,
                 pd.stamina_recharge_delay,
                 pd.hunger,
+                pd.thirst,
                 pd.armor,
                 pd.cur_armor.as_ref().map(|a| a.sprite.color),
             )
@@ -430,12 +436,14 @@ impl Renderer {
                 hud.last_health = health;
                 hud.last_stamina = stamina;
                 hud.last_hunger = hunger;
+                hud.last_thirst = thirst;
                 hud.last_armor = armor;
                 hud.held_label = held_label;
             } else {
                 HudMem::track(&mut hud.last_health, &mut hud.health_show, health);
                 HudMem::track(&mut hud.last_stamina, &mut hud.stamina_show, stamina);
                 HudMem::track(&mut hud.last_hunger, &mut hud.hunger_show, hunger);
+                HudMem::track(&mut hud.last_thirst, &mut hud.thirst_show, thirst);
                 if armor < hud.last_armor {
                     hud.armor_flash = 24; // the chip blinks while it soaks a hit
                 }
@@ -628,6 +636,34 @@ impl Renderer {
                     hunger * 10 <= MAX_HUNGER * 3,
                     pulse_on,
                 );
+            }
+            // THIRST droplets (gentle thirst, L6) in the reserved slot: same
+            // hidden-while-full / linger / low-pulse rules as the rows above.
+            // TODO(art): a dedicated droplet cell; until then the heart cell renders
+            // Y-mirrored (point up, round bottom) in water blues.
+            {
+                use crate::entity::mob::player::MAX_THIRST;
+                if thirst < MAX_THIRST || self.hud.thirst_show > 0 {
+                    let n = crate::entity::mob::player::MAX_STAT;
+                    screen.darken_rect_screen(2, thirst_y - 1, n * 8 + 4, 10, 90);
+                    for i in 0..n {
+                        let col = if i < thirst {
+                            color::get4(-1, 12, 235, 455)
+                        } else {
+                            color::get4(-1, 1, 0, 0)
+                        };
+                        screen.render(
+                            4 + i * 8,
+                            thirst_y,
+                            12 * 32,
+                            col,
+                            crate::gfx::screen::BIT_MIRROR_Y,
+                        );
+                    }
+                    if thirst * 10 <= MAX_THIRST * 3 && pulse_on {
+                        screen.fill_rect(4, thirst_y + 8, n * 8, 1, 0xF0F0F0);
+                    }
+                }
             }
 
             // ARMOR chip: shield pip + hits-left count right of the hearts slot, only
@@ -881,6 +917,7 @@ impl Renderer {
             let p = g.player();
             let pd = p.player();
             info.push(format!("Hunger stam: {}", pd.get_debug_hunger()));
+            info.push(format!("Thirst: {}_{}", pd.thirst, pd.thirst_tick));
             if pd.armor > 0 {
                 info.push(format!("armor: {}", pd.armor));
                 info.push(format!("dam buffer: {}", pd.armor_damage_buffer));

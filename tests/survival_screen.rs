@@ -247,17 +247,18 @@ fn self_pane_shows_temperature_band_and_active_effects() {
     );
 
     let frame = tw.render();
-    // warmth gauge geometry: cells at y=100..106 from x=24, 14px apart; the
-    // freezing cell always renders in its band color
+    // warmth gauge geometry: cells at y=110..116 from x=24, 14px apart (one meter
+    // row lower since the WATER row landed — gentle thirst, L6); the freezing cell
+    // always renders in its band color
     assert_eq!(
-        frame[(102 * W + 26) as usize],
+        frame[(112 * W + 26) as usize],
         0x2B4FF0,
         "the freezing cell of the warmth gauge should render"
     );
     // the marker sits under the current band's cell
     let marker_x = 24 + (steps + 3) * 14 + 4;
     assert_eq!(
-        frame[(107 * W + marker_x) as usize],
+        frame[(117 * W + marker_x) as usize],
         0xFFFFFF,
         "the band marker should sit under the current band (steps {steps})"
     );

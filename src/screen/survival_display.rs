@@ -1513,15 +1513,31 @@ impl SurvivalDisplay {
             color::DARK_GRAY,
         );
 
-        // numeric meters — the HUD hides full meters, SELF always tells
+        // numeric meters — the HUD hides full meters, SELF always tells. WATER's
+        // icon is the Y-mirrored heart in water blues (the HUD's droplet stand-in;
+        // TODO(art): a dedicated droplet cell).
+        let mirror_y = crate::gfx::screen::BIT_MIRROR_Y;
         let meters = [
-            (0, color::get4(-1, 200, 500, 533), "HEALTH", pd.mob.health),
-            (1, color::get4(-1, 220, 550, 553), "STAMINA", pd.stamina),
-            (2, color::get4(-1, 100, 530, 211), "FOOD", pd.hunger),
+            (
+                0,
+                color::get4(-1, 200, 500, 533),
+                "HEALTH",
+                pd.mob.health,
+                0,
+            ),
+            (1, color::get4(-1, 220, 550, 553), "STAMINA", pd.stamina, 0),
+            (2, color::get4(-1, 100, 530, 211), "FOOD", pd.hunger, 0),
+            (
+                0,
+                color::get4(-1, 12, 235, 455),
+                "WATER",
+                pd.thirst,
+                mirror_y,
+            ),
         ];
         let mut y = BODY_Y + 26;
-        for (tile, col, label, value) in meters {
-            screen.render(x, y, tile + 12 * 32, col, 0);
+        for (tile, col, label, value, bits) in meters {
+            screen.render(x, y, tile + 12 * 32, col, bits);
             font::draw(label, screen, x + 10, y, color::WHITE);
             font::draw(
                 &format!("{}/{}", value, crate::entity::mob::player::MAX_STAT),
@@ -1561,8 +1577,10 @@ impl SurvivalDisplay {
         };
         font::draw(advice, screen, x, y, color::DARK_GRAY);
 
-        // active effects (absorbs the old P overlay)
-        y += 14;
+        // active effects (absorbs the old P overlay). The tighter gap (10, not 14)
+        // pays for the WATER meter row above: the "+N MORE" overflow line must
+        // still clear the legend at LEGEND_Y.
+        y += 10;
         font::draw("EFFECTS", screen, x, y, COL_HEADER);
         y += ROW_H;
         let lines = effect_lines(pd);

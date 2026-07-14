@@ -19,8 +19,9 @@ darken(2, row_y - 1, 84, 10); probes sit in the strip's left padding, clear of t
 const HEARTS_PROBE: (i32, i32) = (2, 158);
 const STAMINA_PROBE: (i32, i32) = (2, 170);
 const FOOD_PROBE: (i32, i32) = (2, 178);
-/// The reserved thirst row (y=182, L6): its slot must render nothing until the stat
-/// ships. Probe below the food strip's last row (182).
+/// The thirst row (y=182, shipped with gentle thirst / L6): hidden-while-full like
+/// every vitals row, so with thirst pinned full it must render nothing here. Probe
+/// below the food strip's last row (182). Its own behavior lives in tests/thirst.rs.
 const THIRST_PROBE: (i32, i32) = (2, 186);
 /// Inside the transient name-label band (backing rows 145..154, right-aligned text).
 const LABEL_PROBE: (i32, i32) = (282, 148);
@@ -51,6 +52,7 @@ fn full_stats(tw: &mut TestWorld) {
     pd.stamina = 10;
     pd.stamina_recharge_delay = 0;
     pd.hunger = 10;
+    pd.thirst = 10;
 }
 
 #[test]
@@ -127,12 +129,13 @@ fn vitals_rows_hide_at_full_and_hold_their_slots() {
         "stamina slot must stay empty — rows never reflow"
     );
 
-    // The reserved thirst slot renders nothing in any of these frames.
+    // The thirst slot stays empty in every one of these frames — the stat is
+    // pinned full, and a full meter does not exist.
     for (name, frame) in [("base", &base), ("hurt", &hurt), ("hungry", &hungry)] {
         assert_eq!(
             px(frame, THIRST_PROBE),
             px(&base, THIRST_PROBE),
-            "{name}: reserved thirst slot (y=182) must stay empty until L6"
+            "{name}: the thirst slot (y=182) must stay empty while thirst is full"
         );
     }
 }

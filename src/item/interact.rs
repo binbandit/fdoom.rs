@@ -212,6 +212,8 @@ pub fn item_interact_on_tile(
                 } else if crate::item::cooking::is_hearty(&name) {
                     let pd = player.player_mut();
                     pd.stamina = crate::entity::mob::player::MAX_STAMINA;
+                    // gentle thirst: the hearty dishes are broths — they drink a little
+                    pd.thirst = (pd.thirst + 2).min(crate::entity::mob::player::MAX_THIRST);
                     apply_potion_time(g, player, PotionType::Regen, 600);
                     g.notifications
                         .push("The hot meal warms you through".to_string());
@@ -223,6 +225,9 @@ pub fn item_interact_on_tile(
             // of the honey payoff
             if success && item.get_name().eq_ignore_ascii_case("Honey Jar") {
                 apply_potion_time(g, player, PotionType::Energy, 300);
+                // gentle thirst: honey slides down wet — a small sip's worth
+                let pd = player.player_mut();
+                pd.thirst = (pd.thirst + 1).min(crate::entity::mob::player::MAX_THIRST);
                 g.notifications
                     .push("Sweet warmth spreads through you.".to_string());
             }
@@ -364,14 +369,17 @@ pub fn item_interact_on_tile(
         }
 
         // Scavenge-wave bottles: plain stackables with bespoke uses, name-matched
-        // like the Throwing Knife in attack(). A full bottle is a modest drink...
+        // like the Throwing Knife in attack(). A full bottle is the thirst refill
+        // (gentle thirst, UI_REDESIGN L6) and keeps its stamina sip...
         ItemKind::Stackable { .. } if item.get_name().eq_ignore_ascii_case("Water Bottle") => {
-            use crate::entity::mob::player::MAX_STAMINA;
-            if player.player().stamina >= MAX_STAMINA {
+            use crate::entity::mob::player::{MAX_STAMINA, MAX_THIRST};
+            use crate::entity::mob::player_behavior::BOTTLE_THIRST;
+            if player.player().stamina >= MAX_STAMINA && player.player().thirst >= MAX_THIRST {
                 return false; // already fresh — don't waste the water
             }
             let pd = player.player_mut();
             pd.stamina = (pd.stamina + 4).min(MAX_STAMINA);
+            pd.thirst = (pd.thirst + BOTTLE_THIRST).min(MAX_THIRST);
             if !g.is_mode("creative") {
                 swap_named_stack(g, item, player, "Empty Bottle");
             }
