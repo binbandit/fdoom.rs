@@ -35,10 +35,20 @@ fn has_deer(tw: &TestWorld, lvl: usize) -> bool {
         || tw.level(lvl).entities_to_add.iter().any(is_deer)
 }
 
-fn deer_eid(g: &Game, lvl: usize) -> i32 {
+/// The staged deer NEAREST the given tile — natural deer can spawn during a test
+/// tick (the incidental RNG is time-seeded), and grabbing "any deer" flaked
+/// ~1-in-6 by picking an unspooked wild one across the map.
+fn deer_eid_near(g: &Game, lvl: usize, tx: i32, ty: i32) -> i32 {
     g.entities
         .entities_on_level(lvl)
-        .find(|e| !e.c.removed && is_deer(e))
+        .filter(|e| !e.c.removed && is_deer(e))
+        .min_by_key(|e| {
+            let (dx, dy) = (
+                (e.c.x - (tx * 16 + 8)) as i64,
+                (e.c.y - (ty * 16 + 8)) as i64,
+            );
+            dx * dx + dy * dy
+        })
         .map(|e| e.c.eid)
         .expect("deer on level")
 }
@@ -121,7 +131,7 @@ fn deer_bolts_from_an_open_approach() {
     assert!(deer.enemy_mob().is_none(), "the deer must never be hostile");
     tw.g.level_mut(lvl).add_at(deer, px + 5, py, true, lvl);
     tw.tick_n(1); // drain into the arena; the deer ticks once, player 5 tiles off
-    let did = deer_eid(&tw.g, lvl);
+    let did = deer_eid_near(&tw.g, lvl, px + 5, py);
 
     // 5 tiles in the open is inside the 6-tile flee radius: it bolts
     assert!(flee_time(&tw.g, did) > 0, "open approach should spook");
@@ -149,7 +159,7 @@ fn deer_ignores_a_hunter_hidden_in_tall_grass_until_two_tiles() {
     let deer = mob::deer::new(&tw.g);
     tw.g.level_mut(lvl).add_at(deer, px + 5, py, true, lvl);
     tw.tick_n(1);
-    let did = deer_eid(&tw.g, lvl);
+    let did = deer_eid_near(&tw.g, lvl, px + 5, py);
 
     // same 5-tile distance, but the player is concealed: no bolt
     assert_eq!(
@@ -182,7 +192,7 @@ fn venison_hide_and_the_tanning_chain() {
     let deer = mob::deer::new(&tw.g);
     tw.g.level_mut(lvl).add_at(deer, px + 3, py, true, lvl);
     tw.tick_n(1);
-    let did = deer_eid(&tw.g, lvl);
+    let did = deer_eid_near(&tw.g, lvl, px + 5, py);
     tw.g.with_entity(did, |d, g| mob::deer::die(g, d));
 
     let drops = tw.dropped_items();
@@ -414,7 +424,7 @@ fn deer_grazing_screenshot() {
     let deer = mob::deer::new(&tw.g);
     tw.g.level_mut(lvl).add_at(deer, px + 7, py - 1, true, lvl);
     tw.tick_n(1); // far enough that it keeps grazing (7 tiles > the 6-tile radius)
-    let did = deer_eid(&tw.g, lvl);
+    let did = deer_eid_near(&tw.g, lvl, px + 5, py);
     assert_eq!(flee_time(&tw.g, did), 0, "deer should be calm at 7 tiles");
     tw.screenshot("hunting_deer_grazing.png");
 }
