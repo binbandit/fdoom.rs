@@ -433,3 +433,64 @@ fn wear_pane_screenshots() {
     assert_eq!(body_name(&tw).as_deref(), Some("Leather Armor"));
     tw.screenshot("wear_mid_swap.png");
 }
+
+/// The free-repair loophole is closed: taking battered armor off and putting the
+/// SAME kind back on resumes its meter (across save/load too); a different kind
+/// starts fresh, and returning to the first kind after a swap starts fresh (the
+/// set-aside memory is forfeited).
+#[test]
+fn re_equipping_battered_armor_does_not_repair_it() {
+    let mut tw = TestWorld::infinite().name("wear_meter").build();
+    let pid = tw.g.player_id;
+
+    let leather = registry::get(&tw.g, "Leather Armor");
+    tw.g.entities
+        .get_mut(pid)
+        .unwrap()
+        .player_mut()
+        .equip(leather.clone());
+    let full = tw.g.player().player().armor;
+    assert!(full > 0);
+
+    // batter it
+    tw.g.entities.get_mut(pid).unwrap().player_mut().armor = full / 3;
+
+    // off and back on: meter resumes, not refreshed
+    let pd = tw.g.entities.get_mut(pid).unwrap().player_mut();
+    let taken = pd.unequip(WearSlot::Body).expect("was worn");
+    pd.equip(taken);
+    assert_eq!(
+        tw.g.player().player().armor,
+        full / 3,
+        "free repair is back"
+    );
+
+    // battered again, then survives a save/load
+    tw.g.entities.get_mut(pid).unwrap().player_mut().armor = full / 4;
+    let pd = tw.g.entities.get_mut(pid).unwrap().player_mut();
+    let taken = pd.unequip(WearSlot::Body).expect("worn");
+    pd.inventory.add(taken);
+    let name = tw.g.world_name.clone();
+    fdoom::saveload::save::save_world_named(&mut tw.g, &name);
+    let mut g2 = fdoom::core::game::Game::new(false, false, tw.g.game_dir.clone());
+    let mut player = fdoom::entity::mob::player::new(&g2, None);
+    player.c.eid = 0;
+    g2.entities.put_back(player);
+    fdoom::saveload::load::load_world_named(&mut g2, &name);
+    // the loaded player sits in the level add-queue until the first tick
+    let pd2 = g2.player_mut().player_mut();
+    let idx = (0..pd2.inventory.inv_size())
+        .find(|&i| pd2.inventory.get(i).get_name() == "Leather Armor")
+        .expect("armor back in pack");
+    let item = pd2.inventory.remove(idx);
+    pd2.equip(item);
+    assert_eq!(pd2.armor, full / 4, "meter must survive the save");
+
+    // swapping kinds forfeits the memory: fresh meter both ways after a swap
+    let iron = registry::get(&g2, "Iron Armor");
+    let leather2 = registry::get(&g2, "Leather Armor");
+    let pd2 = g2.player_mut().player_mut();
+    pd2.equip(iron);
+    pd2.equip(leather2);
+    assert!(pd2.armor > full / 3, "post-swap leather starts fresh");
+}

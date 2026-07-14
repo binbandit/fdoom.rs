@@ -743,6 +743,21 @@ impl Load {
             data.remove(0);
         }
 
+        // Set-aside armor meter: same tolerant scheme; malformed fields read 0.
+        if let Some(payload) = data
+            .first()
+            .and_then(|d| d.strip_prefix(crate::saveload::save::ARMOR_METER_MARKER))
+        {
+            let mut it = payload.split(';');
+            let name = it.next().unwrap_or("").to_string();
+            let hits: i32 = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+            let buffer: i32 = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+            if !name.is_empty() {
+                player.player_mut().worn_meter = Some((name, hits, buffer));
+            }
+            data.remove(0);
+        }
+
         // Field Notes journal: same tolerant trailing-marker scheme. Old saves have
         // no entry and open a blank journal; a malformed payload reads as zeros.
         if let Some(payload) = data

@@ -108,6 +108,10 @@ pub struct PlayerData {
     /// the HEAD wear slot (hat-class gear; see [`wear_slot_for`]). No hit meter —
     /// head gear contributes warmth/shade (`core::temperature` reads it by name).
     pub worn_head: Option<Item>,
+    /// Remembered body-armor hit meter: (armor name, hits, damage buffer). Set on
+    /// unequip, consumed by re-equipping the same kind (anti free-repair). Session
+    /// state persisted via a tolerant `ArmorMeter:` marker in the Player save.
+    pub worn_meter: Option<(String, i32, i32)>,
 
     pub stamina_recharge: i32,
     pub stamina_recharge_delay: i32,
@@ -209,8 +213,13 @@ impl PlayerData {
 
     /// Put a wearable on, routed by [`wear_slot_for`]. Returns the displaced item
     /// (the caller stashes it back into the pack — nothing is ever lost) — or the
-    /// item itself if it fits no slot. Wearing body armor resets the hit meter to
-    /// the item's full protection, exactly like the classic equip.
+    /// item itself if it fits no slot.
+    ///
+    /// Body armor's hit meter: a FRESH piece starts at full protection, but taking
+    /// a piece off remembers its remaining hits by name, and putting the same kind
+    /// back on resumes that meter — closing the unequip/re-equip free-repair
+    /// loophole without adding per-item durability data. Swapping to a different
+    /// armor kind forfeits the memory (the battered piece is "set aside").
     pub fn equip(&mut self, item: Item) -> Option<Item> {
         match wear_slot_for(&item) {
             Some(WearSlot::Head) => {
@@ -220,12 +229,24 @@ impl PlayerData {
             }
             Some(WearSlot::Body) => {
                 let prev = self.cur_armor.take();
-                let frac = match item.kind {
-                    ItemKind::Armor { armor, .. } => armor,
-                    _ => 0.0,
-                };
-                self.armor = (frac * MAX_ARMOR as f32) as i32;
-                self.armor_damage_buffer = 0;
+                let remembered = self
+                    .worn_meter
+                    .take()
+                    .filter(|(name, _, _)| *name == item.get_name());
+                match remembered {
+                    Some((_, hits, buffer)) => {
+                        self.armor = hits;
+                        self.armor_damage_buffer = buffer;
+                    }
+                    None => {
+                        let frac = match item.kind {
+                            ItemKind::Armor { armor, .. } => armor,
+                            _ => 0.0,
+                        };
+                        self.armor = (frac * MAX_ARMOR as f32) as i32;
+                        self.armor_damage_buffer = 0;
+                    }
+                }
                 self.cur_armor = Some(item);
                 prev
             }
@@ -234,13 +255,18 @@ impl PlayerData {
     }
 
     /// Take a slot's item off (the caller returns it to the pack). Emptying BODY
-    /// zeroes the hit meter and the damage buffer.
+    /// zeroes the live hit meter but remembers it by name (see [`Self::equip`]).
     pub fn unequip(&mut self, slot: WearSlot) -> Option<Item> {
         match slot {
             WearSlot::Head => self.worn_head.take(),
             WearSlot::Body => {
                 let prev = self.cur_armor.take();
-                if prev.is_some() {
+                if let Some(item) = &prev {
+                    self.worn_meter = Some((
+                        item.get_name().to_string(),
+                        self.armor,
+                        self.armor_damage_buffer,
+                    ));
                     self.armor = 0;
                     self.armor_damage_buffer = 0;
                 }
@@ -283,6 +309,7 @@ pub fn new(g: &Game, previous: Option<&PlayerData>) -> Entity {
         armor_damage_buffer: 0,
         cur_armor: None,
         worn_head: None,
+        worn_meter: None,
         stamina_recharge: 0,
         stamina_recharge_delay: 0,
         hunger_stam_cnt: MAX_HUNGER_STAMS[diff_idx as usize],

@@ -349,6 +349,12 @@ pub fn write_player(g: &Game, player: &Entity, data: &mut Vec<String>) {
         data.push(format!("{WORN_HEAD_MARKER}{}", head.get_name()));
     }
 
+    // The set-aside armor meter (anti free-repair memory) rides the same scheme,
+    // so a battered breastplate stays battered across a save/load.
+    if let Some((name, hits, buffer)) = &pd.worn_meter {
+        data.push(format!("{ARMOR_METER_MARKER}{name};{hits};{buffer}"));
+    }
+
     // Field Notes ride the same tolerant-marker scheme: only written once the
     // journal has anything in it, so untouched saves stay format-identical.
     if pd.notes != crate::core::field_notes::FieldNotes::default() {
@@ -358,6 +364,10 @@ pub fn write_player(g: &Game, player: &Entity, data: &mut Vec<String>) {
 
 /// Tag of the Player-file entry carrying the HEAD wear slot (see `write_player`).
 pub const WORN_HEAD_MARKER: &str = "WornHead:";
+
+/// Tag of the Player-file entry remembering a set-aside body armor's hit meter
+/// (`name;hits;buffer` — see `PlayerData::unequip`).
+pub const ARMOR_METER_MARKER: &str = "ArmorMeter:";
 
 /// Tag of the Player-file entry carrying the Field Notes journal (see
 /// `core::field_notes`). The `v1` names the payload layout, not the save version.
