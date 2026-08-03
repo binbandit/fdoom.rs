@@ -512,6 +512,10 @@ pub fn init_world(g: &mut Game) {
     }
 
     g.should_respawn = false;
+    // Incidental gameplay randomness derives from the world seed, like generation
+    // does — the single choke point every world (new, loaded, or test) passes
+    // through. Wall-clock seeding made the same save roll differently every run.
+    g.random.set_seed(g.world_seed ^ 0x9E37_79B9);
     reset_game(g, true);
     // a brand-new player (fresh stats and inventory) replaces the respawn-reset one
     reset_game_fresh_player(g);
@@ -583,6 +587,7 @@ pub fn init_world(g: &mut Game) {
                 // infinite layer: chunks stream in around the player, no upfront gen
                 let mut level = crate::level::Level::empty(world_size, world_size, i, diff_idx);
                 level.chunks = Some(crate::level::chunk::ChunkMap::default());
+                level.reseed(g.world_seed);
                 g.levels[idx] = Some(level);
                 g.loading_percentage += loading_inc;
                 i -= 1;
@@ -590,6 +595,9 @@ pub fn init_world(g: &mut Game) {
             }
 
             g.levels[idx] = Some(generate_level(g, i));
+            if let Some(l) = g.levels[idx].as_mut() {
+                l.reseed(g.world_seed);
+            }
             // parent-stairs linkage only applies between finite neighbors
             let parent_is_finite = parent
                 .map(|pidx| g.levels[pidx].as_ref().is_some_and(|l| !l.is_infinite()))
@@ -648,6 +656,7 @@ pub fn init_world(g: &mut Game) {
             if crate::level::is_infinite_depth(depth) {
                 level.chunks = Some(crate::level::chunk::ChunkMap::default());
             }
+            level.reseed(g.world_seed);
             g.levels[idx] = Some(level);
         }
     }

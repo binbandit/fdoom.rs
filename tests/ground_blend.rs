@@ -293,3 +293,49 @@ fn a_dry_bush_on_grass_paints_no_sand() {
          and its carry halo are back"
     );
 }
+
+/// The background must paint every pixel of the viewport at ANY framebuffer size
+/// and ANY scroll phase. The tile loop sized itself with `screen.w >> 4`, which is
+/// only exact for multiples of 16: at 300x200 (a 1200x800 window at 4x, an
+/// ordinary size) scroll phases 5..13 left a growing unpainted strip down the
+/// right edge — up to 1,640 pure-black pixels where the world should be.
+#[test]
+fn the_background_paints_the_whole_viewport_at_awkward_sizes() {
+    for (w, h) in [(300, 200), (426, 266), (289, 193), (633, 397), (288, 192)] {
+        let mut tw = fdoom::testutil::TestWorld::infinite()
+            .name(&format!("bg_{w}x{h}"))
+            .build();
+        tw.tick_n(4);
+        let (px0, py0) = tw.player_pos();
+        // walk a full tile on both axes so every scroll phase is exercised
+        for phase in 0..16 {
+            tw.g.player_mut().c.x = px0 + phase;
+            tw.g.player_mut().c.y = py0 + phase;
+            tw.tick_n(1);
+            let buf = tw.render_at(w, h);
+            let margin_black: usize = (0..h)
+                .map(|y| {
+                    ((w - 16)..w)
+                        .filter(|x| buf[(y * w + x) as usize] & 0x00FF_FFFF == 0)
+                        .count()
+                })
+                .sum();
+            let bottom_black: usize = ((h - 16)..h)
+                .map(|y| {
+                    (0..w)
+                        .filter(|x| buf[(y * w + x) as usize] & 0x00FF_FFFF == 0)
+                        .count()
+                })
+                .sum();
+            // a few genuinely black world pixels are fine; an unpainted strip is not
+            assert!(
+                margin_black < 64,
+                "{w}x{h} phase {phase}: {margin_black} unpainted pixels in the right margin"
+            );
+            assert!(
+                bottom_black < 64,
+                "{w}x{h} phase {phase}: {bottom_black} unpainted pixels along the bottom"
+            );
+        }
+    }
+}

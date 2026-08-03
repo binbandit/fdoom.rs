@@ -132,13 +132,24 @@ impl Level {
             mob_count: 0,
             entities_to_add: Vec::new(),
             entities_to_remove: Vec::new(),
-            random: Rng::from_time(),
+            // Seeded per level, NOT from the wall clock. The world is a pure
+            // function of its seed by design; a clock-seeded level RNG made runtime
+            // rolls (fire spread, ignition, mob decisions) differ between two runs
+            // of the same save, which is unreproducible for players and made the
+            // fire/storm tests flake under load. `reseed` gives it the world seed.
+            random: Rng::new(0x51E4_D000 ^ depth as i64),
         };
         if depth != -4 && depth != 0 {
             level.monster_density = 8;
         }
         level.update_mob_cap(diff_idx);
         level
+    }
+
+    /// Bind this level's runtime RNG to the world seed. Called once the owning
+    /// world is known, so the same save replays the same rolls.
+    pub fn reseed(&mut self, world_seed: i64) {
+        self.random = Rng::new(world_seed ^ (0x51E4_D000 + self.depth as i64));
     }
 
     /// Java `updateMobCap()`.
@@ -1000,8 +1011,13 @@ pub fn render_background(
 ) {
     let xo = x_scroll >> 4;
     let yo = y_scroll >> 4;
-    let w = screen.w >> 4;
-    let h = screen.h >> 4;
+    // Tiles needed to cover the viewport INCLUDING the partial tile the scroll
+    // offset exposes. `screen.w >> 4` is only exact when the width is a multiple
+    // of 16: at 300x200 (a 1200x800 window at 4x, an ordinary size) it left up to
+    // a 15px column on the right and rows at the bottom never painted — pure black
+    // where the world should be.
+    let w = ((x_scroll & 15) + screen.w - 1) >> 4;
+    let h = ((y_scroll & 15) + screen.h - 1) >> 4;
     screen.set_offset(x_scroll, y_scroll);
     for y in yo..=h + yo {
         for x in xo..=w + xo {

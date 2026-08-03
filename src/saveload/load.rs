@@ -298,11 +298,15 @@ fn rebuild_layer(g: &mut Game, depth: i32) {
             g.settings.get_idx("diff"),
         );
         level.chunks = Some(crate::level::chunk::ChunkMap::default());
+        level.reseed(g.world_seed);
         g.levels[idx] = Some(level);
         return;
     }
 
     g.levels[idx] = Some(crate::core::world::generate_level(g, depth));
+    if let Some(l) = g.levels[idx].as_mut() {
+        l.reseed(g.world_seed);
+    }
     if depth == crate::level::MIN_LEVEL_DEPTH {
         // the dungeon needs its landing gate, or players arriving from the deep mines
         // materialize inside solid obsidian (init_world stamps the same one)
@@ -608,7 +612,10 @@ impl Load {
             if parts.next() == Some("Infinite") {
                 infinite = true;
                 match parts.next().and_then(|s| s.parse::<i64>().ok()) {
-                    Some(seed) => g.world_seed = seed,
+                    Some(seed) => {
+                        g.world_seed = seed;
+                        g.random.set_seed(seed ^ 0x9E37_79B9);
+                    }
                     None => eprintln!(
                         "LOAD WARNING: WorldMeta{EXTENSION} carries no readable seed; explored chunks still load, unexplored ground will differ."
                     ),
@@ -702,6 +709,7 @@ impl Load {
             let mut cur_level = Level::empty(lvlw, lvlh, l, g.settings.get_idx("diff"));
             cur_level.tiles = tiles;
             cur_level.data = tdata;
+            cur_level.reseed(g.world_seed);
             g.levels[lvlidx] = Some(cur_level);
 
             if g.debug {

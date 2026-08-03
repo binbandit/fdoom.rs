@@ -1124,3 +1124,45 @@ fn back_to_back_level_changes_keep_the_player() {
     tw.tick_recover();
     assert!(tw.g.try_player().is_some());
 }
+
+/// Runtime randomness must follow the world seed, not the wall clock. Two runs of
+/// the same seed have to roll identically — otherwise a save does not replay, bugs
+/// are unreproducible, and timing-sensitive tests flake under load (they did).
+#[test]
+fn the_same_seed_rolls_the_same_numbers_every_run() {
+    fn sample(tag: &str) -> Vec<i32> {
+        let mut tw = fdoom::testutil::TestWorld::infinite()
+            .seed(4242)
+            .name(tag)
+            .build();
+        let lvl = tw.g.current_level;
+        (0..12)
+            .map(|_| tw.g.level_mut(lvl).random.next_int_bound(1000))
+            .collect()
+    }
+    assert_eq!(
+        sample("determinism_a"),
+        sample("determinism_b"),
+        "level RNG must derive from the world seed"
+    );
+
+    let mut a = fdoom::testutil::TestWorld::infinite()
+        .seed(4242)
+        .name("g_a")
+        .build();
+    let mut b = fdoom::testutil::TestWorld::infinite()
+        .seed(4242)
+        .name("g_b")
+        .build();
+    let ra: Vec<i32> = (0..12).map(|_| a.g.random.next_int_bound(1000)).collect();
+    let rb: Vec<i32> = (0..12).map(|_| b.g.random.next_int_bound(1000)).collect();
+    assert_eq!(ra, rb, "the game RNG must derive from the world seed too");
+
+    // ...and different seeds must still diverge
+    let mut c = fdoom::testutil::TestWorld::infinite()
+        .seed(9999)
+        .name("g_c")
+        .build();
+    let rc: Vec<i32> = (0..12).map(|_| c.g.random.next_int_bound(1000)).collect();
+    assert_ne!(ra, rc, "different seeds must roll differently");
+}
