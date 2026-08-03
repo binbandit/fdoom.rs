@@ -47,6 +47,53 @@ pub fn logical_size_for_window(win_w: i32, win_h: i32) -> (i32, i32, i32) {
     (scale, w, h)
 }
 
+/// Blit the logical framebuffer into the window buffer at `scale`, centered at
+/// `(xo, yo)`.
+///
+/// The window can legally be SMALLER than the logical screen: the logical size
+/// clamps at 288x192 (`logical_size_for_window`), so any window below that — a
+/// hard drag inward, a tiling WM, a restore from minimize — leaves the centering
+/// offsets negative. Every destination write is therefore clipped to the window
+/// rect instead of trusting the offsets; the old code cast a negative index to
+/// `usize` and panicked out of bounds (a hard crash on resize, found in QA).
+#[allow(clippy::too_many_arguments)]
+pub fn blit_scaled(
+    buffer: &mut [u32],
+    win_w: i32,
+    win_h: i32,
+    pixels: &[i32],
+    src_w: i32,
+    scale: i32,
+    xo: i32,
+    yo: i32,
+) {
+    if win_w <= 0 || win_h <= 0 || scale <= 0 || src_w <= 0 {
+        return;
+    }
+    let src_h = pixels.len() as i32 / src_w;
+    for dy in 0..src_h * scale {
+        let y = dy + yo;
+        if y < 0 || y >= win_h {
+            continue; // row falls outside the window
+        }
+        let dest_row = (y * win_w) as usize;
+        let src_row = ((dy / scale) * src_w) as usize;
+        for dx in 0..src_w * scale {
+            let x = dx + xo;
+            if x < 0 || x >= win_w {
+                continue; // column falls outside the window
+            }
+            let (Some(dst), Some(src)) = (
+                buffer.get_mut(dest_row + x as usize),
+                pixels.get(src_row + (dx / scale) as usize),
+            ) else {
+                continue;
+            };
+            *dst = (*src as u32) & 0x00FF_FFFF;
+        }
+    }
+}
+
 impl App {
     fn new(game: Game, renderer: Renderer) -> App {
         let now = Instant::now();
@@ -143,16 +190,16 @@ impl App {
 
         let pixels = &self.renderer.screen.pixels;
         buffer.fill(0);
-        for dy in 0..hh {
-            let sy = dy / scale;
-            let dest_row = ((dy + yo) * win_w) as usize;
-            let src_row = (sy * self.renderer.screen.w) as usize;
-            for dx in 0..ww {
-                let sx = dx / scale;
-                buffer[dest_row + (dx + xo) as usize] =
-                    (pixels[src_row + sx as usize] as u32) & 0x00FF_FFFF;
-            }
-        }
+        blit_scaled(
+            &mut buffer,
+            win_w,
+            win_h,
+            pixels,
+            self.renderer.screen.w,
+            scale,
+            xo,
+            yo,
+        );
 
         let _ = buffer.present();
     }
