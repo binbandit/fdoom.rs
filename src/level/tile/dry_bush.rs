@@ -2,9 +2,12 @@
 //! through deserts and savannas. Walk-through; one bare-handed hit snaps it into 1-2
 //! Sticks — the early desert stick source.
 //!
-//! It renders a parched sand patch under itself (deliberate in savanna too, where the
-//! ring of dry ground reads as the bush having killed the grass). Breaking it restores
-//! sand when any orthogonal neighbor is sandy, grass otherwise.
+//! It stands on whatever ground actually surrounds it (`tile::ground_beneath`), like
+//! every other prop since the flora-base sweep. It used to hard-render a sand patch
+//! everywhere: on a savanna meadow that tan disc — lit by the sand-side blend factor
+//! and ringed by the seam carry it invited — read as a glowing neon-yellow ball
+//! floating on the grass (ODDITIES O23). Breaking it restores sand when any orthogonal
+//! neighbor is sandy, grass otherwise.
 
 use super::{TileDef, TileKind, dispatch};
 use crate::core::game::Game;
@@ -26,7 +29,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: 
     let base = if super::clay::clay_country(g, lvl, x, y) {
         g.tiles.get("Layered Clay")
     } else {
-        g.tiles.get("sand")
+        g.tiles.get(super::ground_beneath(g, lvl, x, y, "sand"))
     };
     dispatch::render(g, screen, &base, lvl, x, y);
     // Dedicated tumbleweed skeleton (artgen `flora_cells` (17,28)) — true color, the

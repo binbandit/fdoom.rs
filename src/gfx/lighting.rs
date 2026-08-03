@@ -862,6 +862,13 @@ enum GroundFam {
     Grass,
     Dirt,
     Sand,
+    /// Exposed intertidal wet sand. Its own family, not Sand: the damp art is a
+    /// world away from the dry beach it borders (measured at noon, #B0915A against
+    /// #EFE263), so filing it under Sand meant the carry never fired on the one
+    /// boundary that most needed it and the whole waterline stayed a razor 16 px
+    /// staircase. The near-identical blend *factor* (`TIDAL_F`) still keeps the
+    /// flat reading as beach, not as a separate biome.
+    Tidal,
     Snow,
     Mud,
     Heath,
@@ -874,6 +881,7 @@ fn fam_color(f: GroundFam) -> i32 {
         GroundFam::Grass => 0x5FA85A, // mid meadow green
         GroundFam::Dirt => 0x9A7A55,  // dry earth tan
         GroundFam::Sand => 0xE3D06A,  // warm dune yellow
+        GroundFam::Tidal => 0xB0915A, // damp tan, the exposed flat at noon
         GroundFam::Snow => 0xEFF4F9,  // frost white, faintly blue
         GroundFam::Mud => 0x584A38,   // dark peat
         GroundFam::Heath => 0x84876F, // olive-gray highland gravel
@@ -907,10 +915,17 @@ fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], 
     match g.tile_at(lvl, tx, ty).kind {
         TileKind::Sand | TileKind::QuickSand => (SAND_F, GroundFam::Sand),
         TileKind::Cactus | TileKind::FruitingCactus => beneath("sand"),
-        // The intertidal band is damp sand — same family as the dry beach above,
-        // darker factor. It classified as Other and got NO treatment at all: the
-        // wet/dry boundary was a razor staircase (found playing, session 2).
-        TileKind::TidalFlat => (TIDAL_F, GroundFam::Sand),
+        // The intertidal band follows the tide. Exposed, it is damp sand with its
+        // own family so the wet/dry waterline actually dissolves (see GroundFam::
+        // Tidal). Submerged, the tile renders as water — it must then behave like
+        // water and neither carry damp tan into the sea nor receive from it.
+        TileKind::TidalFlat => {
+            if crate::level::tile::tidal::is_submerged(g, tx, ty) {
+                (biome(), GroundFam::Other)
+            } else {
+                (TIDAL_F, GroundFam::Tidal)
+            }
+        }
         TileKind::Snow | TileKind::SnowTree => (SNOW_F, GroundFam::Snow),
         TileKind::Mud => (MUD_F, GroundFam::Mud),
         // Heath keeps its painted look everywhere: under a desert-side biome tint
@@ -926,8 +941,10 @@ fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], 
         TileKind::TreeSpecies { species } => {
             beneath(crate::level::tile::tree_species::base_tile(species))
         }
-        // The dry bush renders a sand base too (dry_bush.rs) — same seam rule.
-        TileKind::DryBush => (SAND_F, GroundFam::Sand),
+        // The dry bush stands on the real local ground too (dry_bush.rs) — same
+        // seam rule. Pinned to Sand it carried dune-yellow into all four grass
+        // neighbours of a savanna bush: a glow ring around a tan ball (O23).
+        TileKind::DryBush => beneath("sand"),
         TileKind::TallGrass { .. } => beneath("grass"),
         TileKind::Grass
         | TileKind::Flower
@@ -1052,9 +1069,30 @@ fn ground_blend_pass(screen: &mut Screen, g: &Game, lvl: usize, x_scroll: i32, y
 /// Seam carry depth: how many pixels each side of a family border blends.
 const CARRY_DEPTH: i32 = 5;
 
-/// Bayer coverage (of 16) per pixel of depth from the seam: near-solid on the border
-/// row, gone 5 px in. Quantized ramp — the dither *is* the gradient.
-const CARRY_COV: [i32; CARRY_DEPTH as usize] = [13, 10, 7, 4, 2];
+/// Coverage (of 16) per pixel of depth from the seam. A *hump*, not a ramp down
+/// from the border pixel: the tile art's own connector already carries the
+/// neighbour across the outermost 1-2 px (measured on a staged grass|sand
+/// boundary: those two columns read 43% / 65% toward sand before this pass runs).
+/// Stacking the densest dither step on top of that overshot both sides past each
+/// other — the column just inside grass came out *more sand-coloured* (78%) than
+/// the column just inside sand (31%), so the carry inverted the seam and traced a
+/// two-tone pinstripe down every 16 px tile edge instead of dissolving it. Nearly
+/// skipping depth 0 and peaking one pixel in keeps the whole profile monotonic,
+/// which is what actually reads as a blend.
+const CARRY_COV: [i32; CARRY_DEPTH as usize] = [4, 8, 6, 4, 2];
+
+/// 16-step ordered dither for the carry strips (bit-reversal / van der Corput —
+/// maximally spread), indexed by the coordinate running *along* the seam.
+///
+/// A 4x4 Bayer cannot dither a *line*. A strip at depth `d` from a vertical seam
+/// sits at a fixed `x & 3` (the tile pitch, 16, is a multiple of 4), so every such
+/// strip in the world sampled the same four thresholds: coverage quantized to
+/// 0/25/50/75/100% and was locked to the tile grid. At the old settings depth 0
+/// came out a **solid** 1 px line of neighbour colour down every tile edge, and
+/// the ramp rose again at depth 3 (50% after 25%) — a detached second stripe, the
+/// "loud dark comb" on the mud|sand seam. A 16-entry sequence indexed along the
+/// seam restores a true 16-level ramp and unlocks it from the grid.
+const CARRY_ORD: [i32; 16] = [0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15];
 
 /// How far a carried pixel lerps toward the neighbor family's color (of 256).
 /// Strong enough to read as that ground, weak enough to keep the art's shading.
@@ -1121,9 +1159,12 @@ fn seam_carry(
                 let x0 = (tx * 16 - x_scroll).max(0);
                 let x1 = (tx * 16 + 16 - x_scroll).min(screen.w);
                 let row = (y * screen.w) as usize;
-                let by = ((wy & 3) << 2) as usize;
+                // phase the sequence per depth and per seam so neighbouring
+                // strips (and the two sides of one seam) never cover the same
+                // pixels — otherwise the steps line up into stripes again.
+                let ph = 5 * d + 7 * ty;
                 for x in x0..x1 {
-                    if BAYER[((x + x_scroll) & 3) as usize + by] < cov {
+                    if CARRY_ORD[((x + x_scroll + ph) & 15) as usize] < cov {
                         lerp_px(&mut screen.pixels[row + x as usize], ncol, CARRY_LERP);
                     }
                 }
@@ -1140,9 +1181,9 @@ fn seam_carry(
                 }
                 let y0 = (ty * 16 - y_scroll).max(0);
                 let y1 = (ty * 16 + 16 - y_scroll).min(screen.h);
-                let bx = (wx & 3) as usize;
+                let ph = 5 * d + 7 * tx;
                 for y in y0..y1 {
-                    if BAYER[bx + (((y + y_scroll) & 3) << 2) as usize] < cov {
+                    if CARRY_ORD[((y + y_scroll + ph) & 15) as usize] < cov {
                         lerp_px(
                             &mut screen.pixels[(y * screen.w) as usize + x as usize],
                             ncol,
