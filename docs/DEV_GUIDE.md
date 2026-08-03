@@ -129,7 +129,7 @@ The dump also prints per-kind structure counts for the rendered rect to stdout.
 
 ## Pixel-art studio: `pixel_studio`
 
-`src/bin/pixel_studio.rs` is the game's art tool: a standalone winit/softbuffer
+`src/bin/pixel_studio/` is the game's art tool: a standalone winit/softbuffer
 window for making and editing sprite art in place. The PNG files it edits **are the
 source of truth** — `assets/sprites/**` is the art (see docs/ART_GUIDE.md), and the
 studio writes those files directly. This section is the full manual: modes, every
