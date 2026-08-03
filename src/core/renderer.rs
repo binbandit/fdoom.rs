@@ -1,5 +1,9 @@
-//! Port of `fdoom.core.Renderer` — draws each frame into the 288x192 software screen.
-//! The platform layer scales/blits `self.screen.pixels` to the window.
+//! Port of `fdoom.core.Renderer` — draws each frame into the software screen, then the
+//! platform layer scales/blits `self.screen.pixels` to the window.
+//!
+//! The framebuffer size is decided at runtime (288x192 up to 640x400, see
+//! `platform::logical_size_for_window`), so layout math must read the live
+//! `screen.w`/`screen.h` and never the classic [`WIDTH`]/[`HEIGHT`] constants.
 
 use std::sync::Arc;
 
@@ -9,9 +13,12 @@ use crate::entity::furniture::bed_behavior;
 use crate::gfx::screen::{self, Screen};
 use crate::gfx::sprite_sheet::SpriteSheet;
 use crate::gfx::{Dimension, FontStyle, Point, color, font};
-use crate::item::{ItemKind, ToolType};
+use crate::item::{Item, ItemKind, ToolType};
 use crate::screen::RelPos;
 
+/// The classic screen size, kept only as the *minimum* logical resolution the window
+/// may shrink to (`platform::logical_size_for_window` clamps against these). Never use
+/// them for layout — the live framebuffer is `Renderer::screen.{w,h}`.
 pub const HEIGHT: i32 = screen::H;
 pub const WIDTH: i32 = screen::W;
 
@@ -89,6 +96,42 @@ impl HudMem {
             *show = HUD_SHOW_FRAMES;
         } else if *show > 0 {
             *show -= 1;
+        }
+    }
+
+    /// Fold one frame's stats into the change-memory. The first call primes silently:
+    /// loading a save (or booting a test world) must not flash every full meter at once.
+    fn update(&mut self, v: &Vitals, held_label: Option<String>) {
+        if !self.primed {
+            self.primed = true;
+            self.last_health = v.health;
+            self.last_stamina = v.stamina;
+            self.last_hunger = v.hunger;
+            self.last_thirst = v.thirst;
+            self.last_armor = v.armor;
+            self.held_label = held_label;
+            return;
+        }
+        HudMem::track(&mut self.last_health, &mut self.health_show, v.health);
+        HudMem::track(&mut self.last_stamina, &mut self.stamina_show, v.stamina);
+        HudMem::track(&mut self.last_hunger, &mut self.hunger_show, v.hunger);
+        HudMem::track(&mut self.last_thirst, &mut self.thirst_show, v.thirst);
+        if v.armor < self.last_armor {
+            self.armor_flash = 24; // the chip blinks while it soaks a hit
+        }
+        self.last_armor = v.armor;
+        if self.armor_flash > 0 {
+            self.armor_flash -= 1;
+        }
+        if held_label != self.held_label {
+            self.label_ticks = if held_label.is_some() {
+                HUD_SHOW_FRAMES
+            } else {
+                0
+            };
+            self.held_label = held_label;
+        } else if self.label_ticks > 0 {
+            self.label_ticks -= 1;
         }
     }
 }
@@ -207,6 +250,512 @@ fn render_fist(screen: &mut Screen, x: i32, y: i32) {
             screen.fill_rect(x + c as i32 * 2, y + r as i32 * 2, 2, 2, rgb);
         }
     }
+}
+
+/* ------------------------------- corner-HUD layout -------------------------------
+Every corner-HUD anchor, derived from the LIVE framebuffer. The window runs anywhere
+from 288x192 to 640x400, so nothing here may read the classic WIDTH/HEIGHT constants —
+a slot pinned to 192 lands in the middle of a 400-tall screen. Offsets are measured
+against target/verify/ui_mock/mock_hud_{calm,alert}.png. */
+
+#[derive(Clone, Copy)]
+struct HudLayout {
+    /// live framebuffer width — the right-aligned slots measure back from it
+    w: i32,
+    /// vitals rows, top to bottom
+    hearts_y: i32,
+    stamina_y: i32,
+    food_y: i32,
+    /// the L6-reserved slot, below hunger
+    thirst_y: i32,
+    /// badge tier above the vitals: temperature dot, potion pips, held-item name
+    badge_y: i32,
+    /// top-left corner of the 18x18 held-item plate
+    plate_x: i32,
+    plate_y: i32,
+}
+
+impl HudLayout {
+    fn for_screen(w: i32, h: i32) -> HudLayout {
+        HudLayout {
+            w,
+            hearts_y: h - 34,
+            stamina_y: h - 26,
+            food_y: h - 18,
+            thirst_y: h - 10,
+            badge_y: h - 46,
+            plate_x: w - 22,
+            plate_y: h - 22,
+        }
+    }
+}
+
+/// Left edge of the vitals strips.
+const VITALS_X: i32 = 2;
+/// A vitals strip is `MAX_STAT` 8px icon cells plus 2px of padding either side. The
+/// armor chip docks flush against its right edge, so both derive from this.
+const VITALS_STRIP_W: i32 = crate::entity::mob::player::MAX_STAT * 8 + 4;
+/// Badge-tier slot right of the temperature dot and its optional COLD/HOT word.
+const EFFECT_PIPS_X: i32 = 48;
+
+/// The player numbers the HUD reads, sampled once per frame: the change-memory, the
+/// vitals rows and the armor chip all want them, and `Game` cannot stay borrowed while
+/// the draws run.
+struct Vitals {
+    health: i32,
+    stamina: i32,
+    stamina_recharge_delay: i32,
+    hunger: i32,
+    thirst: i32,
+    armor: i32,
+    /// the worn armor's sprite color — the chip's tint when it is not flashing
+    armor_color: Option<i32>,
+}
+
+impl Vitals {
+    fn sample(g: &Game) -> Vitals {
+        let p = g.player();
+        let pd = p.player();
+        Vitals {
+            health: pd.mob.health,
+            stamina: pd.stamina,
+            stamina_recharge_delay: pd.stamina_recharge_delay,
+            hunger: pd.hunger,
+            thirst: pd.thirst,
+            armor: pd.armor,
+            armor_color: pd.cur_armor.as_ref().map(|a| a.sprite.color),
+        }
+    }
+}
+
+/// The held item's HUD name. Tools carry their level ("Crude Pickaxe"); everything else
+/// uses the bare localized name — the count prefix the old text carried now lives in the
+/// badge, so the label never needs truncating.
+fn held_label(g: &Game, active: Option<&Item>) -> Option<String> {
+    active.map(|item| match &item.kind {
+        ItemKind::Tool { .. } => item.get_display_name(g).trim().to_string(),
+        _ => g.localization.get_localized(item.get_name()).to_string(),
+    })
+}
+
+/* -------------------------------- vitals + badges -------------------------------- */
+
+/// The three vitals rows in their permanent slots. A row is drawn when its meter is
+/// below max, moved in the last ~90 frames, or (stamina only) is mid-recharge-blink;
+/// at/below 30% it gains the pulse underline. Full and settled = absent.
+fn draw_vitals(screen: &mut Screen, l: HudLayout, v: &Vitals, mem: &HudMem, pulse_on: bool) {
+    use crate::entity::mob::player::{MAX_HEALTH, MAX_HUNGER, MAX_STAMINA};
+
+    let (health, stamina, hunger) = (v.health, v.stamina, v.hunger);
+    let recharge_delay = v.stamina_recharge_delay;
+
+    if health < MAX_HEALTH || mem.health_show > 0 {
+        vitals_row(
+            screen,
+            l.hearts_y,
+            0,
+            |i| {
+                if i < health {
+                    color::get4(-1, 200, 500, 533)
+                } else {
+                    color::get4(-1, 100, 0, 0)
+                }
+            },
+            health * 10 <= MAX_HEALTH * 3,
+            pulse_on,
+        );
+    }
+    if stamina < MAX_STAMINA || mem.stamina_show > 0 || recharge_delay > 0 {
+        vitals_row(
+            screen,
+            l.stamina_y,
+            1,
+            |i| {
+                if recharge_delay > 0 {
+                    // the white/gray blinking effect when you run out
+                    if recharge_delay / 4 % 2 == 0 {
+                        color::get4(-1, 555, 0, 0)
+                    } else {
+                        color::get4(-1, 110, 0, 0)
+                    }
+                } else if i < stamina {
+                    color::get4(-1, 220, 550, 553)
+                } else {
+                    color::get4(-1, 110, 0, 0)
+                }
+            },
+            stamina * 10 <= MAX_STAMINA * 3,
+            pulse_on,
+        );
+    }
+    if hunger < MAX_HUNGER || mem.hunger_show > 0 {
+        vitals_row(
+            screen,
+            l.food_y,
+            2,
+            |i| {
+                if i < hunger {
+                    color::get4(-1, 100, 530, 211)
+                } else {
+                    color::get4(-1, 100, 0, 0)
+                }
+            },
+            hunger * 10 <= MAX_HUNGER * 3,
+            pulse_on,
+        );
+    }
+
+    // THIRST droplets (gentle thirst, L6) in the reserved slot: same hidden-while-full
+    // / linger / low-pulse rules as the rows above.
+    // TODO(art): a dedicated droplet cell; until then the heart cell renders Y-mirrored
+    // (point up, round bottom) in water blues.
+    {
+        use crate::entity::mob::player::MAX_THIRST;
+        let thirst = v.thirst;
+        if thirst < MAX_THIRST || mem.thirst_show > 0 {
+            let n = crate::entity::mob::player::MAX_STAT;
+            screen.darken_rect_screen(2, l.thirst_y - 1, n * 8 + 4, 10, 90);
+            for i in 0..n {
+                let col = if i < thirst {
+                    color::get4(-1, 12, 235, 455)
+                } else {
+                    color::get4(-1, 1, 0, 0)
+                };
+                screen.render(
+                    4 + i * 8,
+                    l.thirst_y,
+                    12 * 32,
+                    col,
+                    crate::gfx::screen::BIT_MIRROR_Y,
+                );
+            }
+            if thirst <= 3 && pulse_on {
+                screen.fill_rect(4, l.thirst_y + 8, n * 8, 1, 0xF0F0F0);
+            }
+        }
+    }
+}
+
+/// Shield pip + hits-left count, docked against the right edge of the hearts strip and
+/// drawn only while armor is worn. Flashes white while it soaks a hit. Detail lives on
+/// the WEAR tab.
+fn draw_armor_chip(screen: &mut Screen, l: HudLayout, v: &Vitals, flash: i32) {
+    if v.armor <= 0 {
+        return;
+    }
+    let chip_x = VITALS_X + VITALS_STRIP_W;
+    let count = v.armor.to_string();
+    let wtxt = font::text_width(&count);
+    screen.darken_rect_screen(chip_x, l.hearts_y - 1, wtxt + 13, 10, 90);
+    let flash_on = flash > 0 && (flash / 3) % 2 == 0;
+    let col = if flash_on {
+        color::get(-1, 555)
+    } else {
+        v.armor_color.unwrap_or(color::get4(-1, 111, 333, 444))
+    };
+    screen.render(chip_x + 2, l.hearts_y, 3 + 12 * 32, col, 0);
+    draw_text_shadowed(screen, &count, chip_x + 11, l.hearts_y, color::get(-1, 555));
+}
+
+/// Band color for the temperature dot (core::temperature). The outermost bands alternate
+/// with the pulse clock; `steps == 0` is the comfort band and never draws.
+fn temp_band_rgb(steps: i32, pulse_on: bool) -> i32 {
+    match steps {
+        -1 => 0x5E8FD4,
+        -2 => 0x3E6FE0,
+        i32::MIN..=-3 => {
+            if pulse_on {
+                0x8FB4FF
+            } else {
+                0x2B4FF0
+            }
+        }
+        1 => 0xD9A85A,
+        2 => 0xE07E33,
+        _ => {
+            if pulse_on {
+                0xFF9A66
+            } else {
+                0xE0491F
+            }
+        }
+    }
+}
+
+/// The temperature dot in the badge tier, plus its one-word label from +-2 steps out.
+/// Comfort band: absent.
+fn draw_temperature_badge(screen: &mut Screen, l: HudLayout, steps: i32, pulse_on: bool) {
+    if steps == 0 {
+        return;
+    }
+    let rgb = temp_band_rgb(steps, pulse_on);
+    badge_dot(screen, 4, l.badge_y, rgb);
+    if steps.abs() >= 2 {
+        let word = if steps < 0 { "COLD" } else { "HOT" };
+        draw_text_rgb(screen, word, 12, l.badge_y, rgb);
+    }
+}
+
+/// Potion pips share the badge tier right of the temp slot — the same dot silhouette in
+/// each potion's display color, so the row reads as one instrument cluster. Names and
+/// timers belong to the SELF tab.
+fn draw_effect_pips(screen: &mut Screen, l: HudLayout, g: &Game) {
+    let mut effects: Vec<crate::item::PotionType> =
+        g.player().player().potioneffects.keys().copied().collect();
+    effects.sort_by_key(|p| p.disp_color()); // HashMap order is unstable
+    for (i, ptype) in effects.iter().enumerate() {
+        let x = EFFECT_PIPS_X + i as i32 * 9;
+        if x + 7 > l.w {
+            break;
+        }
+        badge_dot(
+            screen,
+            x,
+            l.badge_y,
+            color::upgrade(color::get_byte(ptype.disp_color())),
+        );
+    }
+}
+
+/* ------------------------------ banners + messages ------------------------------ */
+
+/// The centered sleep/bed banner's lines. A non-empty result also means the warning
+/// band stands down for the frame.
+fn perm_status_lines(g: &Game) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    if bed_behavior::sleeping(g) {
+        lines.push("Sleeping...".to_string());
+    } else if g.bed_state.players_awake > 0 && bed_behavior::in_bed(g, g.player_id) {
+        let num_awake = g.bed_state.players_awake;
+        lines.push(crate::core::my_utils::plural(num_awake, "player") + " still awake");
+        lines.push(" ".to_string());
+        lines.push(format!("Press {} to cancel", g.input.get_mapping("exit")));
+    }
+    lines
+}
+
+fn draw_perm_status(screen: &mut Screen, lines: &[String]) {
+    let mut style = FontStyle::new(color::WHITE)
+        .set_y_pos(screen.h / 2 - 25)
+        .set_rel_text_pos(RelPos::Top)
+        .set_shadow_type(color::DARK_GRAY, false);
+    font::draw_paragraph(lines, screen, &mut style, 1);
+}
+
+/// Warning / event band (playtest #2) — centered and loud on purpose. Ages one line off
+/// every 120 frames and never shows more than 3.
+fn draw_warning_band(screen: &mut Screen, g: &mut Game) {
+    if g.warnings.is_empty() {
+        return;
+    }
+    g.note_tick += 1;
+    if g.warnings.len() > 3 {
+        // only show 3 warnings max at one time; erase old ones
+        let start = g.warnings.len() - 3;
+        g.warnings = g.warnings[start..].to_vec();
+    }
+    if g.note_tick > 120 {
+        // display time per warning
+        g.warnings.remove(0);
+        g.note_tick = 0;
+    }
+
+    let mut style = FontStyle::new(color::WHITE)
+        .set_shadow_type(color::DARK_GRAY, false)
+        .set_y_pos(screen.h * 2 / 5)
+        .set_rel_text_pos_both(RelPos::Top, false);
+    let notes = g.warnings.clone();
+    // smoked-glass backing band (same primitive as the menu panels) so the text reads
+    // over any terrain; mirrors the geometry FontStyle computes above
+    let size = Dimension::new(
+        font::text_width_para(&notes),
+        notes.len() as i32 * font::text_height(),
+    );
+    let band = RelPos::Top.position_rect(size, Point::new(screen.w / 2, screen.h * 2 / 5));
+    screen.darken_rect_screen(
+        band.left() - 4,
+        band.top() - 3,
+        band.width() + 8,
+        band.height() + 5,
+        185,
+    );
+    font::draw_paragraph(&notes, screen, &mut style, 0);
+}
+
+/// Ambient chatter ticker — flush to the top-left edge (the frame boxes it used to dock
+/// under are gone), newest line on top, ~90 frames each, max 3 lines. The font is
+/// caps-only, so quiet placement and a faint backing do the de-emphasis instead of
+/// sentence case.
+fn draw_ticker(screen: &mut Screen, g: &mut Game, menu_open: bool) {
+    g.sync_note_ages();
+    if menu_open || g.notifications.is_empty() {
+        return;
+    }
+    for age in &mut g.note_ages {
+        *age += 1;
+    }
+    let mut i = 0;
+    while i < g.notifications.len() {
+        if g.note_ages[i] > 90 {
+            g.notifications.remove(i);
+            g.note_ages.remove(i);
+        } else {
+            i += 1;
+        }
+    }
+    while g.notifications.len() > 3 {
+        g.notifications.remove(0);
+        g.note_ages.remove(0);
+    }
+
+    const TICKER_X: i32 = 4;
+    const TICKER_Y: i32 = 3; // top edge of the frame (mock_hud_calm)
+    for (row, idx) in (0..g.notifications.len()).rev().enumerate() {
+        let line = &g.notifications[idx];
+        let y = TICKER_Y + row as i32 * 9;
+        let w = font::text_width(line);
+        screen.darken_rect_screen(TICKER_X - 2, y - 1, w + 4, 9, 150);
+        // newest line bright, older lines receding
+        let col = if row == 0 {
+            color::get(-1, 555)
+        } else {
+            color::get(-1, 333)
+        };
+        font::draw(line, screen, TICKER_X, y, col);
+    }
+}
+
+/// Bottom-right save toast: live progress while saving, then the "World Saved!" line the
+/// save path pushes. Lifts clear of the held-item name label while that is up — both are
+/// transient, so the collision is rare and the dodge is cheap.
+fn draw_save_toast(screen: &mut Screen, g: &mut Game, label_up: bool) {
+    if !g.saving && g.toast.is_some() {
+        g.toast_tick += 1;
+        if g.toast_tick > 90 {
+            g.toast = None;
+        }
+    }
+    let line = if g.saving {
+        Some(format!("Saving... {}%", g.loading_percentage.round()))
+    } else {
+        g.toast.clone()
+    };
+    let Some(line) = line else {
+        return;
+    };
+    let lift = if label_up { 20 } else { 0 };
+    let w = font::text_width(&line);
+    let (tx, ty) = (screen.w - w - 4, screen.h - 12 - lift);
+    screen.darken_rect_screen(tx - 2, ty - 1, w + 4, 10, 185);
+    font::draw(&line, screen, tx, ty, color::get(-1, 555));
+}
+
+/* --------------------------------- held-item plate --------------------------------- */
+
+/// The plate's 18x18 shell: 1px border, smoked-glass interior.
+fn draw_plate_frame(screen: &mut Screen, l: HudLayout) {
+    screen.fill_rect(l.plate_x, l.plate_y, 18, 1, PLATE_BORDER_RGB);
+    screen.fill_rect(l.plate_x, l.plate_y + 17, 18, 1, PLATE_BORDER_RGB);
+    screen.fill_rect(l.plate_x, l.plate_y + 1, 1, 16, PLATE_BORDER_RGB);
+    screen.fill_rect(l.plate_x + 17, l.plate_y + 1, 1, 16, PLATE_BORDER_RGB);
+    screen.darken_rect_screen(l.plate_x + 1, l.plate_y + 1, 16, 16, 150);
+}
+
+/// The plate's icon: 1x1-cell art is doubled to fill the 16x16 well, anything bigger
+/// (held furniture is 2x2 cells = 16x16px) already fits at 1x. Empty hands get the fist.
+fn draw_plate_icon(screen: &mut Screen, sheet: &SpriteSheet, l: HudLayout, active: Option<&Item>) {
+    let (x, y) = (l.plate_x + 1, l.plate_y + 1);
+    match active {
+        Some(item) => {
+            let cells = (
+                item.sprite.sprite_pixels.len(),
+                item.sprite.sprite_pixels[0].len(),
+            );
+            if cells == (1, 1) {
+                render_sprite_2x(screen, sheet, &item.sprite, x, y);
+            } else {
+                item.sprite.render(screen, x, y);
+            }
+        }
+        None => render_fist(screen, x, y),
+    }
+}
+
+/// Traffic-light durability shade: green -> amber at 50% -> red at 20% remaining.
+fn durability_shade(frac: f32) -> i32 {
+    if frac > 0.5 {
+        140 // green
+    } else if frac > 0.2 {
+        540 // amber
+    } else {
+        500 // red
+    }
+}
+
+/// The durability gauge under the plate (it replaced the numeric % readout). A tool with
+/// any durability left keeps at least 1px of fill, so "one hit left" never renders as
+/// the same empty lane as "broken".
+fn draw_durability_bar(screen: &mut Screen, l: HudLayout, active: Option<&Item>) {
+    let Some(ItemKind::Tool { ttype, level, dur }) = active.map(|i| &i.kind) else {
+        return;
+    };
+    let max = (ttype.durability() * (level + 1)).max(1);
+    let frac = (*dur).clamp(0, max) as f32 / max as f32;
+    let fill = color::upgrade(color::get_byte(durability_shade(frac)));
+    let empty = color::upgrade(color::get_byte(111));
+    screen.fill_rect(l.plate_x, l.plate_y + 18, 18, 3, 0x000000);
+    screen.fill_rect(l.plate_x + 1, l.plate_y + 19, 16, 1, empty);
+    let min_fw = if *dur > 0 { 1 } else { 0 };
+    let fw = ((16.0 * frac).round() as i32).clamp(min_fw, 16);
+    screen.fill_rect(l.plate_x + 1, l.plate_y + 19, fw, 1, fill);
+}
+
+/// Count badge above the plate: stack sizes and ammo only. No bow, no counter — the
+/// permanent `X0` arrow readout is gone. `^` means effectively infinite.
+fn count_badge_text(g: &Game, active: Option<&Item>) -> Option<String> {
+    let item = active?;
+    match &item.kind {
+        ItemKind::Tool { ttype, .. } => {
+            let ammo = match ttype {
+                ToolType::Bow | ToolType::Crossbow => Some(crate::item::registry::arrow_item(g)),
+                ToolType::Slingshot => Some(crate::item::registry::get(g, "Stone")),
+                _ => None,
+            };
+            ammo.map(|it| {
+                let n = g.player().player().inventory.count(&it);
+                if g.is_mode("creative") || n >= 10000 {
+                    "^".to_string()
+                } else {
+                    n.min(9999).to_string()
+                }
+            })
+        }
+        _ if item.is_stackable() => Some(item.count().min(999).to_string()),
+        _ => None,
+    }
+}
+
+fn draw_count_badge(screen: &mut Screen, l: HudLayout, text: &str) {
+    let w = font::text_width(text);
+    let tx = l.w - 6 - w;
+    screen.darken_rect_screen(tx - 1, l.plate_y - 9, w + 3, 10, 150);
+    draw_text_shadowed(screen, text, tx, l.plate_y - 8, color::get(-1, 555));
+}
+
+/// The transient held-item name: up for ~90 frames after a switch, dimmed for its last
+/// stretch, then gone. Because the persistent plate state is icon + gauge, the old
+/// truncation ("1 LEATHER..") is impossible by construction.
+fn draw_held_label(screen: &mut Screen, l: HudLayout, name: &str, ticks: i32) {
+    let w = font::text_width(name);
+    let tx = (l.w - 4 - w).max(2);
+    let ty = l.badge_y + 1;
+    screen.darken_rect_screen(tx - 2, ty - 1, w + 4, 10, 150);
+    let col = if ticks < 20 {
+        color::get(-1, 333) // fading out
+    } else {
+        color::get(-1, 555)
+    };
+    draw_text_shadowed(screen, name, tx, ty, col);
 }
 
 impl Renderer {
@@ -358,17 +907,17 @@ impl Renderer {
             }
         }
         if lvl > 3 {
-            // sky (and dungeon) background
+            // Parallax backdrop behind the dungeon, scrolling at quarter speed. The
+            // 0..7px offset means the 8px grid needs one extra cell past each edge to
+            // cover the live framebuffer — sizing it to the classic screen left the
+            // right/bottom of a 640x400 window unpainted.
             let col = color::get4(20, 20, 121, 121);
-            for y in 0..28 {
-                for x in 0..48 {
-                    self.screen.render(
-                        x * 8 - ((x_scroll / 4) & 7),
-                        y * 8 - ((y_scroll / 4) & 7),
-                        0,
-                        col,
-                        0,
-                    );
+            let (ox, oy) = ((x_scroll / 4) & 7, (y_scroll / 4) & 7);
+            let cols = (self.screen.w + ox) / 8 + 1;
+            let rows = (self.screen.h + oy) / 8 + 1;
+            for y in 0..rows {
+                for x in 0..cols {
+                    self.screen.render(x * 8 - ox, y * 8 - oy, 0, col, 0);
                 }
             }
         }
@@ -396,472 +945,65 @@ impl Renderer {
     /// The corner HUD (docs/UI_REDESIGN.md §2): frameless, need-to-know meters
     /// bottom-left, held-item plate bottom-right, notifications on their own tiers.
     /// Guiding rule: a meter that needs nothing from you does not exist.
+    ///
+    /// Draw order is load-bearing: the debug paragraphs sit under everything, the
+    /// sleep banner suppresses the warning band, and the save toast goes last so it
+    /// reads over the held plate.
     fn render_gui(&mut self, g: &mut Game) {
-        let (hud_w, hud_h) = (self.screen.w, self.screen.h);
-        let hearts_y = hud_h - 34;
-        let stamina_y = hud_h - 26;
-        let food_y = hud_h - 18;
-        let thirst_y = hud_h - 10; // the L6-reserved slot, below hunger
-        let badge_y = hud_h - 46;
-        let plate_x = hud_w - 22;
-        let plate_y = hud_h - 22;
-        // ---- HUD memory: which meters moved recently (drives every transient) ----
-        let (health, stamina, stamina_recharge_delay, hunger, thirst, armor, cur_armor_color) = {
-            let p = g.player();
-            let pd = p.player();
-            (
-                pd.mob.health,
-                pd.stamina,
-                pd.stamina_recharge_delay,
-                pd.hunger,
-                pd.thirst,
-                pd.armor,
-                pd.cur_armor.as_ref().map(|a| a.sprite.color),
-            )
-        };
-        let held_label: Option<String> = {
-            let active = g.player().player().active_item.clone();
-            active.map(|item| match &item.kind {
-                // tools: level + name ("Crude Pickaxe"); everything else uses the bare
-                // localized name — the count prefix the old text carried now lives in
-                // the badge, so the label never needs truncating
-                ItemKind::Tool { .. } => item.get_display_name(g).trim().to_string(),
-                _ => g.localization.get_localized(item.get_name()).to_string(),
-            })
-        };
-        {
-            let hud = &mut self.hud;
-            if !hud.primed {
-                hud.primed = true;
-                hud.last_health = health;
-                hud.last_stamina = stamina;
-                hud.last_hunger = hunger;
-                hud.last_thirst = thirst;
-                hud.last_armor = armor;
-                hud.held_label = held_label;
-            } else {
-                HudMem::track(&mut hud.last_health, &mut hud.health_show, health);
-                HudMem::track(&mut hud.last_stamina, &mut hud.stamina_show, stamina);
-                HudMem::track(&mut hud.last_hunger, &mut hud.hunger_show, hunger);
-                HudMem::track(&mut hud.last_thirst, &mut hud.thirst_show, thirst);
-                if armor < hud.last_armor {
-                    hud.armor_flash = 24; // the chip blinks while it soaks a hit
-                }
-                hud.last_armor = armor;
-                if hud.armor_flash > 0 {
-                    hud.armor_flash -= 1;
-                }
-                if held_label != hud.held_label {
-                    hud.label_ticks = if held_label.is_some() {
-                        HUD_SHOW_FRAMES
-                    } else {
-                        0
-                    };
-                    hud.held_label = held_label;
-                } else if hud.label_ticks > 0 {
-                    hud.label_ticks -= 1;
-                }
-            }
-        }
+        let l = HudLayout::for_screen(self.screen.w, self.screen.h);
+        let vitals = Vitals::sample(g);
+        let active = g.player().player().active_item.clone();
+        self.hud.update(&vitals, held_label(g, active.as_ref()));
 
         if g.debug && g.dev_overlay {
             crate::screen::dev_console::render_overlay(&mut self.screen, g);
         }
-
         self.render_debug_info(g);
-        let screen = &mut self.screen;
 
-        let mut perm_status: Vec<String> = Vec::new();
-        if bed_behavior::sleeping(g) {
-            perm_status.push("Sleeping...".to_string());
-        } else if g.bed_state.players_awake > 0 && bed_behavior::in_bed(g, g.player_id) {
-            let num_awake = g.bed_state.players_awake;
-            perm_status.push(crate::core::my_utils::plural(num_awake, "player") + " still awake");
-            perm_status.push(" ".to_string());
-            perm_status.push(format!("Press {} to cancel", g.input.get_mapping("exit")));
-        }
-
+        let perm_status = perm_status_lines(g);
         if !perm_status.is_empty() {
-            let mut style = FontStyle::new(color::WHITE)
-                .set_y_pos(screen.h / 2 - 25)
-                .set_rel_text_pos(RelPos::Top)
-                .set_shadow_type(color::DARK_GRAY, false);
-            font::draw_paragraph(&perm_status, screen, &mut style, 1);
+            draw_perm_status(&mut self.screen, &perm_status);
         }
 
-        // NOTIFICATIONS (playtest #2). Two tiers: warnings/event cues keep the centered
-        // band; ambient chatter docks top-left under the HUD as a compact ticker. Both
-        // are held — neither drawn nor aged — while a menu Display is open, so they
-        // never bleed through the smoked-glass panels and resume after close.
+        // Notifications are held — neither drawn nor aged — while a menu Display is
+        // open, so they never bleed through the smoked-glass panels, and resume after
+        // it closes.
         let menu_open = g.display.menu_active();
-
-        // WARNING / EVENT band — centered, loud on purpose.
-        if perm_status.is_empty() && !menu_open && !g.warnings.is_empty() {
-            g.note_tick += 1;
-            if g.warnings.len() > 3 {
-                // only show 3 warnings max at one time; erase old ones
-                let start = g.warnings.len() - 3;
-                g.warnings = g.warnings[start..].to_vec();
-            }
-
-            if g.note_tick > 120 {
-                // display time per warning
-                g.warnings.remove(0);
-                g.note_tick = 0;
-            }
-
-            // draw each current warning, with shadow text effect
-            let mut style = FontStyle::new(color::WHITE)
-                .set_shadow_type(color::DARK_GRAY, false)
-                .set_y_pos(screen.h * 2 / 5)
-                .set_rel_text_pos_both(RelPos::Top, false);
-            let notes = g.warnings.clone();
-            // smoked-glass backing band (same primitive as the menu panels) so the text
-            // reads over any terrain; mirrors the geometry FontStyle computes above
-            let size = Dimension::new(
-                font::text_width_para(&notes),
-                notes.len() as i32 * font::text_height(),
-            );
-            let band = RelPos::Top.position_rect(size, Point::new(screen.w / 2, screen.h * 2 / 5));
-            screen.darken_rect_screen(
-                band.left() - 4,
-                band.top() - 3,
-                band.width() + 8,
-                band.height() + 5,
-                185,
-            );
-            font::draw_paragraph(&notes, screen, &mut style, 0);
+        if perm_status.is_empty() && !menu_open {
+            draw_warning_band(&mut self.screen, g);
         }
+        draw_ticker(&mut self.screen, g, menu_open);
 
-        // AMBIENT ticker — flush to the top-left edge (the frame boxes it used to
-        // dock under are gone), newest line on top, ~90 ticks each, max 3 lines.
-        // Small presence: the font is caps-only (the CHARS lowercase range maps past
-        // the stitched glyphs), so quiet placement and a faint backing do the
-        // de-emphasis instead of sentence case.
-        g.sync_note_ages();
-        if !menu_open && !g.notifications.is_empty() {
-            for age in &mut g.note_ages {
-                *age += 1;
-            }
-            let mut i = 0;
-            while i < g.notifications.len() {
-                if g.note_ages[i] > 90 {
-                    g.notifications.remove(i);
-                    g.note_ages.remove(i);
-                } else {
-                    i += 1;
-                }
-            }
-            while g.notifications.len() > 3 {
-                g.notifications.remove(0);
-                g.note_ages.remove(0);
-            }
-
-            const TICKER_X: i32 = 4;
-            const TICKER_Y: i32 = 3; // top edge of the frame (mock_hud_calm)
-            for (row, idx) in (0..g.notifications.len()).rev().enumerate() {
-                let line = &g.notifications[idx];
-                let y = TICKER_Y + row as i32 * 9;
-                let w = font::text_width(line);
-                screen.darken_rect_screen(TICKER_X - 2, y - 1, w + 4, 9, 150);
-                // newest line bright, older lines receding
-                let col = if row == 0 {
-                    color::get(-1, 555)
-                } else {
-                    color::get(-1, 333)
-                };
-                font::draw(line, screen, TICKER_X, y, col);
-            }
-        }
-
-        // ---- VITALS, bottom-left: fixed frameless rows in permanent slots. A row is
-        // drawn when its meter is below max, moved in the last ~90 frames, or (for
-        // stamina) is mid-recharge-blink; at/below 30% it gains the pulse underline.
-        // Full and settled = absent. Creative mode shows the held plate only.
         let pulse_on = (g.tick_count / 15) % 2 == 0;
         if !g.is_mode("creative") {
-            use crate::entity::mob::player::{MAX_HEALTH, MAX_HUNGER, MAX_STAMINA};
-
-            if health < MAX_HEALTH || self.hud.health_show > 0 {
-                vitals_row(
-                    screen,
-                    hearts_y,
-                    0,
-                    |i| {
-                        if i < health {
-                            color::get4(-1, 200, 500, 533)
-                        } else {
-                            color::get4(-1, 100, 0, 0)
-                        }
-                    },
-                    health * 10 <= MAX_HEALTH * 3,
-                    pulse_on,
-                );
-            }
-            if stamina < MAX_STAMINA || self.hud.stamina_show > 0 || stamina_recharge_delay > 0 {
-                vitals_row(
-                    screen,
-                    stamina_y,
-                    1,
-                    |i| {
-                        if stamina_recharge_delay > 0 {
-                            // the white/gray blinking effect when you run out
-                            if stamina_recharge_delay / 4 % 2 == 0 {
-                                color::get4(-1, 555, 0, 0)
-                            } else {
-                                color::get4(-1, 110, 0, 0)
-                            }
-                        } else if i < stamina {
-                            color::get4(-1, 220, 550, 553)
-                        } else {
-                            color::get4(-1, 110, 0, 0)
-                        }
-                    },
-                    stamina * 10 <= MAX_STAMINA * 3,
-                    pulse_on,
-                );
-            }
-            if hunger < MAX_HUNGER || self.hud.hunger_show > 0 {
-                vitals_row(
-                    screen,
-                    food_y,
-                    2,
-                    |i| {
-                        if i < hunger {
-                            color::get4(-1, 100, 530, 211)
-                        } else {
-                            color::get4(-1, 100, 0, 0)
-                        }
-                    },
-                    hunger * 10 <= MAX_HUNGER * 3,
-                    pulse_on,
-                );
-            }
-            // THIRST droplets (gentle thirst, L6) in the reserved slot: same
-            // hidden-while-full / linger / low-pulse rules as the rows above.
-            // TODO(art): a dedicated droplet cell; until then the heart cell renders
-            // Y-mirrored (point up, round bottom) in water blues.
-            {
-                use crate::entity::mob::player::MAX_THIRST;
-                if thirst < MAX_THIRST || self.hud.thirst_show > 0 {
-                    let n = crate::entity::mob::player::MAX_STAT;
-                    screen.darken_rect_screen(2, thirst_y - 1, n * 8 + 4, 10, 90);
-                    for i in 0..n {
-                        let col = if i < thirst {
-                            color::get4(-1, 12, 235, 455)
-                        } else {
-                            color::get4(-1, 1, 0, 0)
-                        };
-                        screen.render(
-                            4 + i * 8,
-                            thirst_y,
-                            12 * 32,
-                            col,
-                            crate::gfx::screen::BIT_MIRROR_Y,
-                        );
-                    }
-                    if thirst * 10 <= MAX_THIRST * 3 && pulse_on {
-                        screen.fill_rect(4, thirst_y + 8, n * 8, 1, 0xF0F0F0);
-                    }
-                }
-            }
-
-            // ARMOR chip: shield pip + hits-left count right of the hearts slot, only
-            // while armor is worn; flashes while it soaks a hit. Detail lives on WEAR.
-            if armor > 0 {
-                let count = armor.to_string();
-                let wtxt = font::text_width(&count);
-                screen.darken_rect_screen(86, hearts_y - 1, wtxt + 13, 10, 90);
-                let flash_on = self.hud.armor_flash > 0 && (self.hud.armor_flash / 3) % 2 == 0;
-                let col = if flash_on {
-                    color::get(-1, 555)
-                } else {
-                    cur_armor_color.unwrap_or(color::get4(-1, 111, 333, 444))
-                };
-                screen.render(88, hearts_y, 3 + 12 * 32, col, 0);
-                draw_text_shadowed(screen, &count, 97, hearts_y, color::get(-1, 555));
-            }
-
-            // TEMPERATURE dot (core::temperature): band colors and pulse cadence are
-            // untouched — the dot moved from the old frame seam into the badge slot
-            // above the vitals, and gains its one-word label at +-2 steps and beyond.
-            // Comfort band: absent, exactly as before.
+            // Creative mode shows the held plate only.
+            let armor_flash = self.hud.armor_flash;
+            draw_vitals(&mut self.screen, l, &vitals, &self.hud, pulse_on);
+            draw_armor_chip(&mut self.screen, l, &vitals, armor_flash);
             let steps = crate::core::temperature::band_for(g, g.player()).steps();
-            if steps != 0 {
-                let rgb = match steps {
-                    -1 => 0x5E8FD4,
-                    -2 => 0x3E6FE0,
-                    i32::MIN..=-3 => {
-                        if pulse_on {
-                            0x8FB4FF
-                        } else {
-                            0x2B4FF0
-                        }
-                    }
-                    1 => 0xD9A85A,
-                    2 => 0xE07E33,
-                    _ => {
-                        if pulse_on {
-                            0xFF9A66
-                        } else {
-                            0xE0491F
-                        }
-                    }
-                };
-                badge_dot(screen, 4, badge_y, rgb);
-                if steps.abs() >= 2 {
-                    let word = if steps < 0 { "COLD" } else { "HOT" };
-                    draw_text_rgb(screen, word, 12, badge_y, rgb);
-                }
-            }
-
-            // EFFECT pips share the badge row right of the temp slot — same dot
-            // silhouette in each potion's display color. Details (names, timers)
-            // belong to the SELF tab; the old `P` text overlay is gone.
-            let mut effects: Vec<crate::item::PotionType> =
-                g.player().player().potioneffects.keys().copied().collect();
-            effects.sort_by_key(|p| p.disp_color()); // HashMap order is unstable
-            for (i, ptype) in effects.iter().enumerate() {
-                let x = 48 + i as i32 * 9;
-                if x + 7 > screen.w {
-                    break;
-                }
-                badge_dot(
-                    screen,
-                    x,
-                    badge_y,
-                    color::upgrade(color::get_byte(ptype.disp_color())),
-                );
-            }
+            draw_temperature_badge(&mut self.screen, l, steps, pulse_on);
+            draw_effect_pips(&mut self.screen, l, g);
         }
 
-        // ---- HELD ITEM, bottom-right: an 18x18 bordered plate. Persistent state is
-        // icon + durability bar; the name only appears transiently after a switch.
-        let active = g.player().player().active_item.clone();
-        {
-            let screen = &mut self.screen;
-            screen.fill_rect(plate_x, plate_y, 18, 1, PLATE_BORDER_RGB);
-            screen.fill_rect(plate_x, plate_y + 17, 18, 1, PLATE_BORDER_RGB);
-            screen.fill_rect(plate_x, plate_y + 1, 1, 16, PLATE_BORDER_RGB);
-            screen.fill_rect(plate_x + 17, plate_y + 1, 1, 16, PLATE_BORDER_RGB);
-            screen.darken_rect_screen(plate_x + 1, plate_y + 1, 16, 16, 150);
-            match &active {
-                Some(item) => {
-                    let cells = (
-                        item.sprite.sprite_pixels.len(),
-                        item.sprite.sprite_pixels[0].len(),
-                    );
-                    if cells == (1, 1) {
-                        render_sprite_2x(
-                            screen,
-                            &self.sheet,
-                            &item.sprite,
-                            plate_x + 1,
-                            plate_y + 1,
-                        );
-                    } else {
-                        // bigger sprites (held furniture is 2x2 cells = 16x16px) fit at 1x
-                        item.sprite.render(screen, plate_x + 1, plate_y + 1);
-                    }
-                }
-                None => render_fist(screen, plate_x + 1, plate_y + 1),
-            }
+        let label_up = self.hud.label_ticks > 0;
+        self.render_held_plate(g, l, active.as_ref());
+        draw_save_toast(&mut self.screen, g, label_up);
+    }
 
-            // durability bar under the plate (replaces the numeric % readout):
-            // green -> amber at 50% -> red at 20% remaining
-            if let Some(ItemKind::Tool { ttype, level, dur }) = active.as_ref().map(|i| &i.kind) {
-                let max = (ttype.durability() * (level + 1)).max(1);
-                let frac = (*dur).clamp(0, max) as f32 / max as f32;
-                let readable = if frac > 0.5 {
-                    140 // green
-                } else if frac > 0.2 {
-                    540 // amber
-                } else {
-                    500 // red
-                };
-                let fill = color::upgrade(color::get_byte(readable));
-                let empty = color::upgrade(color::get_byte(111));
-                screen.fill_rect(plate_x, plate_y + 18, 18, 3, 0x000000);
-                screen.fill_rect(plate_x + 1, plate_y + 19, 16, 1, empty);
-                let min_fw = if *dur > 0 { 1 } else { 0 };
-                let fw = ((16.0 * frac).round() as i32).clamp(min_fw, 16);
-                screen.fill_rect(plate_x + 1, plate_y + 19, fw, 1, fill);
-            }
-
-            // count badge above the plate: stack sizes and ammo only. No bow, no
-            // counter — the permanent `X0` arrow readout is gone. ^ = infinite.
-            let badge: Option<String> = match &active {
-                Some(item) => match &item.kind {
-                    ItemKind::Tool { ttype, .. } => {
-                        let ammo = match ttype {
-                            ToolType::Bow | ToolType::Crossbow => {
-                                Some(crate::item::registry::arrow_item(g))
-                            }
-                            ToolType::Slingshot => Some(crate::item::registry::get(g, "Stone")),
-                            _ => None,
-                        };
-                        ammo.map(|it| {
-                            let n = g.player().player().inventory.count(&it);
-                            if g.is_mode("creative") || n >= 10000 {
-                                "^".to_string()
-                            } else {
-                                n.min(9999).to_string()
-                            }
-                        })
-                    }
-                    _ if item.is_stackable() => Some(item.count().min(999).to_string()),
-                    _ => None,
-                },
-                None => None,
-            };
-            if let Some(text) = badge {
-                let w = font::text_width(&text);
-                let tx = hud_w - 6 - w;
-                screen.darken_rect_screen(tx - 1, plate_y - 9, w + 3, 10, 150);
-                draw_text_shadowed(screen, &text, tx, plate_y - 8, color::get(-1, 555));
-            }
-
-            // transient name label: shows for ~90 frames after a switch, dims for its
-            // last stretch, then goes. Persistent state is icon + bar, so the old
-            // truncation ("1 LEATHER..") is impossible by construction.
-            if self.hud.label_ticks > 0 {
-                if let Some(name) = &self.hud.held_label {
-                    let w = font::text_width(name);
-                    let tx = (hud_w - 4 - w).max(2);
-                    let ty = badge_y + 1;
-                    screen.darken_rect_screen(tx - 2, ty - 1, w + 4, 10, 150);
-                    let col = if self.hud.label_ticks < 20 {
-                        color::get(-1, 333) // fading out
-                    } else {
-                        color::get(-1, 555)
-                    };
-                    draw_text_shadowed(screen, name, tx, ty, col);
-                }
-            }
+    /// The bottom-right held-item plate: frame, icon, durability gauge, count badge,
+    /// and the transient name label. Persistent state is icon + gauge; everything
+    /// text-shaped here is short-lived.
+    fn render_held_plate(&mut self, g: &Game, l: HudLayout, active: Option<&Item>) {
+        draw_plate_frame(&mut self.screen, l);
+        draw_plate_icon(&mut self.screen, &self.sheet, l, active);
+        draw_durability_bar(&mut self.screen, l, active);
+        if let Some(text) = count_badge_text(g, active) {
+            draw_count_badge(&mut self.screen, l, &text);
         }
-
-        // SAVE TOAST — bottom-right, small: live progress while saving, then the
-        // "World Saved!" toast pushed by the save path. Drawn last so a transient
-        // toast reads over the plate; lifts ~20px while the item name label is up
-        // (both are transient — the collision is rare, the dodge is cheap).
-        if !g.saving && g.toast.is_some() {
-            g.toast_tick += 1;
-            if g.toast_tick > 90 {
-                g.toast = None;
+        if self.hud.label_ticks > 0 {
+            if let Some(name) = &self.hud.held_label {
+                draw_held_label(&mut self.screen, l, name, self.hud.label_ticks);
             }
-        }
-        let toast_line = if g.saving {
-            Some(format!("Saving... {}%", g.loading_percentage.round()))
-        } else {
-            g.toast.clone()
-        };
-        if let Some(line) = toast_line {
-            let screen = &mut self.screen;
-            let lift = if self.hud.label_ticks > 0 { 20 } else { 0 };
-            let w = font::text_width(&line);
-            let (tx, ty) = (screen.w - w - 4, screen.h - 12 - lift);
-            screen.darken_rect_screen(tx - 2, ty - 1, w + 4, 10, 185);
-            font::draw(&line, screen, tx, ty, color::get(-1, 555));
         }
     }
 
@@ -917,7 +1059,6 @@ impl Renderer {
             let p = g.player();
             let pd = p.player();
             info.push(format!("Hunger stam: {}", pd.get_debug_hunger()));
-            info.push(format!("Thirst: {}_{}", pd.thirst, pd.thirst_tick));
             if pd.armor > 0 {
                 info.push(format!("armor: {}", pd.armor));
                 info.push(format!("dam buffer: {}", pd.armor_damage_buffer));
@@ -965,5 +1106,81 @@ impl Renderer {
         } else {
             font::draw(msg, screen, xx, yy, color::get(color::hex("#2c2c2c"), 555));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::mob::player::MAX_STAT;
+
+    /// The HUD is corner-anchored, so every slot must track the live framebuffer size.
+    /// A slot pinned to the classic 192 would float mid-screen at 400 tall (G10).
+    #[test]
+    fn hud_slots_follow_the_live_screen_size() {
+        for (w, h) in [(288, 192), (320, 240), (400, 300), (640, 400)] {
+            let l = HudLayout::for_screen(w, h);
+            // vitals stack keeps its order and 8px pitch, above the bottom edge
+            assert!(l.badge_y < l.hearts_y, "{w}x{h}");
+            assert!(l.hearts_y < l.stamina_y, "{w}x{h}");
+            assert!(l.stamina_y < l.food_y, "{w}x{h}");
+            assert_eq!(l.stamina_y - l.hearts_y, 8, "{w}x{h}");
+            assert_eq!(l.food_y - l.stamina_y, 8, "{w}x{h}");
+            // every slot lands inside the framebuffer, measured from the far edges
+            assert_eq!(h - l.food_y, 18, "{w}x{h}");
+            assert_eq!(w - l.plate_x, 22, "{w}x{h}");
+            assert_eq!(h - l.plate_y, 22, "{w}x{h}");
+            assert!(l.badge_y > 0, "{w}x{h}");
+            // the plate and its 3px durability lane stay on screen
+            assert!(l.plate_x + 18 <= w, "{w}x{h}");
+            assert!(l.plate_y + 21 <= h, "{w}x{h}");
+        }
+    }
+
+    /// The classic 288x192 geometry the mocks were measured against, pinned exactly.
+    #[test]
+    fn hud_slots_match_the_classic_mock_geometry() {
+        let l = HudLayout::for_screen(288, 192);
+        assert_eq!(
+            (l.hearts_y, l.stamina_y, l.food_y, l.badge_y),
+            (158, 166, 174, 146)
+        );
+        assert_eq!((l.plate_x, l.plate_y), (266, 170));
+    }
+
+    /// The armor chip docks flush against the hearts strip; both derive from MAX_STAT
+    /// rather than the hand-counted 86/88/97 the chip used to carry.
+    #[test]
+    fn armor_chip_docks_against_the_vitals_strip() {
+        assert_eq!(VITALS_STRIP_W, MAX_STAT * 8 + 4);
+        assert_eq!(VITALS_X + VITALS_STRIP_W, 86); // the old literal
+    }
+
+    /// Band colors are the visible contract of core::temperature; the outer bands
+    /// alternate with the pulse clock and the inner ones hold steady.
+    #[test]
+    fn temperature_band_colors_are_pinned() {
+        for pulse in [false, true] {
+            assert_eq!(temp_band_rgb(-1, pulse), 0x5E8FD4);
+            assert_eq!(temp_band_rgb(-2, pulse), 0x3E6FE0);
+            assert_eq!(temp_band_rgb(1, pulse), 0xD9A85A);
+            assert_eq!(temp_band_rgb(2, pulse), 0xE07E33);
+        }
+        assert_eq!(temp_band_rgb(-3, true), 0x8FB4FF);
+        assert_eq!(temp_band_rgb(-3, false), 0x2B4FF0);
+        assert_eq!(temp_band_rgb(-9, true), 0x8FB4FF);
+        assert_eq!(temp_band_rgb(3, true), 0xFF9A66);
+        assert_eq!(temp_band_rgb(3, false), 0xE0491F);
+        assert_eq!(temp_band_rgb(9, false), 0xE0491F);
+    }
+
+    #[test]
+    fn durability_shades_cross_at_50_and_20_percent() {
+        assert_eq!(durability_shade(1.0), 140);
+        assert_eq!(durability_shade(0.51), 140);
+        assert_eq!(durability_shade(0.5), 540); // boundary belongs to amber
+        assert_eq!(durability_shade(0.21), 540);
+        assert_eq!(durability_shade(0.2), 500); // boundary belongs to red
+        assert_eq!(durability_shade(0.0), 500);
     }
 }
