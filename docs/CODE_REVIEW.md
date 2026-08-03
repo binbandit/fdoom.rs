@@ -100,8 +100,14 @@ screen". One sweep, one rule: **no layout math may read the classic constants.**
 - **G10 classic-constant sweep** — DONE (35cd554, 5ff258d, 91f546d, 06e30d9):
   per-axis draw-time anchoring, seven screens, the scale policy, the unpainted
   viewport strip, and the black-on-black book pages.
-- **G1 interning** — lane in flight.
-- **G4 logging + unwrap audit** — lane in flight.
+- **G1 interning** — DONE (fa718be): 77 TileId consts + 230 checked ItemName
+  consts, 348/353 in-lane sites converted, world generation proven byte-identical
+  across 45 seed/layer hashes. Caught a live bug: `tiles.get("farm")` matched
+  nothing and had been silently returning grass on every world gen.
+- **G4 logging + unwrap audit** — DONE (ad26d9f): src/core/log.rs (4 levels, no
+  deps, zero-cost when suppressed), 61 printlns converted, 97 unwrap/expect sites
+  audited (76 made non-panicking), and 29 reachable panics + 1 infinite-loop hang
+  fixed.
 - **G3 param structs** — partly absorbed by G5/G9; the remaining ~95 suppressed
   lints stay on the list.
 - **G2, G6, G7, G8** — queued; each needs files the in-flight lanes hold.
@@ -116,7 +122,8 @@ screen". One sweep, one rule: **no layout math may read the classic constants.**
 - **G12. Wall-clock randomness** (fixed, 06e30d9): levels and the game seeded RNG
   from the clock, so the same save rolled differently every run and the suite
   flaked ~1 in 5. Runtime rolls now derive from the world seed.
-- **G13. Sprites sort by `y` alone**, so equal-`y` entities draw in HashMap order —
+- **G13** — FIXED (in 06e30d9 follow-up): sprites now sort by (y, eid).
+  Original finding: sprites sorted by `y` alone, so equal-`y` entities draw in HashMap order —
   genuinely nondeterministic between processes. Makes PNG comparison unreliable as
   a regression signal. Needs a stable eid tiebreak. OPEN.
 - **G14. `gfx/lighting.rs` holds a process-wide `static DISABLED_FX: AtomicU32`** —

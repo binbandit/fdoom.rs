@@ -50,12 +50,25 @@ rivers d05d71b · hunting + field notes 6860c50 (incl. Badlands journal weld).
 Helper wave part 1 b26031c; part 2 structures/ split 2ba29dc. Maintainability
 wave COMPLETE. Board is clear — next work comes from the Queue below.
 
+### QA WAVE 2026-07-15 — 50+ real defects found by playing/fuzzing, not testing
+The 435-test suite was green while the game crashed on window resize, panicked
+every tick near distant mobs, refused to start on a corrupt prefs file, and drew
+book text black-on-black. See docs/CODE_REVIEW.md (G11). Landed: 21aa855 b587cc1
+91f546d 35cd554 5ff258d 1723aec 78fb5e1 86c5ea7 323cbf4 06e30d9 68597ed ad26d9f
+fa718be. Standing rule: a user-facing claim needs a screenshot or a scripted play
+session behind it, not a green suite.
+
 ### Queue — CURRENT (everything above this line is landed; see git log)
 Landed since the last rewrite: thirst a81d129 · armor meter 78dab9c · noticeable
 oddities 9665d29 (+ corner-lone 89bddb8) · bench reach + fit-from-screen 7cecdc2 ·
 wide-window panes e9ea8a9 · field-notes variants ae1322c · structures split
 2ba29dc · deer flake pin 891ba0f.
 Remaining, in order:
+0. CODE_REVIEW G2 (Game god object), G3 (~95 param-soup lints), G6 (99 duplicated
+   test helpers), G7 (take-out guard type), G8 (Java residue), G14 (static
+   DISABLED_FX); plus the two gameplay tickets the crash hunt raised: TNT deals
+   NEGATIVE damage at blast corners (it heals), and entities never despawn by
+   distance (which is what made the every-tick overflow reachable).
 1. O19 (boulders bisected by structures) + ODDITIES nitpick tier O20-O27 +
    O-N2 (player night presence, taste pass).
 2. Art batch: thirst droplet cell, wet-sand connector cells (O-N5), bench with
