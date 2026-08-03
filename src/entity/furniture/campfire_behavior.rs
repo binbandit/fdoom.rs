@@ -130,7 +130,7 @@ pub fn interact(
             // field cooking (item/cooking.rs): anything the table maps roasts 1:1
             // over a lit fire. Costs a little fuel and sends up a puff of smoke.
             let cooked_name = crate::item::cooking::cooked_result(it.get_name())
-                .expect("guard checked the table");
+                .expect("the match-arm guard already found this name in the cooking table");
             cf.fuel = (cf.fuel - COOK_FUEL).max(1); // never cooks the fire dead
             consume_one(item, creative);
             let cooked = crate::item::registry::get(g, cooked_name);

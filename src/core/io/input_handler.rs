@@ -341,8 +341,10 @@ impl InputHandler {
     pub fn key_toggled(&mut self, keytext: &str, pressed: bool) {
         let keytext = keytext.to_uppercase();
 
-        if pressed && self.key_to_change.is_some() && !is_mod(&keytext) {
-            let to_change = self.key_to_change.take().unwrap();
+        if pressed
+            && !is_mod(&keytext)
+            && let Some(to_change) = self.key_to_change.take()
+        {
             let new_binding = format!(
                 "{}{}{}",
                 if self.overwrite {

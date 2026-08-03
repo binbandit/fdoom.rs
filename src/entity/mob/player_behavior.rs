@@ -131,7 +131,9 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         }
     }
 
-    let lvl = e.c.level.expect("player must be on a level");
+    let lvl =
+        e.c.level
+            .expect("tick() returned at entry if the player had no level");
     // gets the current tile the player is on.
     let on_tile = g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4);
     let stairs_down_id = g.tiles.get("Stairs Down").id;
@@ -368,7 +370,10 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
             let creative = g.is_mode("creative");
             let drop = {
                 let pd = e.player_mut();
-                let mut drop = pd.active_item.clone().expect("checked is_some above");
+                let mut drop = pd
+                    .active_item
+                    .clone()
+                    .expect("the enclosing if checked active_item.is_some()");
                 if drop_one && drop.is_stackable() && drop.count() > 1 {
                     // drop one from stack
                     if let Some(count) = pd.active_item.as_mut().and_then(|i| i.count_mut()) {
@@ -779,7 +784,12 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
 
     let dir = e.player().mob.dir;
     let creative = g.is_mode("creative");
-    let lvl = e.c.level.expect("player must be on a level");
+    // Only tick() calls this today (post its no-level entry guard), but a public fn
+    // shouldn't bet on that: an off-level player simply cannot attack anything.
+    let Some(lvl) = e.c.level else {
+        crate::log_warn!("attack() called for a player with no level; ignoring the attack");
+        return;
+    };
 
     if e.player()
         .active_item
@@ -797,7 +807,7 @@ pub fn attack(g: &mut Game, e: &mut Entity) {
             .player_mut()
             .active_item
             .take()
-            .expect("checked is_some above");
+            .expect("the enclosing if checked active_item is Some");
         item_interact::item_interact_on_tile(g, &mut item, lvl, 0, 0, e, dir);
         e.player_mut().active_item = Some(item);
         if e.player()
@@ -1293,8 +1303,12 @@ pub fn go_fishing(g: &mut Game, player: &mut Entity, x: i32, y: i32, xt: i32, yt
 
     if g.random.next_double() >= fishing_catch_chance(presence, raining) {
         if g.random.next_int_bound(370) == 42 {
-            // long-standing easter-egg console message
-            println!(
+            // Long-standing easter egg, deliberately console-side. It does NOT belong
+            // in the ambient ticker: that draws unclipped at a fixed 8px/char, so this
+            // ~104-character line would run ~830px across a 288px screen and drag its
+            // backing bar off the edge with it. Showing it to the player needs a line
+            // that fits in ~34 characters, which is a copy decision, not a cleanup one.
+            crate::log_debug!(
                 "FISHNORRIS got away... just kidding, FISHNORRIS din't get away from you, you got away from FISHNORRIS..."
             );
         }
@@ -1495,7 +1509,9 @@ pub fn render(g: &mut Game, screen: &mut Screen, e: &mut Entity) {
     let swimming = is_swimming(g, e);
     if swimming {
         yo += 4; // y offset is moved up by 4
-        let lvl = e.c.level.expect("swimming player must be on a level");
+        let lvl =
+            e.c.level
+                .expect("is_swimming() just returned true, which requires a level");
         let tick_time = e.player().mob.tick_time;
         let standing = g.tile_at(lvl, e.c.x >> 4, e.c.y >> 4);
         // Half-submerged ring, colored per liquid *kind* — matching on the exact
@@ -1797,19 +1813,19 @@ pub fn die(g: &mut Game, e: &mut Entity) {
     let mut dc = death_chest::new(g);
     dc.c.x = e.c.x;
     dc.c.y = e.c.y;
-    dc.chest_mut()
-        .expect("death chest")
-        .inventory
-        .add_all(&e.player().inventory);
+    let chest = dc.chest_mut().expect(
+        "death_chest::new builds an EntityKind::DeathChest, whose chest layer always exists",
+    );
+    chest.inventory.add_all(&e.player().inventory);
 
     if let Some(active) = e.player().active_item.clone() {
-        dc.chest_mut().expect("death chest").inventory.add(active);
+        chest.inventory.add(active);
     }
     if let Some(armor) = e.player().cur_armor.clone() {
-        dc.chest_mut().expect("death chest").inventory.add(armor);
+        chest.inventory.add(armor);
     }
     if let Some(head) = e.player().worn_head.clone() {
-        dc.chest_mut().expect("death chest").inventory.add(head);
+        chest.inventory.add(head);
     }
 
     g.play_sound(Sound::PlayerDeath);

@@ -7,9 +7,7 @@ use crate::level;
 
 /// Java `World.resetGame()` / `resetGame(keepPlayer)` — "half"-starts a new game.
 pub fn reset_game(g: &mut Game, keep_player: bool) {
-    if g.debug {
-        println!("resetting ..");
-    }
+    crate::log_info!("resetting game (keep_player: {keep_player})");
     g.player_dead_time = 0;
     g.current_level = 3;
     g.as_tick = 0;
@@ -34,7 +32,10 @@ pub fn reset_game(g: &mut Game, keep_player: bool) {
     // "shouldRespawn" is false on hardcore, or when making a new world
     if g.should_respawn {
         let lvl = g.current_level;
-        let mut p = g.entities.take(g.player_id).expect("player must exist");
+        let mut p = g
+            .entities
+            .take(g.player_id)
+            .expect("the respawn player was put_back into the arena a few lines above");
         crate::entity::mob::player_behavior::respawn(g, &mut p, lvl);
         // adds the player to the current level (always surface here)
         g.level_mut(lvl).add(p, lvl);
@@ -74,19 +75,24 @@ fn tile_center(px: i32) -> i32 {
 
 /// Java `World.changeLevel(dir)` — moves the player up/down a level.
 pub fn change_level(g: &mut Game, dir: i32) {
-    // Take the player out first: `Level::remove` would discard a queued player, and
-    // the `remove` below then only has the arena copy left to mark.
+    let cur = g.current_level;
+    let pid = g.player_id;
+
+    // Take the player out first: right after a respawn or a bed wake-up it
+    // legitimately sits in a level's add-queue rather than the arena, and
+    // `Level::remove` would silently discard it from that queue.
     let Some(mut p) = take_player_anywhere(g) else {
-        eprintln!("WORLD WARNING: level change requested with no player; ignoring.");
+        crate::log_warn!(
+            "level change ({dir:+}) skipped: player entity {pid} is in neither the arena nor \
+             any level add-queue; staying on level {cur}"
+        );
         return;
     };
 
     // removes the player from the current level
-    let cur = g.current_level;
-    let pid = g.player_id;
     g.level_mut(cur).remove(pid);
 
-    let mut next_level = g.current_level as i32 + dir;
+    let mut next_level = cur as i32 + dir;
     if next_level <= -1 {
         next_level = g.levels.len() as i32 - 1; // fix accidental level underflow
     }
@@ -95,10 +101,10 @@ pub fn change_level(g: &mut Game, dir: i32) {
     }
     g.current_level = next_level as usize;
 
-    // center the player on the stairs
+    // center the player on the stairs (clamped: the shift-and-add overflowed near i32::MAX)
     p.c.x = tile_center(p.c.x);
     p.c.y = tile_center(p.c.y);
-    let (px, py) = (p.c.x, p.c.y);
+    let (mut px, mut py) = (p.c.x, p.c.y);
 
     let lvl = g.current_level;
 
@@ -106,7 +112,6 @@ pub fn change_level(g: &mut Game, dir: i32) {
     // matching stairs may be at completely different coordinates, so relocate onto the
     // nearest counterpart stairs (descending arrives on Stairs Up, ascending on Stairs
     // Down). Classic finite<->finite transitions already line up and are left alone.
-    let (mut px, mut py) = (px, py);
     if !g.level(lvl).is_infinite() {
         let expected = if dir > 0 { "Stairs Down" } else { "Stairs Up" };
         let expected_id = g.tiles.get(expected).id;
@@ -153,9 +158,7 @@ pub fn populate_from_parent(g: &mut Game, lvl: usize, parent: Option<usize>) {
                         // make the obsidian wall formation around the dungeon stairs
                         level::structure::draw_dungeon_gate(g, lvl, x, y);
                     } else if depth == 0 {
-                        if g.debug {
-                            println!("setting tiles around {x},{y} to hard rock");
-                        }
+                        crate::log_debug!("surface stairs at ({x},{y}): ringing with Hard Rock");
                         let hard_rock = g.tiles.get("Hard Rock");
                         level::set_area_tiles(g, lvl, x, y, 1, &hard_rock, 0, false);
                     } else {
@@ -194,9 +197,7 @@ pub fn check_chest_count(g: &mut Game, lvl: usize, check: bool) {
             .entities_on_level(lvl)
             .filter(|e| matches!(e.kind, crate::entity::EntityKind::DungeonChest(_)))
             .count() as i32;
-        if g.debug {
-            println!("found {num_chests} chests.");
-        }
+        crate::log_debug!("dungeon chest census: {num_chests} present before top-up");
     }
 
     let (w, h) = {
@@ -207,14 +208,30 @@ pub fn check_chest_count(g: &mut Game, lvl: usize, check: bool) {
     let obsidian_wall_id = g.tiles.get("Obsidian Wall").id;
     let obsidian = g.tiles.get("Obsidian");
 
+    // The obsidian search below retries until it lands on an obsidian tile. A dungeon
+    // level with none at all — a damaged save whose level file parses but holds no
+    // obsidian — would spin here forever, hanging the load with no error at all. Cap
+    // the picks: well-formed dungeons hit obsidian within a handful of tries, so this
+    // is unreachable in normal play and leaves generation bit-for-bit identical.
+    const MAX_TILE_PICKS: u32 = 10_000;
+
     // make DungeonChests!
     for _ in num_chests..10 * (w / 128) {
         let mut d = crate::entity::furniture::dungeon_chest::new(g);
+        let mut picks = 0;
         loop {
             // pick a random tile:
             let x2 = g.level_mut(lvl).random.next_int_bound(16 * w) / 16;
             let y2 = g.level_mut(lvl).random.next_int_bound(16 * h) / 16;
+            picks += 1;
             if g.tile_at(lvl, x2, y2).id != obsidian_id {
+                if picks >= MAX_TILE_PICKS {
+                    crate::log_warn!(
+                        "no obsidian found on level {lvl} after {MAX_TILE_PICKS} tries; \
+                         placing no further dungeon chests there"
+                    );
+                    return;
+                }
                 continue;
             }
             let xaxis = g.level_mut(lvl).random.next_boolean();
@@ -359,6 +376,14 @@ fn fill_spawner_chest(g: &mut Game, c: &mut crate::entity::Entity, chance: i32) 
     use crate::item::registry::{get, new_furniture_item, new_tool_item};
     let mut rnd = g.random.clone();
 
+    // `c` comes from `chest::new()` at the sole call site; should anything else ever
+    // arrive here, leave it unfilled rather than panic.
+    let Some(chest) = c.chest_mut() else {
+        crate::log_warn!("spawner-structure loot skipped: the entity handed in is not a chest");
+        return;
+    };
+    let inv = &mut chest.inventory;
+
     {
         let tnt = new_furniture_item(crate::entity::furniture::tnt::new());
         let anvil = new_furniture_item(crate::entity::furniture::crafter::new(
@@ -367,7 +392,6 @@ fn fill_spawner_chest(g: &mut Game, c: &mut crate::entity::Entity, chance: i32) 
         let lantern = new_furniture_item(crate::entity::furniture::lantern::new(
             crate::entity::furniture::lantern::LanternType::Norm,
         ));
-        let inv = &mut c.chest_mut().expect("chest").inventory;
         inv.try_add(&mut rnd, 9 / chance, Some(tnt));
         inv.try_add(&mut rnd, 10 / chance, Some(anvil));
         inv.try_add(&mut rnd, 7 / chance, Some(lantern));
@@ -396,20 +420,12 @@ fn fill_spawner_chest(g: &mut Game, c: &mut crate::entity::Entity, chance: i32) 
     ];
     for &(ch, name, num) in loot {
         let item = get(g, name);
-        c.chest_mut()
-            .expect("chest")
-            .inventory
-            .try_add_num(&mut rnd, ch / chance, Some(item), num);
+        inv.try_add_num(&mut rnd, ch / chance, Some(item), num);
     }
 
     {
         let claymore = new_tool_item(crate::item::ToolType::Claymore, 1);
-        c.chest_mut().expect("chest").inventory.try_add_num(
-            &mut rnd,
-            7 / chance,
-            Some(claymore),
-            1,
-        );
+        inv.try_add_num(&mut rnd, 7 / chance, Some(claymore), 1);
     }
 
     let loot2: &[(i32, &str, i32)] = &[
@@ -430,19 +446,14 @@ fn fill_spawner_chest(g: &mut Game, c: &mut crate::entity::Entity, chance: i32) 
     ];
     for &(ch, name, num) in loot2 {
         let item = get(g, name);
-        c.chest_mut()
-            .expect("chest")
-            .inventory
-            .try_add_num(&mut rnd, ch / chance, Some(item), num);
+        inv.try_add_num(&mut rnd, ch / chance, Some(item), num);
     }
 
-    let size = c.chest_mut().expect("chest").inventory.inv_size();
-    if size < 1 {
+    if inv.inv_size() < 1 {
         let potion = get(g, "potion");
         let coal = get(g, "coal");
         let apple = get(g, "apple");
         let dirt = get(g, "dirt");
-        let inv = &mut c.chest_mut().expect("chest").inventory;
         inv.add_num(potion, 1);
         inv.add_num(coal, 3);
         inv.add_num(apple, 3);
@@ -501,15 +512,16 @@ pub fn generate_level(g: &mut Game, depth: i32) -> crate::level::Level {
             level.tiles = tiles;
             level.data = data;
         }
-        None => eprintln!("Level Gen ERROR: returned maps array is null"),
+        None => crate::log_error!(
+            "level generation at depth {depth} produced no maps \
+             (size {world_size}, type {gen_type:?}, theme {theme:?}); the level is left empty"
+        ),
     }
     level
 }
 
 pub fn init_world(g: &mut Game) {
-    if g.debug {
-        println!("resetting world...");
-    }
+    crate::log_info!("initializing world (seed {:#x})", g.world_seed);
 
     g.should_respawn = false;
     // Incidental gameplay randomness derives from the world seed, like generation
@@ -570,9 +582,7 @@ pub fn init_world(g: &mut Game) {
         // i = level depth; starts from the top because the parent level is the reference
         let mut i = crate::level::MAX_LEVEL_DEPTH;
         while i >= crate::level::MIN_LEVEL_DEPTH {
-            if g.debug {
-                println!("loading level {i}...");
-            }
+            crate::log_info!("generating level at depth {i}");
             g.loading_message = crate::level::get_depth_string(i);
 
             let idx = crate::level::lvl_idx(i);
@@ -617,15 +627,15 @@ pub fn init_world(g: &mut Game) {
             i -= 1;
         }
 
-        if g.debug {
-            println!("level loading complete.");
-        }
+        crate::log_info!("level generation complete");
 
         g.past_day1 = false;
         g.set_time(new_world_spawn_time(world_seed));
 
         let lvl = g.current_level; // sets level to the current level (3; surface)
-        let mut p = g.entities.take(g.player_id).expect("player must exist");
+        let mut p = g.entities.take(g.player_id).expect(
+            "reset_game_fresh_player put the new player in the arena and the purge above skips it",
+        );
         // First-day thread: brand-new worlds (never loads) get the one-time
         // tall-grass hint about a minute in (player_behavior counts this down).
         p.player_mut().grass_cue_delay = 60 * crate::core::updater::NORM_SPEED;
@@ -668,9 +678,7 @@ pub fn init_world(g: &mut Game) {
     g.ready_to_render_gameplay = true;
     g.should_respawn = true;
 
-    if g.debug {
-        println!("world initialized.");
-    }
+    crate::log_info!("world initialized");
 }
 
 /// The `player = new Player(null, input)` line in Java initWorld.

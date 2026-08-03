@@ -71,9 +71,15 @@ fn scan_worlds(g: &Game) -> Vec<(String, Version)> {
     let _ = std::fs::create_dir_all(&worlds_dir);
 
     let mut out = Vec::new();
-    let Ok(read_dir) = std::fs::read_dir(&worlds_dir) else {
-        eprintln!("ERROR: Game location file folder is null, somehow...");
-        return out;
+    let read_dir = match std::fs::read_dir(&worlds_dir) {
+        Ok(rd) => rd,
+        Err(e) => {
+            crate::log_warn!(
+                "could not read the saves folder {}: {e}; listing no worlds",
+                worlds_dir.display()
+            );
+            return out;
+        }
     };
 
     // directory-listing order is filesystem-dependent; sort so the menu is stable
@@ -101,9 +107,7 @@ fn scan_worlds(g: &Game) -> Vec<(String, Version)> {
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                if g.debug {
-                    println!("World found: {name}");
-                }
+                crate::log_debug!("world found: {name}");
                 out.push((name, load_world_version(&path)));
             }
         }
@@ -215,6 +219,10 @@ pub struct WorldSelectDisplay {
     base: DisplayBase,
     cur_action: Rc<RefCell<Option<Action>>>,
     world_versions: Vec<Version>,
+    /// A failed edit action (delete/copy/rename), shown in red on this screen —
+    /// the notification tiers only render during gameplay, so a menu-time failure
+    /// would otherwise be invisible to the player.
+    error: Option<String>,
 }
 
 impl Default for WorldSelectDisplay {
@@ -229,7 +237,15 @@ impl WorldSelectDisplay {
             base: DisplayBase::new(true, true, Vec::new()),
             cur_action: Rc::new(RefCell::new(None)),
             world_versions: Vec::new(),
+            error: None,
         }
+    }
+
+    /// The select screen with a red status line explaining what just went wrong.
+    pub fn with_error(msg: &str) -> WorldSelectDisplay {
+        let mut d = WorldSelectDisplay::new();
+        d.error = Some(msg.to_string());
+        d
     }
 }
 
@@ -333,6 +349,22 @@ impl Display for WorldSelectDisplay {
                 screen,
                 font::text_height() * 7 / 2,
                 col,
+            );
+        }
+
+        if let Some(err) = &self.error {
+            // Centered *and* clipped: the message embeds a world name of up to 36
+            // characters, which at a fixed 8px/char would overrun the 288px screen.
+            // draw_centered does not clip; draw_fit truncates with an ellipsis.
+            let max_w = crate::gfx::screen::W - 8;
+            let w = font::text_width(err).min(max_w);
+            font::draw_fit(
+                err,
+                screen,
+                (crate::gfx::screen::W - w) / 2,
+                crate::gfx::screen::H - 80,
+                color::RED,
+                max_w,
             );
         }
 
@@ -459,15 +491,21 @@ impl Display for WorldEditDisplay {
             let world = worlds_dir.join(&self.world_name);
             match self.action {
                 Action::Delete => {
-                    if g.debug {
-                        println!("deleting world: {}", world.display());
-                    }
+                    crate::log_debug!("deleting world: {}", world.display());
+                    let mut failed = None;
                     if let Err(e) = std::fs::remove_dir_all(&world) {
-                        eprintln!("could not delete world {}: {e}", world.display());
+                        crate::log_warn!(
+                            "could not delete world {}: {e}; the world stays listed",
+                            world.display()
+                        );
+                        failed = Some(format!("Could not delete \"{}\"!", self.world_name));
                     }
 
                     if !get_world_names(g).is_empty() {
-                        g.set_menu(WorldSelectDisplay::new());
+                        g.set_menu(match failed {
+                            Some(msg) => WorldSelectDisplay::with_error(&msg),
+                            None => WorldSelectDisplay::new(),
+                        });
                     } else {
                         g.set_menu(TitleDisplay::new(g));
                     }
@@ -477,7 +515,7 @@ impl Display for WorldEditDisplay {
                     let entry = self
                         .input_entry
                         .as_ref()
-                        .expect("copy action has an input entry");
+                        .expect("new() builds an input entry for every non-Delete action");
                     if !entry.borrow().is_valid() {
                         return;
                     }
@@ -485,13 +523,11 @@ impl Display for WorldEditDisplay {
                     let newname = entry.borrow().get_user_input();
                     let newworld = worlds_dir.join(&newname);
                     let _ = std::fs::create_dir_all(&newworld);
-                    if g.debug {
-                        println!(
-                            "copying world {} to world {}",
-                            world.display(),
-                            newworld.display()
-                        );
-                    }
+                    crate::log_debug!(
+                        "copying world {} to world {}",
+                        world.display(),
+                        newworld.display()
+                    );
                     // walk file tree
                     if let Err(e) = file_handler::copy_folder_contents(
                         &world,
@@ -500,7 +536,16 @@ impl Display for WorldEditDisplay {
                         false,
                         g.debug,
                     ) {
-                        eprintln!("{e}");
+                        crate::log_warn!(
+                            "could not copy world {} to {}: {e}; the copy may be incomplete",
+                            world.display(),
+                            newworld.display()
+                        );
+                        g.set_menu(WorldSelectDisplay::with_error(&format!(
+                            "Could not copy \"{}\"!",
+                            self.world_name
+                        )));
+                        return;
                     }
 
                     g.set_menu(WorldSelectDisplay::new());
@@ -510,17 +555,23 @@ impl Display for WorldEditDisplay {
                     let entry = self
                         .input_entry
                         .as_ref()
-                        .expect("rename action has an input entry");
+                        .expect("new() builds an input entry for every non-Delete action");
                     if !entry.borrow().is_valid() {
                         return;
                     }
                     // user hits enter with a valid new name; name is set here:
                     let name = entry.borrow().get_user_input();
-                    if g.debug {
-                        println!("renaming world {} to new name: {name}", world.display());
-                    }
+                    crate::log_debug!("renaming world {} to new name: {name}", world.display());
                     if let Err(e) = std::fs::rename(&world, worlds_dir.join(&name)) {
-                        eprintln!("could not rename world {}: {e}", world.display());
+                        crate::log_warn!(
+                            "could not rename world {} to {name}: {e}; the old name stays",
+                            world.display()
+                        );
+                        g.set_menu(WorldSelectDisplay::with_error(&format!(
+                            "Could not rename \"{}\"!",
+                            self.world_name
+                        )));
+                        return;
                     }
                     g.set_menu(WorldSelectDisplay::new());
                 }

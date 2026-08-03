@@ -137,7 +137,10 @@ impl FontStyle {
         h: i32,
     ) {
         if line < 0 || line as usize >= para.len() {
-            eprintln!("FontStyle: index {line} is invalid; can't draw line.");
+            crate::log_warn!(
+                "FontStyle paragraph line {line} is out of range (0..{}); skipping the line",
+                para.len()
+            );
             return;
         }
 

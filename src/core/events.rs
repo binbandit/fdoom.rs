@@ -494,7 +494,10 @@ fn caravan_drop(g: &mut Game) {
     );
     let item = crate::item::registry::get(g, CARAVAN_GOODS[(h % 4) as usize]);
     let (px, py) = {
-        let p = g.try_player().expect("checked above");
+        let p = g.try_player().expect(
+            "player_surface_tile above proved the player exists, and only &Game \
+             helpers ran since — nothing touched the entity arena",
+        );
         (p.c.x, p.c.y)
     };
     crate::level::drop_item(g, lvl, px, py, item);

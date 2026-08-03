@@ -55,7 +55,10 @@ impl Sound {
     }
 
     fn index(self) -> usize {
-        Sound::ALL.iter().position(|&s| s == self).unwrap()
+        Sound::ALL
+            .iter()
+            .position(|&s| s == self)
+            .expect("Sound::ALL lists every variant")
     }
 }
 
@@ -81,7 +84,10 @@ impl SoundPlayer {
         let stream = match rodio::DeviceSinkBuilder::open_default_sink() {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("could not open audio output: {e}");
+                crate::log_error!(
+                    "could not open the default audio output device: {e}; \
+                     sound is disabled for this session"
+                );
                 return SoundPlayer { output: None };
             }
         };
@@ -90,7 +96,10 @@ impl SoundPlayer {
             let decoder = match rodio::Decoder::new(Cursor::new(sound.wav_bytes())) {
                 Ok(d) => d,
                 Err(e) => {
-                    eprintln!("could not load sound file {sound:?}: {e}");
+                    crate::log_error!(
+                        "could not decode the embedded sound clip {sound:?}: {e}; \
+                         sound is disabled for this session"
+                    );
                     return SoundPlayer { output: None };
                 }
             };

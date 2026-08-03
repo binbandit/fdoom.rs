@@ -283,8 +283,17 @@ pub struct SpriteSheet {
 
 impl SpriteSheet {
     /// Decode a monolithic atlas PNG (golden fixture, legacy sheets, studio previews).
+    ///
+    /// Panics on a corrupt/truncated PNG: without its atlas the game cannot draw a
+    /// single sprite, and a loud message beats a silently blank screen (assets.rs
+    /// takes the same panic-loudly stance for a broken sprites folder).
     pub fn from_png(png_bytes: &[u8]) -> SpriteSheet {
-        let (width, height, rgba) = decode_rgba(png_bytes).expect("invalid spritesheet png");
+        let (width, height, rgba) = decode_rgba(png_bytes).unwrap_or_else(|e| {
+            panic!(
+                "spritesheet PNG failed to decode: {e} — the file is corrupt or \
+                 truncated; restore it (git checkout assets/) and relaunch"
+            )
+        });
         SpriteSheet {
             width,
             height,
@@ -294,8 +303,17 @@ impl SpriteSheet {
     }
 
     /// Stitch split sprite files (see [`stitch`]) and decode the result.
+    ///
+    /// Panics on a broken part: the stitch error names the offending file, and an
+    /// artist mid-edit (or a corrupted checkout) needs that loud and immediate —
+    /// same stance as [`from_png`].
     pub fn from_parts(manifest: &str, parts: &[(&str, &[u8])]) -> SpriteSheet {
-        let s = stitch(manifest, parts).expect("invalid sprite parts");
+        let s = stitch(manifest, parts).unwrap_or_else(|e| {
+            panic!(
+                "sprite atlas failed to stitch: {e} — a sprite part under \
+                 assets/sprites/ is corrupt or missing; restore it and relaunch"
+            )
+        });
         SpriteSheet {
             width: s.width,
             height: s.height,

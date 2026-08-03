@@ -43,11 +43,20 @@ pub struct ContainerDisplay {
 
 impl ContainerDisplay {
     pub fn new(g: &Game, player: &Entity, chest: &Entity) -> ContainerDisplay {
-        let title = chest
-            .furniture()
-            .expect("container must be furniture")
-            .name
-            .clone();
+        // The normal open path (chest_behavior::use_furniture) only passes chest-family
+        // furniture, but the constructor is public and eids can churn — fall back to a
+        // generic title rather than panic over a name.
+        let title = match chest.furniture() {
+            Some(f) => f.name.clone(),
+            None => {
+                crate::log_warn!(
+                    "container display opened over entity {} which is not furniture; \
+                     titling it \"Container\"",
+                    chest.c.eid
+                );
+                "Container".to_string()
+            }
+        };
         let layout = Layout::new(g.screen_size.0, g.screen_size.1);
         let shell_menu = Self::build_shell_menu(g, &layout);
 
@@ -155,11 +164,21 @@ impl ContainerDisplay {
             return;
         };
         let mut moved_ok = false;
+        // The entity behind chest_eid can stop being a chest (eid churn while the
+        // display is open); dropping the transfer beats losing items to a panic.
+        let chest_data = match chest.chest_mut() {
+            Some(c) => c,
+            None => {
+                crate::log_warn!(
+                    "container entity {} is not a chest anymore; ignoring the transfer",
+                    self.chest_eid
+                );
+                g.entities.put_back(chest);
+                return;
+            }
+        };
         if let Some(player) = g.entities.get_mut(self.player_eid) {
-            let chest_inv = &mut chest
-                .chest_mut()
-                .expect("container must be a chest")
-                .inventory;
+            let chest_inv = &mut chest_data.inventory;
             let player_inv = &mut player.player_mut().inventory;
             let (from, to, from_is_player) = if from_side == SIDE_CONTAINER {
                 (chest_inv, player_inv, false)

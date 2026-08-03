@@ -176,8 +176,19 @@ fn parse_i32(s: &str, default: i32) -> i32 {
     match s.parse::<i32>() {
         Ok(v) => v,
         Err(_) => match s.parse::<i128>() {
-            Ok(v) => v.clamp(i32::MIN as i128, i32::MAX as i128) as i32,
-            Err(_) => default,
+            Ok(v) => {
+                let clamped = v.clamp(i32::MIN as i128, i32::MAX as i128) as i32;
+                crate::log_warn!("save field {s:?} is out of range; clamped to {clamped}");
+                clamped
+            }
+            Err(_) => {
+                // Substituting a default silently is how corrupt data turns into a
+                // mystery bug report; say what was wrong and what replaced it.
+                if !s.is_empty() {
+                    crate::log_warn!("save field {s:?} is not a number; using {default}");
+                }
+                default
+            }
         },
     }
 }
@@ -194,7 +205,7 @@ fn potion_type_from_name(name: &str) -> Option<crate::item::PotionType> {
 /// Java `Level.printLevelLoc(prefix, x, y)`.
 fn print_level_loc(g: &Game, lvl: usize, prefix: &str, x: i32, y: i32) {
     let level_name = crate::level::get_level_name(g.level(lvl).depth);
-    println!("{prefix} on {level_name} level ({x},{y})");
+    crate::log_info!("{prefix} on {level_name} level ({x},{y})");
 }
 
 /// The state of Java's `Load` object.
@@ -248,14 +259,14 @@ pub fn new_world(g: &mut Game, worldname: &str, load_game: bool) -> Load {
     }
 
     if !game_file_readable {
-        eprintln!(
+        crate::log_warn!(
             "LOAD ERROR: world \"{worldname}\" has no readable Game{EXTENSION}; refusing to load (the save is missing or damaged — nothing was overwritten)."
         );
         l.failed = true;
     } else if *l.wv() < Version::new("3.0") {
         // Pre-3.0 worlds have six levels (sky included) and Score-mode state; the
         // sandbox pivot changed the world shape, so they can't be loaded.
-        eprintln!(
+        crate::log_warn!(
             "LOAD ERROR: world \"{}\" was saved by version {}; worlds from before 3.0 (the sandbox pivot) are not supported.",
             worldname,
             l.wv()
@@ -335,8 +346,8 @@ pub fn load_prefs(g: &mut Game) {
         l.legacy_update_unlocks(g, &test_file);
     } else if !Path::new(&test_file).exists() {
         if let Err(ex) = std::fs::File::create(&test_file) {
-            eprintln!("could not create Unlocks{EXTENSION}:");
-            eprintln!("{ex}");
+            crate::log_warn!("could not create Unlocks{EXTENSION}:");
+            crate::log_warn!("{ex}");
         }
     }
 
@@ -421,7 +432,7 @@ impl Load {
                     self.data.extend(java_split(&total, ','));
                 }
             }
-            Err(ex) => eprintln!("{ex}"), // Java ex.printStackTrace()
+            Err(ex) => crate::log_warn!("{ex}"), // Java ex.printStackTrace()
         }
 
         if filename.contains("Level") {
@@ -431,7 +442,7 @@ impl Load {
             let datafile = format!("{}data{}", &filename[..cut], EXTENSION);
             match load_from_file_str(&datafile, true) {
                 Ok(total) => self.extradata.extend(java_split(&total, ',')),
-                Err(ex) => eprintln!("{ex}"),
+                Err(ex) => crate::log_warn!("{ex}"),
             }
         }
 
@@ -446,7 +457,7 @@ impl Load {
         self.extradata.clear();
         match load_from_file_str(path, true) {
             Ok(total) => self.data.extend(java_split(&total, ',')),
-            Err(ex) => eprintln!("{ex}"),
+            Err(ex) => crate::log_warn!("{ex}"),
         }
         g.loading_percentage = (g.loading_percentage + 13.0).min(100.0);
 
@@ -470,7 +481,7 @@ impl Load {
                     let _ = write!(writer, ",{unlock}");
                 }
             }
-            Err(ex) => eprintln!("{ex}"),
+            Err(ex) => crate::log_warn!("{ex}"),
         }
     }
 
@@ -500,6 +511,12 @@ impl Load {
         let file = format!("{}{}{}", self.location, filename, EXTENSION);
         self.load_from_file(g, &file);
 
+        if self.data.len() < 3 {
+            crate::log_warn!(
+                "Game file is short ({} field(s)); world settings fall back to defaults",
+                self.data.len()
+            );
+        }
         self.world_ver = Some(Version::new(&pop(&mut self.data))); // gets the world version
         if *self.wv() >= Version::new("2.0.4-dev8") {
             let modedata = pop(&mut self.data);
@@ -546,6 +563,12 @@ impl Load {
         // A Preferences file truncated by a crash mid-write would otherwise take the
         // game down on every launch; every read below tolerates a short file and
         // falls back to the built-in default.
+        if self.data.len() < 3 {
+            crate::log_warn!(
+                "preferences file is short ({} field(s)); falling back to defaults",
+                self.data.len()
+            );
+        }
         if !at(&self.data, 2).contains(';') {
             // signifies that this file was last written to by a version after 2.0.2.
             pref_ver = Version::new(&pop(&mut self.data));
@@ -590,6 +613,10 @@ impl Load {
             let map = java_split(keymap, ';');
             if map.len() >= 2 && !map[0].is_empty() {
                 g.input.set_key(&map[0], &map[1], g.debug);
+            } else if !keymap.trim().is_empty() {
+                crate::log_warn!(
+                    "preferences: keymap entry {keymap:?} has no binding; keeping the default"
+                );
             }
         }
 
@@ -616,7 +643,7 @@ impl Load {
                         g.world_seed = seed;
                         g.random.set_seed(seed ^ 0x9E37_79B9);
                     }
-                    None => eprintln!(
+                    None => crate::log_warn!(
                         "LOAD WARNING: WorldMeta{EXTENSION} carries no readable seed; explored chunks still load, unexplored ground will differ."
                     ),
                 }
@@ -626,7 +653,7 @@ impl Load {
         // where the (never written) Level0..3 files took the load down. Chunk data on
         // disk is proof the world is infinite, so trust that instead of crashing.
         if !infinite && Path::new(&format!("{}chunks", self.location)).is_dir() {
-            eprintln!(
+            crate::log_warn!(
                 "LOAD WARNING: WorldMeta{EXTENSION} is missing or damaged, but this world has chunk data; loading it as infinite."
             );
             infinite = true;
@@ -654,7 +681,7 @@ impl Load {
             if !usable {
                 // A missing or truncated layer file is not worth losing the whole world
                 // over: rebuild this one layer from the seed and keep going, loudly.
-                eprintln!(
+                crate::log_error!(
                     "LOAD ERROR: {file} is missing or damaged ({lvlw}x{lvlh}, {} tile fields, {} data fields); rebuilding this layer.",
                     self.data.len().saturating_sub(3),
                     self.extradata.len()
@@ -679,7 +706,7 @@ impl Load {
                         match old_id(tile_id) {
                             Some(name) => tilename = name.to_string(),
                             None => {
-                                println!("tile list doesn't contain tile {tile_id}");
+                                crate::log_info!("tile list doesn't contain tile {tile_id}");
                                 tilename = "grass".to_string();
                             }
                         }
@@ -771,6 +798,13 @@ impl Load {
     /// Java `loadPlayer(Player player, List<String> origData)` — applied to `g.player_id`.
     pub fn load_player(&self, g: &mut Game, orig_data: &[String]) {
         let mut data: Vec<String> = orig_data.to_vec();
+        // the classic record carries 12 fields before any trailing marker
+        if data.len() < 12 {
+            crate::log_warn!(
+                "player record is short ({} field(s)); missing values fall back to a fresh player",
+                data.len()
+            );
+        }
         let mut player = g.entities.take(g.player_id).expect("player entity missing");
 
         // Defaults are the *fresh* player's own values, so a truncated Player file
@@ -841,7 +875,7 @@ impl Load {
         g.current_level = if (0..g.levels.len() as i32).contains(&saved_level) {
             saved_level as usize
         } else {
-            eprintln!(
+            crate::log_warn!(
                 "LOAD WARNING: player saved on level {saved_level}, which this world does not have; placing them on the surface."
             );
             crate::level::lvl_idx(0)
@@ -867,7 +901,7 @@ impl Load {
                 // a removed/renamed potion, or an entry with no duration, is dropped
                 // rather than taking the whole save down
                 let Some(p_name) = potion_type_from_name(at(&effect, 0)) else {
-                    eprintln!(
+                    crate::log_warn!(
                         "LOAD WARNING: unknown potion effect {:?} skipped",
                         at(&effect, 0)
                     );
@@ -875,6 +909,10 @@ impl Load {
                 };
                 let time = at_i32(&effect, 1, 0);
                 if time <= 0 {
+                    crate::log_warn!(
+                        "potion effect {:?} has no usable duration; dropping it",
+                        at(&effect, 0)
+                    );
                     continue;
                 }
                 // Java PotionItem.applyPotion(player, pName, time).
@@ -887,7 +925,7 @@ impl Load {
             let color = java_split(&colors, ';');
             let cols: Vec<i32> = (0..3).map(|i| at_i32(&color, i, 0) / 50).collect();
             let col = format!("{}{}{}", cols[0], cols[1], cols[2]);
-            println!("getting color as {col}");
+            crate::log_info!("getting color as {col}");
             player.player_mut().shirt_color = parse_i32(&col, 0);
         } else {
             let pd = player.player_mut();
@@ -907,7 +945,7 @@ impl Load {
             if wear_slot_for(&head) == Some(WearSlot::Head) {
                 player.player_mut().worn_head = Some(head);
             } else {
-                println!("WARNING: ignoring non-head worn item {name:?} in player save");
+                crate::log_warn!("WARNING: ignoring non-head worn item {name:?} in player save");
             }
             data.remove(0);
         }
@@ -966,7 +1004,7 @@ impl Load {
             g.level_mut(cur).add(player, cur);
         } else {
             if g.debug {
-                println!("game level to add player Player to is null.");
+                crate::log_info!("game level to add player Player to is null.");
             }
             g.entities.put_back(player);
         }
@@ -1005,7 +1043,7 @@ impl Load {
         for item in data {
             let mut item = item.clone();
             if item.is_empty() {
-                eprintln!("loadInventory: item in data list is \"\", skipping item");
+                crate::log_warn!("loadInventory: item in data list is \"\", skipping item");
                 continue;
             }
 
@@ -1134,11 +1172,11 @@ pub fn load_entity(
     // round) is unreadable: skip that one entity, keep the rest of the world.
     let (Some(bracket_open), Some(bracket_close)) = (entity_data.find('['), entity_data.rfind(']'))
     else {
-        eprintln!("LOAD WARNING: malformed entity record skipped: {entity_data:?}");
+        crate::log_warn!("LOAD WARNING: malformed entity record skipped: {entity_data:?}");
         return None;
     };
     if bracket_close < bracket_open {
-        eprintln!("LOAD WARNING: malformed entity record skipped: {entity_data:?}");
+        crate::log_warn!("LOAD WARNING: malformed entity record skipped: {entity_data:?}");
         return None;
     }
     // this gets everything inside the "[...]" after the entity name.
@@ -1149,7 +1187,9 @@ pub fn load_entity(
 
     // every record carries at least "x:y:...:level" (plus an eid when not a local save)
     if info.len() < if is_local_save { 3 } else { 4 } {
-        eprintln!("LOAD WARNING: entity record has too few fields, skipped: {entity_data:?}");
+        crate::log_warn!(
+            "LOAD WARNING: entity record has too few fields, skipped: {entity_data:?}"
+        );
         return None;
     }
 
@@ -1163,7 +1203,7 @@ pub fn load_entity(
 
     let new_entity: Option<Entity> = if entity_name == "RemotePlayer" {
         if is_local_save {
-            eprintln!("remote player found in local save file.");
+            crate::log_warn!("remote player found in local save file.");
         }
         return None; // a relic of old multiplayer saves; never loaded
     } else if entity_name == "Zap" && !is_local_save {
@@ -1185,7 +1225,7 @@ pub fn load_entity(
                 Some(e)
             }
             None => {
-                eprintln!("failed to load zap; owner id doesn't point to a correct entity");
+                crate::log_warn!("failed to load zap; owner id doesn't point to a correct entity");
                 return None;
             }
         }
@@ -1218,7 +1258,7 @@ pub fn load_entity(
 
         if mob_lvl == 0 {
             if g.debug {
-                println!("level 0 mob: {entity_name}");
+                crate::log_info!("level 0 mob: {entity_name}");
             }
             mob_lvl = 1;
         }
@@ -1269,7 +1309,7 @@ pub fn load_entity(
                     stack.set_count(at_i32(&aitem_data, 1, 1).max(0));
                     new_entity.chest_mut().unwrap().inventory.add(stack);
                 } else {
-                    eprintln!(
+                    crate::log_error!(
                         "LOAD ERROR: encountered invalid item name, expected to be stackable: {}",
                         at(&aitem_data, 0)
                     );
@@ -1284,6 +1324,9 @@ pub fn load_entity(
         // and a record too short to carry them falls back to the constructor defaults
         let tail_fields = &chest_info[end_idx..];
         if is_death_chest {
+            if tail_fields.is_empty() {
+                crate::log_warn!("DeathChest record carries no despawn time; keeping the default");
+            }
             if let EntityKind::DeathChest(dc) = &mut new_entity.kind {
                 dc.time = at_i32(tail_fields, 0, dc.time);
             }
@@ -1302,10 +1345,18 @@ pub fn load_entity(
             use crate::entity::furniture::scav_container::ScavKind;
             let ordinal = at_i32(tail_fields, 0, 0).max(0) as usize;
             let searched = parse_bool(at(tail_fields, 1));
-            let kind = ScavKind::VALUES
-                .get(ordinal)
-                .copied()
-                .unwrap_or(ScavKind::Crate);
+            let kind = match ScavKind::VALUES.get(ordinal).copied() {
+                Some(k) => k,
+                None => {
+                    crate::log_warn!(
+                        "ScavContainer kind ordinal {ordinal} is unknown; loading it as a Crate"
+                    );
+                    ScavKind::Crate
+                }
+            };
+            if tail_fields.is_empty() {
+                crate::log_warn!("ScavContainer record carries no kind/searched trailer");
+            }
             if let EntityKind::ScavContainer(sc) = &mut new_entity.kind {
                 sc.kind = kind;
                 sc.searched = searched;
@@ -1332,7 +1383,7 @@ pub fn load_entity(
         use crate::entity::furniture::lantern::LanternType;
         let t = at_i32(&info, 2, 0).max(0) as usize;
         let lantern_type = LanternType::VALUES.get(t).copied().unwrap_or_else(|| {
-            eprintln!("LOAD WARNING: unknown lantern type {t}, loading a plain lantern");
+            crate::log_warn!("LOAD WARNING: unknown lantern type {t}, loading a plain lantern");
             LanternType::Norm
         });
         new_entity = crate::entity::furniture::lantern::new(lantern_type);
@@ -1413,14 +1464,14 @@ pub fn load_entity(
     // to the level.
     new_entity.c.eid = eid;
     if matches!(new_entity.kind, EntityKind::ItemEntity(_)) && eid == -1 {
-        println!("Warning: item entity was loaded with no eid");
+        crate::log_warn!("Warning: item entity was loaded with no eid");
     }
 
     // The trailing field is the level slot. An index outside the world's layers (an
     // old six-level save, a hand-edited record) used to index straight off `g.levels`.
     let cur_level = at_i32(&info, info.len() - 1, -1);
     if !(0..g.levels.len() as i32).contains(&cur_level) {
-        eprintln!(
+        crate::log_warn!(
             "LOAD WARNING: {entity_name} saved on level {cur_level}, which this world does not have; skipped."
         );
         return None;
@@ -1540,7 +1591,7 @@ fn get_entity(g: &mut Game, string: &str, moblvl: i32) -> Option<Entity> {
         // unknown) land here: log and skip the entity rather than panicking, so old
         // saves still load minus the missing mobs.
         _ => {
-            eprintln!("LOAD WARNING: unknown or outdated entity skipped: {string}");
+            crate::log_warn!("LOAD WARNING: unknown or outdated entity skipped: {string}");
             None
         }
     }

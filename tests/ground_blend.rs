@@ -339,3 +339,33 @@ fn the_background_paints_the_whole_viewport_at_awkward_sizes() {
         }
     }
 }
+
+/// Entities sharing a row must stack in a stable, reproducible order. Sorting by
+/// `y` alone left the tie broken by arena iteration order — arbitrary per process,
+/// so overlapping sprites could swap between runs.
+#[test]
+fn sprites_on_the_same_row_draw_in_a_stable_order() {
+    fn frame(tag: &str) -> Vec<i32> {
+        let mut tw = fdoom::testutil::TestWorld::infinite()
+            .seed(1234)
+            .name(tag)
+            .build();
+        let lvl = tw.current_level;
+        let (px, py) = tw.player_tile();
+        for dx in -3..=3 {
+            tw.place("grass", dx, 0);
+        }
+        // several entities dropped on exactly the same row
+        for dx in [-2, -1, 1, 2] {
+            let item = fdoom::item::registry::get(&tw.g, "Wood");
+            fdoom::level::drop_item(&mut tw.g, lvl, (px + dx) * 16 + 8, py * 16 + 8, item);
+        }
+        tw.tick_n(3);
+        tw.render()
+    }
+    assert_eq!(
+        frame("sortA"),
+        frame("sortB"),
+        "same-row sprite order must be stable"
+    );
+}

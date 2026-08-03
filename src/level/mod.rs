@@ -1047,7 +1047,11 @@ pub fn render_sprites(
         .into_iter()
         .filter_map(|eid| g.entities.get(eid).map(|e| (e.c.y, eid)))
         .collect();
-    ids.sort_by_key(|(y, _)| *y); // Java spriteSorter
+    // Sort by y (Java spriteSorter), then by entity id: y alone left entities that
+    // share a row drawing in arena iteration order, which is arbitrary per process —
+    // overlapping sprites could stack differently between runs, and it made rendered
+    // frames useless as a regression signal.
+    ids.sort_by_key(|(y, eid)| (*y, *eid));
     for (_, eid) in ids {
         let (on_level, removed) = match g.entities.get(eid) {
             Some(e) => (e.c.level == Some(lvl), e.c.removed),

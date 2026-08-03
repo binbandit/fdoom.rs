@@ -49,10 +49,15 @@ impl Localization {
 
         let local_string = self.localization.get(string);
 
-        if self.debug.get() && local_string.is_none() {
+        // The dedup-set bookkeeping is gated on the log threshold so the hot render
+        // path stays free of it in normal (non-`--debug`) sessions.
+        if local_string.is_none() && crate::core::log::enabled(crate::core::log::Level::Debug) {
             let mut known = self.known_unlocalized_strings.borrow_mut();
             if !known.contains(string) {
-                println!("The string \"{string}\" is not localized, returning itself instead.");
+                crate::log_debug!(
+                    "string {string:?} has no {} localization; showing the raw key",
+                    self.selected_language
+                );
                 known.insert(string.to_string());
             }
         }

@@ -106,7 +106,7 @@ impl WorldGenDisplay {
                         (1..)
                             .map(|n| format!("claim {n}"))
                             .find(|c| !taken.iter().any(|t| t.eq_ignore_ascii_case(c)))
-                            .expect("some claim number is free")
+                            .expect("(1..) is unbounded, so find() cannot return None")
                     } else {
                         if !name_field.borrow().is_valid() {
                             // a real conflict (name already taken): say so instead

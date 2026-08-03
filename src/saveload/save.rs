@@ -22,7 +22,7 @@ struct Save {
 
 impl Save {
     /// Java `private Save(File worldFolder)`.
-    fn new_at(world_folder: PathBuf, debug: bool) -> Save {
+    fn new_at(world_folder: PathBuf) -> Save {
         let mut world_folder = world_folder;
 
         // Lowercase legacy world folders. The parent == "saves" check only matches a
@@ -37,17 +37,15 @@ impl Save {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
             if world_name.to_lowercase() != world_name {
-                if debug {
-                    println!("renaming world in {} to lowercase", world_folder.display());
-                }
+                crate::log_debug!("renaming world in {} to lowercase", world_folder.display());
                 let path = world_folder.to_string_lossy().to_string();
                 let path = path[..path.rfind(&world_name).unwrap_or(0)].to_string();
                 let new_folder = PathBuf::from(format!("{}{}", path, world_name.to_lowercase()));
                 if std::fs::rename(&world_folder, &new_folder).is_ok() {
                     world_folder = new_folder;
                 } else {
-                    eprintln!(
-                        "failed to rename world folder {} to {}",
+                    crate::log_warn!(
+                        "failed to rename world folder {} to {}; keeping the original name",
                         world_folder.display(),
                         new_folder.display()
                     );
@@ -67,7 +65,7 @@ impl Save {
     /// Java `writeToFile(String filename, List<String> savedata)` (instance method).
     fn write_to_file(&mut self, g: &mut Game, filename: &str) {
         if let Err(ex) = write_to_file(filename, &self.data, true) {
-            eprintln!("{ex}"); // Java ex.printStackTrace()
+            crate::log_error!("failed to write save file {filename}: {ex}; that data is lost");
         }
 
         self.data.clear();
@@ -223,7 +221,7 @@ pub fn save_world_named(g: &mut Game, world_name: &str) {
         );
     }
     let folder = PathBuf::from(format!("{}/saves/{}", g.game_dir.display(), world_name));
-    let mut save = Save::new_at(folder, g.debug);
+    let mut save = Save::new_at(folder);
 
     if g.is_valid_client() {
         // clients are not allowed to save.
@@ -251,10 +249,8 @@ pub fn save_world_named(g: &mut Game, world_name: &str) {
 /// Java `new Save()` — saves the global options (preferences + unlocks).
 pub fn save_prefs(g: &mut Game) {
     let folder = g.game_dir.clone();
-    let mut save = Save::new_at(folder, g.debug);
-    if g.debug {
-        println!("writing preferences and unlocks...");
-    }
+    let mut save = Save::new_at(folder);
+    crate::log_debug!("writing preferences and unlocks");
     save.write_prefs(g);
 }
 
@@ -263,7 +259,7 @@ pub fn save_prefs(g: &mut Game) {
 pub fn save_player(g: &mut Game, write_player: bool) {
     let world_name = crate::screen::world_select::get_world_name(g);
     let folder = PathBuf::from(format!("{}/saves/{}", g.game_dir.display(), world_name));
-    let mut save = Save::new_at(folder, g.debug);
+    let mut save = Save::new_at(folder);
     if write_player {
         save.write_player(g, "Player");
         save.write_inventory(g, "Inventory");
@@ -571,9 +567,7 @@ pub fn write_entity(g: &Game, e: &Entity, is_local_save: bool) -> String {
 
     let depth = match e.c.level {
         None => {
-            println!(
-                "WARNING: saving entity with no level reference: {name}; setting level to surface"
-            );
+            crate::log_warn!("saving entity {name} with no level reference; writing it as surface");
             0
         }
         Some(lvl) => g.level(lvl).depth,

@@ -25,8 +25,18 @@ impl TitleDisplay {
         if let Some(recent) = crate::screen::world_select::most_recent_world(g) {
             let label = format!("Continue ({recent})");
             entries.push(handle(SelectEntry::new(&label, move |g: &mut Game| {
-                let name = crate::screen::world_select::most_recent_world(g)
-                    .expect("recent world existed when the title was built");
+                // Re-resolved on click: the save can vanish from disk (deleted by
+                // another program) between menu build and click. Rebuild the title so
+                // the stale Continue entry disappears instead of panicking.
+                let Some(name) = crate::screen::world_select::most_recent_world(g) else {
+                    crate::log_warn!(
+                        "Continue clicked but the most recent world no longer exists \
+                         on disk; rebuilding the title menu"
+                    );
+                    let fresh = TitleDisplay::new(g);
+                    g.set_menu(fresh);
+                    return;
+                };
                 crate::screen::world_select::set_world_name(g, &name, true);
                 g.set_menu(crate::screen::loading_display::LoadingDisplay::new());
             })));

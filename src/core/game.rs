@@ -310,9 +310,7 @@ impl Game {
                 self.gamespeed = 20.0;
             }
             if self.tick_count > updater::SLEEP_END_TIME {
-                if self.debug {
-                    println!("passing midnight in bed");
-                }
+                crate::log_debug!("sleep fast-forward: wrapping past midnight");
                 self.past_day1 = true;
                 self.tick_count = 0;
             }
@@ -320,9 +318,9 @@ impl Game {
                 && self.tick_count >= updater::SLEEP_END_TIME
             {
                 // it has reached morning
-                if self.debug {
-                    println!("reached morning, getting out of bed");
-                }
+                crate::log_debug!(
+                    "sleep fast-forward: morning reached, restoring players from bed"
+                );
                 self.gamespeed = 1.0;
                 crate::entity::furniture::bed_behavior::restore_players(self);
             }
@@ -443,12 +441,13 @@ impl Game {
                     }
 
                     if self.input.get_key("ctrl-p").clicked {
-                        // print all players on all levels, and their coordinates
-                        println!("printing players on all levels");
+                        // dump all players on all levels, and their coordinates
+                        crate::log_debug!("player census (ctrl-p):");
                         for e in self.entities.iter() {
                             if e.is_player() {
-                                println!(
-                                    "Player on level {:?} ({},{})",
+                                crate::log_debug!(
+                                    "  player {} on level {:?} at tile ({},{})",
+                                    e.c.eid,
                                     e.c.level,
                                     e.c.x >> 4,
                                     e.c.y >> 4

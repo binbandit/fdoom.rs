@@ -40,6 +40,9 @@ pub fn run(args: Vec<String>) {
         i += 1;
     }
 
+    // Diagnostics verbosity follows --debug; set before anything that can log.
+    core::log::set_debug(debug);
+
     let game_dir = file_handler::determine_game_dir(&save_dir, debug);
 
     let mut game = Game::new(debug, true, game_dir);

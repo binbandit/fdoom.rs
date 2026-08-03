@@ -239,16 +239,43 @@ impl ApplicationHandler for App {
                 HEIGHT as f64 * scale,
             ))
             .with_min_inner_size(LogicalSize::new(1.0, 1.0));
-        let window = Rc::new(
-            event_loop
-                .create_window(attrs)
-                .expect("could not create window"),
-        );
+        // Window/graphics creation fails on real machines (headless session, missing
+        // display server, broken driver) — report and shut down cleanly instead of
+        // panicking in the player's face.
+        let window = match event_loop.create_window(attrs) {
+            Ok(w) => Rc::new(w),
+            Err(e) => {
+                crate::log_error!(
+                    "could not create the game window: {e} — is a display server \
+                     available? Exiting."
+                );
+                event_loop.exit();
+                return;
+            }
+        };
 
-        let context =
-            softbuffer::Context::new(window.clone()).expect("could not create graphics context");
-        let surface =
-            softbuffer::Surface::new(&context, window.clone()).expect("could not create surface");
+        let context = match softbuffer::Context::new(window.clone()) {
+            Ok(c) => c,
+            Err(e) => {
+                crate::log_error!(
+                    "could not create a graphics context for the window: {e} \
+                     (graphics driver problem?); exiting"
+                );
+                event_loop.exit();
+                return;
+            }
+        };
+        let surface = match softbuffer::Surface::new(&context, window.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                crate::log_error!(
+                    "could not create a drawing surface for the window: {e} \
+                     (graphics driver problem?); exiting"
+                );
+                event_loop.exit();
+                return;
+            }
+        };
 
         self.window = Some(window);
         self.surface = Some(surface);
@@ -258,7 +285,7 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
-                println!("window closing");
+                crate::log_info!("window close requested; shutting down");
                 self.game.quit();
                 event_loop.exit();
             }
@@ -274,7 +301,9 @@ impl ApplicationHandler for App {
                             .input
                             .key_toggled(name, event.state == ElementState::Pressed);
                     } else {
-                        println!("INPUT: Could not find keyname for key {code:?}");
+                        // unmapped physical keys (media keys etc.) are normal; only
+                        // interesting when chasing a "key does nothing" report
+                        crate::log_debug!("no key-name mapping for {code:?}; ignoring the event");
                     }
                 }
                 if event.state == ElementState::Pressed {
@@ -305,11 +334,20 @@ impl ApplicationHandler for App {
 /// Create the window and run the main loop (Java `Initializer.createAndDisplayFrame` +
 /// `Initializer.run`). Blocks until the game quits.
 pub fn run(game: Game, renderer: Renderer) {
-    let event_loop = EventLoop::new().expect("could not create event loop");
+    let event_loop = match EventLoop::new() {
+        Ok(el) => el,
+        Err(e) => {
+            crate::log_error!(
+                "could not create the event loop: {e} — the game cannot open a window \
+                 (headless environment?); exiting"
+            );
+            return;
+        }
+    };
     event_loop.set_control_flow(ControlFlow::Poll);
     let mut app = App::new(game, renderer);
-    event_loop.run_app(&mut app).expect("event loop error");
-    if app.game.debug {
-        println!("main game loop ended; terminating application...");
+    if let Err(e) = event_loop.run_app(&mut app) {
+        crate::log_error!("the event loop terminated with an error: {e}");
     }
+    crate::log_debug!("main game loop ended; terminating application");
 }

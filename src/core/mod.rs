@@ -7,6 +7,7 @@ pub mod field_notes;
 pub mod file_handler;
 pub mod game;
 pub mod io;
+pub mod log;
 pub mod my_utils;
 pub mod renderer;
 pub mod temperature;

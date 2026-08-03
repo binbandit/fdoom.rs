@@ -97,9 +97,10 @@ impl Demo {
                 }
                 Step::Key(name) => {
                     game.input.key_toggled(&name, true);
-                    // typed-char side channel for text inputs
-                    if name.chars().count() == 1 {
-                        game.input.key_typed(name.chars().next().unwrap());
+                    // typed-char side channel for single-character keys (text inputs)
+                    let mut chars = name.chars();
+                    if let (Some(ch), None) = (chars.next(), chars.next()) {
+                        game.input.key_typed(ch);
                     }
                     self.release_next = Some(name);
                     return;
@@ -128,9 +129,10 @@ impl Demo {
                 renderer.screen.w,
                 renderer.screen.h,
             ) {
-                eprintln!("FDOOM_DEMO: could not write {path}: {e}");
+                // the whole point of a scripted run is usually this file
+                crate::log_error!("FDOOM_DEMO: could not write {path}: {e}");
             } else {
-                println!("FDOOM_DEMO: wrote {path}");
+                crate::log_info!("FDOOM_DEMO: wrote {path}");
             }
         }
     }

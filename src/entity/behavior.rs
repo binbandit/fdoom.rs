@@ -47,7 +47,11 @@ impl Game {
     /// Java `Game.player` (panicking, like Java's implicit non-null uses). Note: while the
     /// player is taken out (its own tick), use the `&mut Entity` you already have.
     pub fn player(&self) -> &Entity {
-        self.try_player().expect("player entity missing")
+        // Returning &Entity leaves no room for a fallback: callers on paths where the
+        // player can be absent (dead and gone from the arena, or taken out for its own
+        // tick) must use try_player() instead.
+        self.try_player()
+            .expect("player absent from arena and add-queues — dead, or taken out for its own tick; this call site must use try_player()")
     }
 
     pub fn player_mut(&mut self) -> &mut Entity {
@@ -55,7 +59,7 @@ impl Game {
             return self
                 .entities
                 .get_mut(self.player_id)
-                .expect("checked above");
+                .expect("contains(player_id) was checked on the line above");
         }
         let pid = self.player_id;
         for level in self.levels.iter_mut().flatten() {

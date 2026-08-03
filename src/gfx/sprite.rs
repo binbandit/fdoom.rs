@@ -281,12 +281,14 @@ pub fn compile_sprite_list(
 
 /// Java `MobSprite.compileMobSpriteAnimations(sheetX, sheetY)`.
 pub fn compile_mob_sprite_animations(sheet_x: i32, sheet_y: i32) -> MobAnims {
+    // four 2x2 cells in a row, as compile_sprite_list(width=2, number=4) lays them out
+    let quad = |mirror: i32| -> [Sprite; 4] {
+        std::array::from_fn(|i| Sprite::mob(sheet_x + 2 * i as i32, sheet_y, 2, 2, mirror))
+    };
     // contents: down 1, up 1, right 1, right 2
-    let set1 = compile_sprite_list(sheet_x, sheet_y, 2, 2, 0, 4);
+    let [d1, u1, r1, r2] = quad(0);
     // contents: down 2, up 2, left 1, left 2
-    let set2 = compile_sprite_list(sheet_x, sheet_y, 2, 2, 1, 4);
-    let [d1, u1, r1, r2]: [Sprite; 4] = set1.try_into().unwrap();
-    let [d2, u2, l1, l2]: [Sprite; 4] = set2.try_into().unwrap();
+    let [d2, u2, l1, l2] = quad(1);
     vec![vec![d1, d2], vec![u1, u2], vec![l1, l2], vec![r1, r2]]
 }
 

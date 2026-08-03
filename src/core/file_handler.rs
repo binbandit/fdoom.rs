@@ -27,20 +27,24 @@ pub fn local_game_dir() -> &'static str {
     }
 }
 
-/// Java `FileHandler.determineGameDir(saveDir)`.
-pub fn determine_game_dir(save_dir: &str, debug: bool) -> PathBuf {
+/// Java `FileHandler.determineGameDir(saveDir)`. The `_debug` parameter is kept for
+/// call-site compatibility; verbosity now follows the global log threshold.
+pub fn determine_game_dir(save_dir: &str, _debug: bool) -> PathBuf {
     let game_dir = PathBuf::from(format!("{save_dir}{}", local_game_dir()));
-    if debug {
-        println!("determined gameDir: {}", game_dir.display());
-    }
+    crate::log_debug!("determined game dir: {}", game_dir.display());
 
     let _ = std::fs::create_dir_all(&game_dir);
 
     // migrate saves from the legacy "/.fdoom" folder if one is present
     let old_folder = PathBuf::from(format!("{save_dir}/.fdoom"));
     if old_folder.exists() && old_folder != game_dir {
-        if let Err(e) = copy_folder_contents(&old_folder, &game_dir, RENAME_COPY, true, debug) {
-            eprintln!("error migrating old game folder: {e}");
+        if let Err(e) = copy_folder_contents(&old_folder, &game_dir, RENAME_COPY, true, _debug) {
+            crate::log_error!(
+                "migrating legacy saves from {} to {} failed: {e}; \
+                 unmigrated saves remain in the legacy folder",
+                old_folder.display(),
+                game_dir.display()
+            );
         }
     }
 
@@ -48,20 +52,20 @@ pub fn determine_game_dir(save_dir: &str, debug: bool) -> PathBuf {
 }
 
 /// Java `FileHandler.copyFolderContents(origFolder, newFolder, ifExisting, deleteOriginal)`.
+/// The `_debug` parameter is kept for call-site compatibility; verbosity now follows
+/// the global log threshold.
 pub fn copy_folder_contents(
     orig_folder: &Path,
     new_folder: &Path,
     if_existing: i32,
     delete_original: bool,
-    debug: bool,
+    _debug: bool,
 ) -> std::io::Result<()> {
-    if debug {
-        println!(
-            "copying contents of folder {} to new folder {}",
-            orig_folder.display(),
-            new_folder.display()
-        );
-    }
+    crate::log_debug!(
+        "copying folder contents {} -> {} (mode {if_existing}, delete_original: {delete_original})",
+        orig_folder.display(),
+        new_folder.display()
+    );
 
     copy_dir_recursive(orig_folder, orig_folder, new_folder, if_existing)?;
 
@@ -83,7 +87,9 @@ fn copy_dir_recursive(
         if path.is_dir() {
             copy_dir_recursive(root, &path, new_root, if_existing)?;
         } else {
-            let relative = path.strip_prefix(root).unwrap();
+            let relative = path
+                .strip_prefix(root)
+                .expect("read_dir paths descend from root by construction");
             let mut new_filename = new_root.join(relative);
             if new_filename.exists() {
                 if if_existing == SKIP {
@@ -107,7 +113,12 @@ fn copy_dir_recursive(
                 std::fs::create_dir_all(parent)?;
             }
             if let Err(ex) = std::fs::copy(&path, &new_filename) {
-                eprintln!("copy failed: {ex}");
+                crate::log_error!(
+                    "copying {} -> {} failed: {ex}; the file is skipped \
+                     (and is lost if the source folder is deleted after the copy)",
+                    path.display(),
+                    new_filename.display()
+                );
             }
         }
     }

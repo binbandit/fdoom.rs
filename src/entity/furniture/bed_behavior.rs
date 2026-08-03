@@ -25,9 +25,7 @@ pub fn use_furniture(g: &mut Game, e: &mut Entity, player: &mut Entity) -> bool 
         g.bed_state
             .sleeping_players
             .insert(player.c.eid, (bed_lvl, e.c.eid));
-        if g.debug {
-            println!("player got in bed: {}", player.c.eid);
-        }
+        crate::log_debug!("player {} got in bed {}", player.c.eid, e.c.eid);
         behavior::remove_entity(g, player);
 
         if !g.is_online() {

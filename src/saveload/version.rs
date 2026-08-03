@@ -44,7 +44,9 @@ impl Version {
 
         if result.is_err() {
             if print_error {
-                eprintln!("INVALID version number: \"{version}\"");
+                crate::log_warn!(
+                    "invalid version string {version:?}; treating it as an invalid version (compares below every real one)"
+                );
             }
             v.valid = false;
         }

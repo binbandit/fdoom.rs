@@ -113,7 +113,11 @@ fn try_spawn(g: &mut Game, e: &mut Entity) {
     let template_lvl = template.enemy_mob().map(|em| em.lvl).unwrap_or(1);
     // non-mob templates can't be instantiated; bail with a log
     let Some(mut newmob) = new_mob_instance(g, &template, template_lvl) else {
-        println!("Spawner ERROR: could not spawn mob; error initializing mob instance:");
+        crate::log_warn!(
+            "spawner at tile ({}, {}) on level {lvl} holds a non-mob template; skipping the spawn",
+            e.c.x >> 4,
+            e.c.y >> 4
+        );
         return;
     };
 
