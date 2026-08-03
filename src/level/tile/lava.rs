@@ -1,10 +1,11 @@
 //! Port of `fdoom.level.tile.LavaTile`.
 
-use super::{ConnectorSprite, TileDef, TileKind, dirt, dispatch};
+use super::{ConnectorSprite, TileDef, TileKind, dirt, dispatch, tile_id_at};
 use crate::core::game::Game;
 use crate::entity::Entity;
 use crate::entity::behavior::can_swim;
 use crate::gfx::{Screen, Sprite, color};
+use crate::level::tile::ids;
 
 /// Java `LavaTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -68,7 +69,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         yn += g.random.next_int_bound(2) * 2 - 1;
     }
 
-    if g.tile_at(lvl, xn, yn).same_tile(&g.tiles.get("hole")) {
+    if tile_id_at(g, lvl, xn, yn) == ids::HOLE {
         g.set_tile_default(lvl, xn, yn, def);
     }
 }

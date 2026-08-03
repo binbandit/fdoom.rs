@@ -7,15 +7,14 @@ use crate::core::game::Game;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ItemKind};
 
 /// Java `TorchTile` (private) constructor.
 pub fn make(on: &TileDef) -> TileDef {
     let mut def = TileDef::new(
         &format!("Torch {}", on.name),
-        TileKind::Torch {
-            on_type: on.name.clone(),
-        },
+        TileKind::Torch { on_type: on.tid() },
     );
     def.sprite = Some(crate::gfx::Sprite::new1x1(
         12,
@@ -35,7 +34,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let TileKind::Torch { on_type } = &def.kind else {
         return;
     };
-    let on = g.tiles.get(on_type);
+    let on = g.tiles.by_id(*on_type);
     dispatch::render(g, screen, &on, lvl, x, y);
     if let Some(sprite) = &def.sprite {
         sprite.render(screen, x * 16 + 4, y * 16 + 4);
@@ -61,9 +60,9 @@ pub fn interact(
         return false;
     };
     if matches!(item.kind, ItemKind::PowerGlove) {
-        let on = g.tiles.get(on_type);
+        let on = g.tiles.by_id(*on_type);
         g.set_tile_default(lvl, xt, yt, &on);
-        let torch = crate::item::registry::get(g, "Torch");
+        let torch = crate::item::registry::by_name(g, iname::TORCH);
         crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, torch);
         true
     } else {

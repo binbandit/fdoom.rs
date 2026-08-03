@@ -4,11 +4,12 @@
 //! Its ground follows the level: grass on the surface, dirt underground — so the one
 //! tile id serves both spawns.
 
-use super::{TileDef, TileKind, dispatch};
+use super::{TileDef, TileId, TileKind, dispatch, ids};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite};
+use crate::item::ids as iname;
 use crate::level::drop_item;
 
 /// Dedicated cluster art (`tiles/mushroom_cluster`): five tiny button caps, three
@@ -20,11 +21,11 @@ fn caps(mirror: i32) -> Sprite {
     Sprite::new(c.x, c.y, 2, 2, 0, mirror)
 }
 
-fn base_name(g: &Game, lvl: usize) -> &'static str {
+fn base_id(g: &Game, lvl: usize) -> TileId {
     if g.level(lvl).depth < 0 {
-        "dirt"
+        ids::DIRT
     } else {
-        "grass"
+        ids::GRASS
     }
 }
 
@@ -35,7 +36,7 @@ pub fn make(name: &str) -> TileDef {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let base = g.tiles.get(base_name(g, lvl));
+    let base = g.tiles.by_id(base_id(g, lvl));
     dispatch::render(g, screen, &base, lvl, x, y);
     let mirror = (crate::level::infinite_gen::hash(g.world_seed, 0x5348_5230, x, y) & 1) as i32;
     caps(mirror).render(screen, x * 16, y * 16);
@@ -52,9 +53,9 @@ pub fn hurt_by(
     _dmg: i32,
     _attack_dir: Direction,
 ) -> bool {
-    let mushroom = crate::item::registry::get(g, "Mushroom");
+    let mushroom = crate::item::registry::by_name(g, iname::MUSHROOM);
     drop_item(g, lvl, x * 16 + 8, y * 16 + 8, mushroom);
-    let base = g.tiles.get(base_name(g, lvl));
+    let base = g.tiles.by_id(base_id(g, lvl));
     g.set_tile_default(lvl, x, y, &base);
     g.play_sound(Sound::MonsterHurt);
     true

@@ -10,15 +10,17 @@
 //! which this module also lends to `tree.rs` so every tree family merges into
 //! little forests the same way.
 
-use super::{Neighbors, TileDef, TileKind, TreeSpecies, dispatch, tool_use};
+use super::{Neighbors, TileDef, TileId, TileKind, TreeSpecies, dispatch, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::particle::{new_smash_particle, new_text_particle};
 use crate::entity::{Direction, Entity};
 use crate::gfx::sprite_sheet::cell;
 use crate::gfx::{Screen, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
 use crate::level::infinite_gen::hash;
+use crate::level::tile::ids;
 use crate::level::{drop_item, drop_items_counted};
 
 /// Salt for the interior-canopy variation hash — pure `f(seed, x, y)` like the
@@ -114,7 +116,7 @@ fn canopy_edges(species: TreeSpecies) -> Option<i32> {
 /// Per-species config: base ground tile, health, canopy palette, dead-look darken.
 struct Info {
     /// Tile the species stands on (rendered under the canopy, restored when felled).
-    base: &'static str,
+    base: TileId,
     health: i32,
     /// Canopy / bark palettes, mirroring `tree.rs`'s COL/COL1/COL2 roles. The
     /// dedicated species art is true color, so these only tint the rare palette
@@ -131,7 +133,7 @@ struct Info {
 fn info(species: TreeSpecies) -> Info {
     match species {
         TreeSpecies::Pine => Info {
-            base: "snow",
+            base: ids::SNOW,
             health: 20,
             col: color::get4(10, 20, 141, -1), // blue-cast fir needles
             col1: color::get4(10, 20, 430, -1),
@@ -140,7 +142,7 @@ fn info(species: TreeSpecies) -> Info {
             art: (0, 26),
         },
         TreeSpecies::Dead => Info {
-            base: "sand",
+            base: ids::SAND,
             health: 8, // brittle snag
             col: color::get4(110, 211, 322, -1),
             col1: color::get4(110, 211, 430, -1),
@@ -149,7 +151,7 @@ fn info(species: TreeSpecies) -> Info {
             art: (2, 26),
         },
         TreeSpecies::Willow => Info {
-            base: "grass",
+            base: ids::GRASS,
             health: 20,
             col: color::get4(10, 41, 252, -1), // pale drooping green
             col1: color::get4(10, 41, 430, -1),
@@ -158,7 +160,7 @@ fn info(species: TreeSpecies) -> Info {
             art: (7, 26),
         },
         TreeSpecies::Palm => Info {
-            base: "sand",
+            base: ids::SAND,
             health: 20,
             col: color::get4(20, 40, 251, -1), // warm frond green
             col1: color::get4(20, 40, 541, -1),
@@ -167,7 +169,7 @@ fn info(species: TreeSpecies) -> Info {
             art: (9, 26),
         },
         TreeSpecies::FlatCrown => Info {
-            base: "grass",
+            base: ids::GRASS,
             health: 16,
             col: color::get4(10, 30, 241, -1), // olive savanna crown
             col1: color::get4(10, 30, 430, -1),
@@ -182,7 +184,9 @@ fn info(species: TreeSpecies) -> Info {
 /// felled). Public so the ground-blend/seam pass classifies species tiles by their
 /// *real* base — a pine must read as snow and a dead tree as sand, or seam blending
 /// stipples grass-green into snowfields and dunes (playtest bug #6).
-pub fn base_tile(species: TreeSpecies) -> &'static str {
+///
+/// Returns the name (not the [`TileId`]) because `gfx/lighting.rs` classifies on it.
+pub fn base_tile(species: TreeSpecies) -> ids::TileId {
     info(species).base
 }
 
@@ -196,8 +200,8 @@ fn kind_species(def: &TileDef) -> TreeSpecies {
 pub fn make(name: &str, species: TreeSpecies) -> TileDef {
     let mut def = TileDef::new(name, TileKind::TreeSpecies { species });
     match info(species).base {
-        "snow" => def.connects_to_snow = true,
-        "sand" => def.connects_to_sand = true,
+        ids::SNOW => def.connects_to_snow = true,
+        ids::SAND => def.connects_to_sand = true,
         _ => def.connects_to_grass = true,
     }
     def.flammable = true;
@@ -214,10 +218,10 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let base_name = super::ground_beneath(g, lvl, x, y, inf.base);
     // Badlands: a sand-based snag standing in clay country renders the clay base
     // instead — no yellow squares stamped onto the strata (content wave)
-    let base = if base_name == "sand" && super::clay::clay_country(g, lvl, x, y) {
-        g.tiles.get("Layered Clay")
+    let base = if base_name == ids::SAND && super::clay::clay_country(g, lvl, x, y) {
+        g.tiles.by_id(ids::LAYERED_CLAY)
     } else {
-        g.tiles.get(base_name)
+        g.tiles.by_id(base_name)
     };
     dispatch::render(g, screen, &base, lvl, x, y);
 
@@ -334,12 +338,12 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
 
     // glancing blows knock loose sticks, like the broadleaf (~1 in 6 hits)
     if g.random.next_int_bound(6) == 0 {
-        let stick = crate::item::registry::get(g, "Stick");
+        let stick = crate::item::registry::by_name(g, iname::STICK);
         drop_item(g, lvl, x * 16 + 8, y * 16 + 8, stick);
     }
     // palms occasionally shake a coconut loose before falling
     if species == TreeSpecies::Palm && g.random.next_int_bound(16) == 0 {
-        let coconut = crate::item::registry::get(g, "Coconut");
+        let coconut = crate::item::registry::by_name(g, iname::COCONUT);
         drop_item(g, lvl, x * 16 + 8, y * 16 + 8, coconut);
     }
 
@@ -368,30 +372,30 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
         let (cx, cy) = (x * 16 + 8, y * 16 + 8);
         match species {
             TreeSpecies::Pine => {
-                let wood = crate::item::registry::get(g, "Wood");
+                let wood = crate::item::registry::by_name(g, iname::WOOD);
                 drop_items_counted(g, lvl, cx, cy, 1, 2, &[wood]);
                 // resinous branches: extra sticks instead of a resin item
-                let stick = crate::item::registry::get(g, "Stick");
+                let stick = crate::item::registry::by_name(g, iname::STICK);
                 drop_items_counted(g, lvl, cx, cy, 2, 4, &[stick]);
             }
             TreeSpecies::Dead => {
-                let stick = crate::item::registry::get(g, "Stick");
+                let stick = crate::item::registry::by_name(g, iname::STICK);
                 drop_items_counted(g, lvl, cx, cy, 2, 3, &[stick]);
             }
             TreeSpecies::Willow | TreeSpecies::FlatCrown => {
-                let wood = crate::item::registry::get(g, "Wood");
+                let wood = crate::item::registry::by_name(g, iname::WOOD);
                 drop_items_counted(g, lvl, cx, cy, 1, 2, &[wood]);
-                let stick = crate::item::registry::get(g, "Stick");
+                let stick = crate::item::registry::by_name(g, iname::STICK);
                 drop_items_counted(g, lvl, cx, cy, 1, 2, &[stick]);
             }
             TreeSpecies::Palm => {
-                let wood = crate::item::registry::get(g, "Wood");
+                let wood = crate::item::registry::by_name(g, iname::WOOD);
                 drop_items_counted(g, lvl, cx, cy, 1, 2, &[wood]);
-                let coconut = crate::item::registry::get(g, "Coconut");
+                let coconut = crate::item::registry::by_name(g, iname::COCONUT);
                 drop_items_counted(g, lvl, cx, cy, 1, 2, &[coconut]);
             }
         }
-        let base = g.tiles.get(inf.base);
+        let base = g.tiles.by_id(inf.base);
         g.set_tile_default(lvl, x, y, &base);
     } else {
         g.level_mut(lvl).set_data(x, y, damage);

@@ -7,6 +7,7 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 
 /// Java `CloudCactusTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -75,7 +76,7 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
     );
     g.level_mut(lvl).add(text, lvl);
     if damage >= health {
-        let cloud = g.tiles.get("cloud");
+        let cloud = g.tiles.by_id(ids::CLOUD);
         g.set_tile_default(lvl, x, y, &cloud);
     } else {
         g.level_mut(lvl).set_data(x, y, damage);

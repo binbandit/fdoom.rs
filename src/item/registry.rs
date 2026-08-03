@@ -15,6 +15,7 @@ use crate::entity::furniture::lantern::LanternType;
 use crate::entity::{furniture, mob};
 use crate::gfx::color::get4;
 use crate::gfx::{Sprite, color};
+use crate::item::ids::ItemName;
 use crate::item::{Fill, Inventory, Item, ItemKind, PotionType, ToolType};
 
 /// Java `ToolItem.LEVEL_NAMES`, extended post-port with the "Crude" tier at level 0
@@ -879,28 +880,72 @@ pub fn build_registry(g: &Game) -> Vec<Item> {
     items
 }
 
+/// Fetch a registry item by interned name — the compile-time-checked form.
+///
+/// `iname::IRON_ORE` is a constant the compiler validates and the test suite proves
+/// resolves, so this cannot silently produce an `UnknownItem` the way a string literal
+/// can. Prefer it at every call site that knows which item it wants.
+pub fn by_name(g: &Game, name: ItemName) -> Item {
+    get(g, name.as_str())
+}
+
 /// Java `Items.get(name)` — never null (returns UnknownItem instead).
+///
+/// Kept for callers holding a runtime name. Prefer [`by_name`] when the item is known at
+/// compile time, and [`get_checked`] at a real boundary.
 pub fn get(g: &Game, name: &str) -> Item {
     get_opt(g, name, false).unwrap_or_else(|| new_unknown_item("NULL"))
 }
 
+/// Name lookup that admits failure — the boundary form.
+///
+/// `None` means "no item registers under this name", which is what save loading and the
+/// dev console want to hear; [`get`] instead warns and substitutes an `UnknownItem`,
+/// which reads downstream as a real item and hides the miss. The `NULL`/`UNKNOWN`
+/// sentinels that [`get_opt`] understands are misses here too — they are placeholders,
+/// not items.
+pub fn get_checked(g: &Game, name: &str) -> Option<Item> {
+    let (base, amount, had_suffix) = split_count(name);
+    if base.eq_ignore_ascii_case("NULL") || base.eq_ignore_ascii_case("UNKNOWN") {
+        return None;
+    }
+    let proto = g
+        .items
+        .iter()
+        .find(|i| i.get_name().eq_ignore_ascii_case(base))?;
+    Some(apply_count(proto.clone(), amount, had_suffix))
+}
+
+/// Split a `"name_12"` / `"name;12"` request into its base name and count.
+///
+/// Slices rather than allocating: the count suffix and the case-insensitive compare that
+/// follows both work on the raw input, so the common lookup builds no `String` at all.
+fn split_count(name: &str) -> (&str, i32, bool) {
+    if let Some(idx) = name.find('_').or_else(|| name.find(';')) {
+        (&name[..idx], name[idx + 1..].parse().unwrap_or(1), true)
+    } else {
+        (name, 1, false)
+    }
+}
+
+/// Apply a parsed count suffix: stack size for stackables, durability for tools.
+fn apply_count(mut item: Item, amount: i32, had_suffix: bool) -> Item {
+    if item.is_stackable() {
+        item.set_count(amount);
+    }
+    if had_suffix {
+        if let ItemKind::Tool { dur, .. } = &mut item.kind {
+            *dur = amount;
+        }
+    }
+    item
+}
+
 /// Java `Items.get(name, allowNull)`.
 pub fn get_opt(g: &Game, name: &str, allow_null: bool) -> Option<Item> {
-    let mut name = name.to_uppercase();
-    let mut amount = 1;
-    let mut had_underscore = false;
+    let (base, amount, had_suffix) = split_count(name);
 
-    if let Some(idx) = name.find('_') {
-        had_underscore = true;
-        amount = name[idx + 1..].parse().unwrap_or(1);
-        name.truncate(idx);
-    } else if let Some(idx) = name.find(';') {
-        had_underscore = true;
-        amount = name[idx + 1..].parse().unwrap_or(1);
-        name.truncate(idx);
-    }
-
-    if name == "NULL" {
+    if base.eq_ignore_ascii_case("NULL") {
         if allow_null {
             return None;
         }
@@ -910,31 +955,22 @@ pub fn get_opt(g: &Game, name: &str, allow_null: bool) -> Option<Item> {
         return Some(new_unknown_item("NULL"));
     }
 
-    if name == "UNKNOWN" {
+    if base.eq_ignore_ascii_case("UNKNOWN") {
         return Some(new_unknown_item("BLANK"));
     }
 
-    let found = g
+    match g
         .items
         .iter()
-        .find(|i| i.get_name().eq_ignore_ascii_case(&name));
-
-    match found {
-        Some(proto) => {
-            let mut item = proto.clone();
-            if item.is_stackable() {
-                item.set_count(amount);
-            }
-            if had_underscore {
-                if let ItemKind::Tool { dur, .. } = &mut item.kind {
-                    *dur = amount;
-                }
-            }
-            Some(item)
-        }
+        .find(|i| i.get_name().eq_ignore_ascii_case(base))
+    {
+        Some(proto) => Some(apply_count(proto.clone(), amount, had_suffix)),
         None => {
-            println!("ITEMS GET: invalid name requested: \"{name}\"");
-            Some(new_unknown_item(&name))
+            // only the miss path pays for the uppercase copy; the name is reported and
+            // stored uppercased, as it always has been
+            let upper = base.to_uppercase();
+            println!("ITEMS GET: invalid name requested: \"{upper}\"");
+            Some(new_unknown_item(&upper))
         }
     }
 }

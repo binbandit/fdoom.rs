@@ -7,7 +7,9 @@ use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 
 /// Java `FloorTile` constructor.
 pub fn make(material: Material) -> TileDef {
@@ -43,12 +45,14 @@ pub fn interact(
         return false;
     };
     if tool_use(g, player, item, ToolType::Pickaxe, 4).is_some() {
-        let hole = g.tiles.get("hole");
+        let hole = g.tiles.by_id(ids::HOLE);
         g.set_tile_default(lvl, xt, yt, &hole);
-        let drop = match material {
-            Material::Wood => crate::item::registry::get(g, "Plank"),
-            _ => crate::item::registry::get(g, &format!("{} Brick", material.name())),
+        let drop_name = match material {
+            Material::Wood => iname::PLANK,
+            Material::Stone => iname::STONE_BRICK,
+            Material::Obsidian => iname::OBSIDIAN_BRICK,
         };
+        let drop = crate::item::registry::by_name(g, drop_name);
         crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, drop);
         g.play_sound(Sound::MonsterHurt);
         return true;

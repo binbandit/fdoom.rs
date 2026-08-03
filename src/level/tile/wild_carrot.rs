@@ -7,6 +7,8 @@ use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite};
+use crate::item::ids as iname;
+use crate::level::tile::ids;
 use crate::level::{drop_item, drop_items_counted};
 
 pub fn make(name: &str) -> TileDef {
@@ -16,7 +18,7 @@ pub fn make(name: &str) -> TileDef {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let grass = g.tiles.get("grass");
+    let grass = g.tiles.by_id(ids::GRASS);
     dispatch::render(g, screen, &grass, lvl, x, y);
     let c = crate::assets::sprite_cell("tiles/wild_carrot");
     Sprite::new(c.x, c.y, 2, 2, 0, 0).render(screen, x * 16, y * 16);
@@ -33,11 +35,11 @@ pub fn hurt_by(
     _dmg: i32,
     _attack_dir: Direction,
 ) -> bool {
-    let carrot = crate::item::registry::get(g, "Carrot");
+    let carrot = crate::item::registry::by_name(g, iname::CARROT);
     drop_item(g, lvl, x * 16 + 8, y * 16 + 8, carrot);
-    let seeds = crate::item::registry::get(g, "Carrot Seeds");
+    let seeds = crate::item::registry::by_name(g, iname::CARROT_SEEDS);
     drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[seeds]);
-    let grass = g.tiles.get("grass");
+    let grass = g.tiles.by_id(ids::GRASS);
     g.set_tile_default(lvl, x, y, &grass);
     g.play_sound(Sound::MonsterHurt);
     true

@@ -12,6 +12,8 @@ use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite};
+use crate::item::ids as iname;
+use crate::level::tile::ids;
 use crate::level::{drop_item, drop_items_counted};
 
 /// Ripe when the data byte is 0 (see module docs).
@@ -37,7 +39,7 @@ pub fn make(name: &str) -> TileDef {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let grass = g.tiles.get("grass");
+    let grass = g.tiles.by_id(ids::GRASS);
     dispatch::render(g, screen, &grass, lvl, x, y);
     if g.level(lvl).get_data(x, y) == DATA_RIPE {
         bush_ripe().render(screen, x * 16, y * 16);
@@ -80,14 +82,14 @@ pub fn hurt_by(
     g.play_sound(Sound::MonsterHurt);
     if g.level(lvl).get_data(x, y) == DATA_RIPE {
         // pick: berries off, bush stays
-        let berry = crate::item::registry::get(g, "Berry");
+        let berry = crate::item::registry::by_name(g, iname::BERRY);
         drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[berry]);
         g.level_mut(lvl).set_data(x, y, DATA_REGROWING);
     } else {
         // bare bush: tear it out
-        let stick = crate::item::registry::get(g, "Stick");
+        let stick = crate::item::registry::by_name(g, iname::STICK);
         drop_item(g, lvl, x * 16 + 8, y * 16 + 8, stick);
-        let grass = g.tiles.get("grass");
+        let grass = g.tiles.by_id(ids::GRASS);
         g.set_tile_default(lvl, x, y, &grass);
     }
     true

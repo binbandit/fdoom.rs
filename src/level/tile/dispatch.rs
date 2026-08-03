@@ -56,7 +56,7 @@ pub fn make_coral_tile(name: &str) -> TileDef {
 pub fn make_dry_bush_tile(name: &str) -> TileDef {
     dry_bush::make(name)
 }
-pub fn make_sapling_tile(name: &str, on_type: &str, grows_to: &str) -> TileDef {
+pub fn make_sapling_tile(name: &str, on_type: TileId, grows_to: TileId) -> TileDef {
     sapling::make(name, on_type, grows_to)
 }
 pub fn make_sand_tile(name: &str) -> TileDef {

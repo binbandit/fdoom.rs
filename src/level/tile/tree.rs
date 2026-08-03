@@ -7,7 +7,9 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::entity::particle::{new_smash_particle, new_text_particle};
 use crate::gfx::{Screen, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 use crate::level::{drop_item, drop_items_counted};
 
 /// Legacy leaf palette — the classic cells are true-color art, so this only matters
@@ -23,7 +25,7 @@ pub fn make(name: &str) -> TileDef {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let grass = g.tiles.get("grass");
+    let grass = g.tiles.by_id(ids::GRASS);
     dispatch::render(g, screen, &grass, lvl, x, y);
 
     // The traced classic cells at their historical pinned addresses (TL/TR/BL at
@@ -84,14 +86,14 @@ pub fn interact(
 
 pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i32) {
     if g.random.next_int_bound(100) == 0 {
-        let apple = crate::item::registry::get(g, "Apple");
+        let apple = crate::item::registry::by_name(g, iname::APPLE);
         drop_item(g, lvl, x * 16 + 8, y * 16 + 8, apple);
     }
 
     // Glancing blows knock loose sticks (~1 in 6 hits), so even bare-handed low-damage
     // punching yields the handle for the first crude tool before the tree falls.
     if g.random.next_int_bound(6) == 0 {
-        let stick = crate::item::registry::get(g, "Stick");
+        let stick = crate::item::registry::by_name(g, iname::STICK);
         drop_item(g, lvl, x * 16 + 8, y * 16 + 8, stick);
     }
 
@@ -116,13 +118,13 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
     g.level_mut(lvl).add(text, lvl);
     if damage >= tree_health {
         g.trees_felled_pending += 1; // journal tally (drained by field_notes::tick)
-        let wood = crate::item::registry::get(g, "Wood");
+        let wood = crate::item::registry::by_name(g, iname::WOOD);
         drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[wood]);
-        let acorn = crate::item::registry::get(g, "Acorn");
+        let acorn = crate::item::registry::by_name(g, iname::ACORN);
         drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[acorn]);
-        let stick = crate::item::registry::get(g, "Stick");
+        let stick = crate::item::registry::by_name(g, iname::STICK);
         drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[stick]);
-        let grass = g.tiles.get("grass");
+        let grass = g.tiles.by_id(ids::GRASS);
         g.set_tile_default(lvl, x, y, &grass);
     } else {
         g.level_mut(lvl).set_data(x, y, damage);

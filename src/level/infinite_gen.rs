@@ -15,6 +15,7 @@
 
 use super::chunk::{CHUNK_SIZE, Chunk};
 use super::tile::{Tiles, tidal};
+use crate::level::tile::ids;
 
 /* ---------------------------------- hashing/noise ---------------------------------- */
 
@@ -307,53 +308,56 @@ struct Ids {
 }
 
 impl Ids {
-    fn get(tiles: &Tiles) -> Ids {
-        Ids {
-            grass: tiles.get("grass").id,
-            dirt: tiles.get("dirt").id,
-            sand: tiles.get("sand").id,
-            water: tiles.get("water").id,
-            lava: tiles.get("lava").id,
-            rock: tiles.get("rock").id,
-            tree: tiles.get("tree").id,
-            cactus: tiles.get("cactus").id,
-            flower: tiles.get("flower").id,
-            tall_grass: [
-                tiles.get("small grass").id,
-                tiles.get("medium grass").id,
-                tiles.get("tall grass").id,
-            ],
-            snow: tiles.get("snow").id,
-            snow_tree: tiles.get("snow tree").id,
-            heath: tiles.get("Heath").id,
-            deep_water: tiles.get("Deep Water").id,
-            mud: tiles.get("Mud").id,
-            pine: tiles.get("Pine Tree").id,
-            dead_tree: tiles.get("Dead Tree").id,
-            willow: tiles.get("Willow").id,
-            palm: tiles.get("Palm Tree").id,
-            flat_crown: tiles.get("Flat-Crown Tree").id,
-            berry_bush: tiles.get("Berry Bush").id,
-            mushroom: tiles.get("Mushroom").id,
-            fruiting_cactus: tiles.get("Fruiting Cactus").id,
-            seaweed: tiles.get("Seaweed").id,
-            coral: tiles.get("Coral").id,
-            tidal_flat: tiles.get("Tidal Flat").id,
-            reeds: tiles.get("Reeds").id,
-            dry_bush: tiles.get("Dry Bush").id,
-            wild_carrot: tiles.get("Wild Carrot").id,
-            pumpkin: tiles.get("pumpkin").id,
-            beehive: tiles.get("Beehive").id,
-            clay: tiles.get("Layered Clay").id,
-            ore_freckle: tiles.get("Ore Freckle").id,
-            iron: tiles.get("iron ore").id,
-            gold: tiles.get("gold ore").id,
-            gem: tiles.get("gem ore").id,
-            lapis: tiles.get("lapis").id,
-            stairs_down: tiles.get("stairs down").id,
-            stairs_up: tiles.get("stairs up").id,
-        }
-    }
+    /// The id set, resolved at compile time.
+    ///
+    /// This used to be `Ids::ALL` — a per-call cache that existed only because
+    /// resolving ~40 tile names by string was too expensive to do inline. With interned
+    /// ids there is nothing left to cache.
+    const ALL: Ids = Ids {
+        grass: ids::GRASS.raw(),
+        dirt: ids::DIRT.raw(),
+        sand: ids::SAND.raw(),
+        water: ids::WATER.raw(),
+        lava: ids::LAVA.raw(),
+        rock: ids::ROCK.raw(),
+        tree: ids::TREE.raw(),
+        cactus: ids::CACTUS.raw(),
+        flower: ids::FLOWER.raw(),
+        tall_grass: [
+            ids::SMALL_GRASS.raw(),
+            ids::MEDIUM_GRASS.raw(),
+            ids::TALL_GRASS.raw(),
+        ],
+        snow: ids::SNOW.raw(),
+        snow_tree: ids::SNOW_TREE.raw(),
+        heath: ids::HEATH.raw(),
+        deep_water: ids::DEEP_WATER.raw(),
+        mud: ids::MUD.raw(),
+        pine: ids::PINE_TREE.raw(),
+        dead_tree: ids::DEAD_TREE.raw(),
+        willow: ids::WILLOW.raw(),
+        palm: ids::PALM_TREE.raw(),
+        flat_crown: ids::FLAT_CROWN_TREE.raw(),
+        berry_bush: ids::BERRY_BUSH.raw(),
+        mushroom: ids::MUSHROOM.raw(),
+        fruiting_cactus: ids::FRUITING_CACTUS.raw(),
+        seaweed: ids::SEAWEED.raw(),
+        coral: ids::CORAL.raw(),
+        tidal_flat: ids::TIDAL_FLAT.raw(),
+        reeds: ids::REEDS.raw(),
+        dry_bush: ids::DRY_BUSH.raw(),
+        wild_carrot: ids::WILD_CARROT.raw(),
+        pumpkin: ids::PUMPKIN.raw(),
+        beehive: ids::BEEHIVE.raw(),
+        clay: ids::LAYERED_CLAY.raw(),
+        ore_freckle: ids::ORE_FRECKLE.raw(),
+        iron: ids::IRON_ORE.raw(),
+        gold: ids::GOLD_ORE.raw(),
+        gem: ids::GEM_ORE.raw(),
+        lapis: ids::LAPIS.raw(),
+        stairs_down: ids::STAIRS_DOWN.raw(),
+        stairs_up: ids::STAIRS_UP.raw(),
+    };
 }
 
 /// The biome at a global surface position — Minecraft-scale regions from
@@ -765,7 +769,7 @@ fn mine_tile(seed: i64, depth: i32, x: i32, y: i32, ids: &Ids) -> u8 {
 
 /// Generate one chunk of an infinite layer. Pure: same inputs, same chunk.
 pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) -> Chunk {
-    let ids = Ids::get(tiles);
+    let ids = Ids::ALL;
     let mut chunk = Chunk::new();
 
     let base_x = cx * CHUNK_SIZE;
@@ -806,14 +810,14 @@ pub fn generate_chunk(seed: i64, depth: i32, cx: i32, cy: i32, tiles: &Tiles) ->
     // gates (stairs down, obsidian ring) leading to the finite classic levels
     if depth == 0 || depth == -3 {
         let ring_id = if depth == 0 {
-            tiles.get("hard rock").id
+            ids::HARD_ROCK.raw()
         } else {
-            tiles.get("obsidian wall").id
+            ids::OBSIDIAN_WALL.raw()
         };
         let pad_id = if depth == 0 {
             ids.rock
         } else {
-            tiles.get("obsidian").id
+            ids::OBSIDIAN.raw()
         };
         let stairs = if depth == 0 {
             ids.stairs_up
@@ -888,8 +892,8 @@ pub fn gates_in_rect(seed: i64, depth: i32, x0: i32, y0: i32, x1: i32, y1: i32) 
 
 /// A good spawn position near the origin on the surface: the first grass tile on an
 /// outward spiral (bounded; falls back to (0, 0)).
-pub fn find_surface_spawn(seed: i64, tiles: &Tiles) -> (i32, i32) {
-    let ids = Ids::get(tiles);
+pub fn find_surface_spawn(seed: i64, _tiles: &Tiles) -> (i32, i32) {
+    let ids = Ids::ALL;
     // coarse ring scan (biome regions are hundreds of tiles, so step by 4)
     for radius in 0i32..300 {
         let r = radius * 4;
@@ -929,8 +933,8 @@ mod tests {
     fn no_preplaced_stairs_on_infinite_layers() {
         // descent is dig-based now: generated chunks must not contain stairs tiles
         let tiles = Tiles::new();
-        let down = tiles.get("stairs down").id;
-        let up = tiles.get("stairs up").id;
+        let down = ids::STAIRS_DOWN.raw();
+        let up = ids::STAIRS_UP.raw();
         for depth in [0, -1, -2] {
             for (cx, cy) in [(0, 0), (3, -2), (-5, 7)] {
                 let c = generate_chunk(777, depth, cx, cy, &tiles);
@@ -985,7 +989,7 @@ mod tests {
         let tiles = Tiles::new();
         for seed in [1, 999, -55, 20260707] {
             let (sx, sy) = find_surface_spawn(seed, &tiles);
-            let ids = Ids::get(&tiles);
+            let ids = Ids::ALL;
             assert_eq!(
                 surface_tile(seed, sx, sy, &ids),
                 ids.grass,
@@ -998,8 +1002,7 @@ mod tests {
     fn ocean_has_skerries() {
         // sparse permanent rock stacks stand in open Ocean water (never in the
         // intertidal band, so they are not tide-dependent)
-        let tiles = Tiles::new();
-        let ids = Ids::get(&tiles);
+        let ids = Ids::ALL;
         let seed = 20260707;
         let mut n = 0;
         'sweep: for cy in -400..400i32 {
@@ -1030,8 +1033,7 @@ mod tests {
 
     #[test]
     fn mines_have_ores() {
-        let tiles = Tiles::new();
-        let ids = Ids::get(&tiles);
+        let ids = Ids::ALL;
         for (depth, ore) in [(-1, ids.iron), (-2, ids.gold), (-3, ids.gem)] {
             let mut n = 0;
             for y in -128..128 {

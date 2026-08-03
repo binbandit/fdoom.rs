@@ -902,19 +902,21 @@ fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], 
     // Prop tiles (species trees, cacti, tall grass) render whatever ground really
     // surrounds them (`tile::ground_beneath`, ODDITIES O6/O7); classify them by
     // that same vote so the seam carry agrees with the pixels underneath.
-    let beneath =
-        |default: &'static str| match crate::level::tile::ground_beneath(g, lvl, tx, ty, default) {
-            "snow" => (SNOW_F, GroundFam::Snow),
-            "sand" => (SAND_F, GroundFam::Sand),
-            "mud" => (MUD_F, GroundFam::Mud),
-            "heath" => (NEUTRAL_F, GroundFam::Heath),
-            "dirt" => (biome(), GroundFam::Dirt),
-            "Layered Clay" => (biome(), GroundFam::Other),
+    let beneath = |default: crate::level::tile::ids::TileId| {
+        use crate::level::tile::ids;
+        match crate::level::tile::ground_beneath(g, lvl, tx, ty, default) {
+            ids::SNOW => (SNOW_F, GroundFam::Snow),
+            ids::SAND => (SAND_F, GroundFam::Sand),
+            ids::MUD => (MUD_F, GroundFam::Mud),
+            ids::HEATH => (NEUTRAL_F, GroundFam::Heath),
+            ids::DIRT => (biome(), GroundFam::Dirt),
+            ids::LAYERED_CLAY => (biome(), GroundFam::Other),
             _ => (biome(), GroundFam::Grass),
-        };
+        }
+    };
     match g.tile_at(lvl, tx, ty).kind {
         TileKind::Sand | TileKind::QuickSand => (SAND_F, GroundFam::Sand),
-        TileKind::Cactus | TileKind::FruitingCactus => beneath("sand"),
+        TileKind::Cactus | TileKind::FruitingCactus => beneath(crate::level::tile::ids::SAND),
         // The intertidal band follows the tide. Exposed, it is damp sand with its
         // own family so the wet/dry waterline actually dissolves (see GroundFam::
         // Tidal). Submerged, the tile renders as water — it must then behave like
@@ -944,8 +946,8 @@ fn tile_ground(g: &Game, lvl: usize, seed: i64, tx: i32, ty: i32) -> ([i32; 3], 
         // The dry bush stands on the real local ground too (dry_bush.rs) — same
         // seam rule. Pinned to Sand it carried dune-yellow into all four grass
         // neighbours of a savanna bush: a glow ring around a tan ball (O23).
-        TileKind::DryBush => beneath("sand"),
-        TileKind::TallGrass { .. } => beneath("grass"),
+        TileKind::DryBush => beneath(crate::level::tile::ids::SAND),
+        TileKind::TallGrass { .. } => beneath(crate::level::tile::ids::GRASS),
         TileKind::Grass
         | TileKind::Flower
         | TileKind::Tree

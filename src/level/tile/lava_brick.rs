@@ -8,6 +8,7 @@ use crate::entity::Entity;
 use crate::entity::behavior::{can_wool, mob_hurt_tile};
 use crate::gfx::{Sprite, color};
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 
 /// Java `LavaBrickTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -28,7 +29,7 @@ pub fn interact(
     _attack_dir: Direction,
 ) -> bool {
     if tool_use(g, player, item, ToolType::Pickaxe, 4).is_some() {
-        let lava = g.tiles.get("lava");
+        let lava = g.tiles.by_id(ids::LAVA);
         g.set_tile_default(lvl, xt, yt, &lava);
         g.play_sound(Sound::MonsterHurt);
         return true;

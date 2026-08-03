@@ -8,7 +8,9 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::sprite::Px;
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 
 /// Java static `steppedOn` sprite.
 fn stepped_on_sprite() -> Sprite {
@@ -115,11 +117,11 @@ pub fn interact(
     _attack_dir: Direction,
 ) -> bool {
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
-        let grass = g.tiles.get("grass");
+        let grass = g.tiles.by_id(ids::GRASS);
         g.set_tile_default(lvl, xt, yt, &grass);
         g.play_sound(Sound::MonsterHurt);
         if g.random.next_int_bound(5) == 0 {
-            let seeds = crate::item::registry::get(g, "seeds");
+            let seeds = crate::item::registry::by_name(g, iname::SEEDS);
             for _ in 0..2 {
                 crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, seeds.clone());
             }

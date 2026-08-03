@@ -6,7 +6,9 @@ use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 
 /// Java `WoolTile.WoolColor` — (name, col) in ordinal order.
 const WOOL_COLORS: [(&str, i32); 6] = [
@@ -47,9 +49,9 @@ pub fn interact(
     _attack_dir: Direction,
 ) -> bool {
     if super::tool_use(g, player, item, ToolType::Shovel, 3).is_some() {
-        let hole = g.tiles.get("hole");
+        let hole = g.tiles.by_id(ids::HOLE);
         g.set_tile_default(lvl, xt, yt, &hole);
-        let wool = crate::item::registry::get(g, "Wool");
+        let wool = crate::item::registry::by_name(g, iname::WOOL);
         crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, wool);
         g.play_sound(Sound::MonsterHurt);
         return true;
@@ -84,6 +86,10 @@ pub fn get_name(def: &TileDef, data: i32) -> String {
 }
 
 /// Java `WoolTile.matches(int thisData, String tileInfo)`.
+///
+/// `tile_info` is a genuinely runtime string (item valid-tile lists, e.g. `"WOOL_2"`),
+/// and Java compared it to the name with exact case-sensitive equality — routing it
+/// through `Tiles::id_of` would add name normalization, so the comparison stays as-is.
 pub fn matches(def: &TileDef, this_data: i32, tile_info: &str) -> bool {
     if !tile_info.contains('_') {
         def.name == tile_info

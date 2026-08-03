@@ -9,7 +9,9 @@ use crate::core::io::sound::Sound;
 use crate::entity::behavior::can_swim;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite};
+use crate::item::ids as iname;
 use crate::level::drop_items_counted;
+use crate::level::tile::ids;
 
 /// Swaying fronds. TODO(art): final cells — reuses the tall-grass cell (26,8) over
 /// water for now.
@@ -40,7 +42,7 @@ pub fn make_coral(name: &str) -> TileDef {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let water = g.tiles.get("water");
+    let water = g.tiles.by_id(ids::WATER);
     dispatch::render(g, screen, &water, lvl, x, y);
     match def.kind {
         TileKind::Coral => heads().render(screen, x * 16, y * 16),
@@ -65,15 +67,15 @@ pub fn hurt_by(
 ) -> bool {
     match def.kind {
         TileKind::Coral => {
-            let stone = crate::item::registry::get(g, "Stone");
+            let stone = crate::item::registry::by_name(g, iname::STONE);
             drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[stone]);
         }
         _ => {
-            let fibers = crate::item::registry::get(g, "Grass Fibers");
+            let fibers = crate::item::registry::by_name(g, iname::GRASS_FIBERS);
             drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[fibers]);
         }
     }
-    let water = g.tiles.get("water");
+    let water = g.tiles.by_id(ids::WATER);
     g.set_tile_default(lvl, x, y, &water);
     g.play_sound(Sound::MonsterHurt);
     true

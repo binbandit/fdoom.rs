@@ -11,14 +11,16 @@
 //! Together these replace pre-placed stairwells on infinite worlds: you descend by
 //! digging, exactly like the user asked — "dig deep enough and you get down a level".
 
-use super::{TileDef, TileKind, dispatch, tool_use};
+use super::{TileDef, TileId, TileKind, dispatch, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::{Direction, Entity, EntityKind};
 use crate::gfx::{Screen, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ItemKind, ToolType};
 use crate::level::drop_item;
 use crate::level::infinite_gen::hash;
+use crate::level::tile::ids;
 
 /// Dig stages before the pit bottoms out on rock (then a pickaxe opens the chasm).
 pub const MAX_STAGE: i32 = 2;
@@ -428,7 +430,7 @@ pub fn deep_water_may_pass(g: &Game, e: &Entity) -> bool {
 
 pub fn deep_water_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i32) {
     // ride on the regular water art, darkened — reads as depth on any art style
-    let water = g.tiles.get("water");
+    let water = g.tiles.by_id(ids::WATER);
     dispatch::render(g, screen, &water, lvl, x, y);
 
     // edges facing shallow water feather out through ragged hashed contour bands
@@ -495,14 +497,14 @@ pub fn deep_water_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, 
 /// bottomed-out pit or a chasm fills as Deep Water. (A flooded chasm no longer
 /// drops you: the tile *is* deep water now. The carved pocket below stays dry —
 /// the flood seals the breakthrough rather than pouring through it.)
-pub fn flood_kind(g: &Game, lvl: usize, x: i32, y: i32) -> Option<&'static str> {
+pub fn flood_kind(g: &Game, lvl: usize, x: i32, y: i32) -> Option<TileId> {
     match g.tile_at(lvl, x, y).kind {
         TileKind::DugPit => Some(if g.level(lvl).get_data(x, y) >= MAX_STAGE {
-            "Deep Water"
+            ids::DEEP_WATER
         } else {
-            "water"
+            ids::WATER
         }),
-        TileKind::Chasm => Some("Deep Water"),
+        TileKind::Chasm => Some(ids::DEEP_WATER),
         _ => None,
     }
 }
@@ -515,7 +517,7 @@ pub fn try_flood(g: &mut Game, lvl: usize, x: i32, y: i32) -> bool {
     let Some(kind) = flood_kind(g, lvl, x, y) else {
         return false;
     };
-    let t = g.tiles.get(kind);
+    let t = g.tiles.by_id(kind);
     g.set_tile_default(lvl, x, y, &t);
     true
 }
@@ -538,7 +540,7 @@ pub fn deep_water_tick(g: &mut Game, lvl: usize, xt: i32, yt: i32) {
 
 pub fn dug_pit_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i32) {
     let stage = g.level(lvl).get_data(x, y).clamp(0, MAX_STAGE);
-    let dirt = g.tiles.get("dirt");
+    let dirt = g.tiles.by_id(ids::DIRT);
     dispatch::render(g, screen, &dirt, lvl, x, y);
 
     // a ragged bowl, not a square — and not an island: each stage widens the lip
@@ -620,7 +622,7 @@ pub fn dug_pit_interact(
                 if stage > 0 {
                     g.level_mut(lvl).set_data(xt, yt, stage - 1);
                 } else {
-                    let dirt = g.tiles.get("dirt");
+                    let dirt = g.tiles.by_id(ids::DIRT);
                     g.set_tile_default(lvl, xt, yt, &dirt);
                 }
                 true
@@ -642,7 +644,7 @@ pub fn dug_pit_interact(
     if ttype == ToolType::Shovel && stage < MAX_STAGE {
         if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
             g.level_mut(lvl).set_data(xt, yt, stage + 1);
-            let dirt = crate::item::registry::get(g, "dirt");
+            let dirt = crate::item::registry::by_name(g, iname::DIRT);
             drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
             if stage + 1 == MAX_STAGE {
                 g.push_warning("The pit hits solid rock.");
@@ -661,7 +663,7 @@ pub fn dug_pit_interact(
         && tool_use(g, player, item, ToolType::Pickaxe, 4).is_some()
     {
         open_chasm(g, lvl, xt, yt);
-        let stone = crate::item::registry::get(g, "Stone");
+        let stone = crate::item::registry::by_name(g, iname::STONE);
         drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, stone);
         g.play_sound(Sound::MonsterHurt);
         return true;
@@ -672,7 +674,7 @@ pub fn dug_pit_interact(
 /// Break through the pit floor: this tile becomes a chasm, and the layer below gets a
 /// carved pocket with a ladder back up at the same coordinates.
 fn open_chasm(g: &mut Game, lvl: usize, xt: i32, yt: i32) {
-    let chasm = g.tiles.get("chasm");
+    let chasm = g.tiles.by_id(ids::CHASM);
     g.set_tile_default(lvl, xt, yt, &chasm);
 
     if lvl == 0 {
@@ -685,20 +687,20 @@ fn open_chasm(g: &mut Game, lvl: usize, xt: i32, yt: i32) {
     // make sure the destination chunk exists before carving into it
     crate::level::ensure_chunks_at(g, below, xt, yt, true);
 
-    let dirt = g.tiles.get("dirt");
+    let dirt = g.tiles.by_id(ids::DIRT);
     for dy in -1..=1 {
         for dx in -1..=1 {
             g.set_tile_default(below, xt + dx, yt + dy, &dirt);
         }
     }
-    let ladder = g.tiles.get("ladder");
+    let ladder = g.tiles.by_id(ids::LADDER);
     g.set_tile_default(below, xt, yt, &ladder);
 }
 
 /* --------------------------------- chasm / ladder --------------------------------- */
 
 pub fn chasm_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i32) {
-    let dirt = g.tiles.get("dirt");
+    let dirt = g.tiles.by_id(ids::DIRT);
     dispatch::render(g, screen, &dirt, lvl, x, y);
 
     // the chasm sits inside the excavation that broke through: around the black
@@ -782,8 +784,8 @@ pub fn chasm_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i3
 
 pub fn ladder_render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i32) {
     // reuse the stairs-up glyph over dirt: an unmistakable "up" affordance
-    let stairs_up = g.tiles.get("Stairs Up");
-    let dirt = g.tiles.get("dirt");
+    let stairs_up = g.tiles.by_id(ids::STAIRS_UP);
+    let dirt = g.tiles.by_id(ids::DIRT);
     dispatch::render(g, screen, &dirt, lvl, x, y);
     if let Some(sprite) = stairs_up.sprite.clone() {
         sprite.render(screen, x * 16, y * 16);

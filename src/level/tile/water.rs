@@ -4,12 +4,13 @@
 //! of the ocean→deep boundary feathers out through the same hashed contour bands as
 //! `depth::deep_water_render`.
 
-use super::{ConnectorSprite, TileDef, TileKind, dirt, dispatch, tidal};
+use super::{ConnectorSprite, TileDef, TileKind, dirt, dispatch, tidal, tile_id_at};
 use crate::core::game::Game;
 use crate::entity::Entity;
 use crate::entity::behavior::can_swim;
 use crate::gfx::{Screen, Sprite, color};
 use crate::level::infinite_gen::hash;
+use crate::level::tile::ids;
 
 /// Java `WaterTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -273,12 +274,12 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         yn += g.random.next_int_bound(2) * 2 - 1;
     }
 
-    if g.tile_at(lvl, xn, yn).same_tile(&g.tiles.get("hole")) {
+    if tile_id_at(g, lvl, xn, yn) == ids::HOLE {
         g.set_tile_default(lvl, xn, yn, def);
     }
-    if g.tile_at(lvl, xn, yn).same_tile(&g.tiles.get("lava")) {
+    if tile_id_at(g, lvl, xn, yn) == ids::LAVA {
         // water spreading into lava quenches it to a stone-brick floor
-        let t = g.tiles.get("Stone Bricks");
+        let t = g.tiles.by_id(ids::STONE_BRICKS);
         g.set_tile_default(lvl, xn, yn, &t);
     }
     // excavation flooding: water pours into an adjacent dug pit or chasm and assumes

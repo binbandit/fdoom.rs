@@ -22,7 +22,7 @@
 //! - Surface infinite layers only; a burning tile is owned by the fire overlay
 //!   (`dispatch::tick` checks fire first).
 
-use super::{TileDef, TileKind};
+use super::{TileDef, TileKind, ids};
 use crate::core::game::Game;
 use crate::core::weather;
 use crate::level::infinite_gen::{self, Biome};
@@ -79,11 +79,11 @@ pub fn random_tick(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32) -> b
         // settle: falling snow buries the meadow and whitens broadleaf canopies
         // (a blizzard drives it down BLIZZARD_SETTLE_FACTOR times as fast)
         TileKind::Grass | TileKind::TallGrass { .. } if weather::snowing_at(g, x, y) => {
-            (settle_odds(false, weather::blizzard_at(g, x, y)), "snow")
+            (settle_odds(false, weather::blizzard_at(g, x, y)), ids::SNOW)
         }
         TileKind::Tree if weather::snowing_at(g, x, y) => (
             settle_odds(true, weather::blizzard_at(g, x, y)),
-            "snow tree",
+            ids::SNOW_TREE,
         ),
         // thaw: once the snow stops, visiting snow melts back off — never at home
         TileKind::Snow | TileKind::SnowTree
@@ -91,14 +91,14 @@ pub fn random_tick(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32) -> b
         {
             return false;
         }
-        TileKind::Snow => (THAW_GROUND_ODDS, "grass"),
-        TileKind::SnowTree => (THAW_TREE_ODDS, "tree"),
+        TileKind::Snow => (THAW_GROUND_ODDS, ids::GRASS),
+        TileKind::SnowTree => (THAW_TREE_ODDS, ids::TREE),
         _ => return false,
     };
     if g.random.next_int_bound(odds) != 0 {
         return false;
     }
-    let tile = g.tiles.get(to);
+    let tile = g.tiles.by_id(to);
     g.set_tile_default(lvl, x, y, &tile);
     true
 }

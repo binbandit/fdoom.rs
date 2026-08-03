@@ -10,7 +10,9 @@ use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::level::drop_items_counted;
+use crate::level::tile::ids;
 
 pub fn make(name: &str) -> TileDef {
     // no may_pass override: entities walk under the beams
@@ -18,7 +20,7 @@ pub fn make(name: &str) -> TileDef {
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let dirt = g.tiles.get("dirt");
+    let dirt = g.tiles.by_id(ids::DIRT);
     dispatch::render(g, screen, &dirt, lvl, x, y);
 
     // dedicated prop cells: a full-width header beam over two footed uprights, open
@@ -39,11 +41,11 @@ pub fn hurt_by(
     _attack_dir: Direction,
 ) -> bool {
     // one hit knocks the prop down; the timber is (mostly) recovered
-    let wood = crate::item::registry::get(g, "Wood");
+    let wood = crate::item::registry::by_name(g, iname::WOOD);
     drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[wood]);
-    let stick = crate::item::registry::get(g, "Stick");
+    let stick = crate::item::registry::by_name(g, iname::STICK);
     drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[stick]);
-    let dirt = g.tiles.get("dirt");
+    let dirt = g.tiles.by_id(ids::DIRT);
     g.set_tile_default(lvl, x, y, &dirt);
     g.play_sound(Sound::MonsterHurt);
     true

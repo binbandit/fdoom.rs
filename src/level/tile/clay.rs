@@ -21,8 +21,10 @@ use crate::core::io::sound::Sound;
 use crate::entity::particle::new_smash_particle;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
 use crate::level::infinite_gen::{hash, unit};
+use crate::level::tile::ids;
 use crate::level::{drop_item, drop_items_counted};
 
 /// Salt of the strata phase shift (render-only, but pure `f(seed, x)` like all gen).
@@ -140,9 +142,9 @@ pub fn interact(
 ) -> bool {
     // clay digs like dirt: shovel opens the descent pit
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
-        let pit = g.tiles.get("Dug Pit");
+        let pit = g.tiles.by_id(ids::DUG_PIT);
         g.set_tile_default(lvl, xt, yt, &pit);
-        let dirt = crate::item::registry::get(g, "dirt");
+        let dirt = crate::item::registry::by_name(g, iname::DIRT);
         drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
         g.play_sound(Sound::MonsterHurt);
         return true;
@@ -163,13 +165,13 @@ pub fn freckle_interact(
 ) -> bool {
     if tool_use(g, player, item, ToolType::Pickaxe, 4).is_some() {
         let name = if freckle_is_iron(g.world_seed, xt, yt) {
-            "Iron Ore"
+            iname::IRON_ORE
         } else {
-            "Coal"
+            iname::COAL
         };
-        let ore = crate::item::registry::get(g, name);
+        let ore = crate::item::registry::by_name(g, name);
         drop_items_counted(g, lvl, xt * 16 + 8, yt * 16 + 8, 1, 2, &[ore]);
-        let clay = g.tiles.get("Layered Clay");
+        let clay = g.tiles.by_id(ids::LAYERED_CLAY);
         g.set_tile_default(lvl, xt, yt, &clay);
         g.level_mut(lvl)
             .add(new_smash_particle(xt * 16, yt * 16), lvl);

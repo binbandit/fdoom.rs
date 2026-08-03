@@ -16,7 +16,9 @@ use super::{TileDef, TileKind, dispatch, tool_use};
 use crate::core::game::Game;
 use crate::entity::{Direction, Entity};
 use crate::gfx::Screen;
+use crate::item::ids::{self as iname, ItemName};
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 use crate::level::{drop_item, drop_items_counted};
 
 /// Which crop a `TileKind::Crop` tile is growing.
@@ -63,12 +65,12 @@ impl CropKind {
     }
 
     /// (seed item, produce item) dropped by [`harvest`].
-    fn drops(self) -> (&'static str, &'static str) {
+    fn drops(self) -> (ItemName, ItemName) {
         match self {
-            CropKind::Carrot => ("Carrot Seeds", "Carrot"),
-            CropKind::Potato => ("Seed Potato", "Potato"),
-            CropKind::Corn => ("Corn Kernels", "Corn"),
-            CropKind::PumpkinVine => ("Pumpkin Seeds", "Pumpkin"),
+            CropKind::Carrot => (iname::CARROT_SEEDS, iname::CARROT),
+            CropKind::Potato => (iname::SEED_POTATO, iname::POTATO),
+            CropKind::Corn => (iname::CORN_KERNELS, iname::CORN),
+            CropKind::PumpkinVine => (iname::PUMPKIN_SEEDS, iname::PUMPKIN),
         }
     }
 }
@@ -81,7 +83,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     let TileKind::Crop { crop } = def.kind else {
         return;
     };
-    let farmland = g.tiles.get("farmland");
+    let farmland = g.tiles.by_id(ids::FARMLAND);
     dispatch::render(g, screen, &farmland, lvl, x, y);
 
     let age = g.level(lvl).get_data(x, y);
@@ -96,7 +98,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
 fn near_water(g: &Game, lvl: usize, xs: i32, ys: i32) -> bool {
     crate::level::get_area_tiles(g, lvl, xs, ys, 1, 1)
         .iter()
-        .any(|t| t.name == "WATER")
+        .any(|t| t.tid() == ids::WATER)
 }
 
 pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
@@ -110,7 +112,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
     if age >= RIPE_AGE {
         // ripeness turns a vine into the real pumpkin tile; row crops just wait
         if crop == CropKind::PumpkinVine {
-            let pumpkin = g.tiles.get("pumpkin");
+            let pumpkin = g.tiles.by_id(ids::PUMPKIN);
             g.set_tile_default(lvl, xt, yt, &pumpkin);
         }
         return;
@@ -140,7 +142,7 @@ pub fn interact(
     _attack_dir: Direction,
 ) -> bool {
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
-        let dirt = g.tiles.get("dirt");
+        let dirt = g.tiles.by_id(ids::DIRT);
         g.set_tile_default(lvl, xt, yt, &dirt);
         return true;
     }
@@ -181,7 +183,7 @@ fn harvest(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, entity: &mut
     let age = g.level(lvl).get_data(x, y);
     let (seed_name, produce_name) = crop.drops();
 
-    let seeds = crate::item::registry::get(g, seed_name);
+    let seeds = crate::item::registry::by_name(g, seed_name);
     drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[seeds]);
 
     // an unripe vine only returns seeds; a ripe one is already a pumpkin tile
@@ -193,7 +195,7 @@ fn harvest(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, entity: &mut
         } else {
             0
         };
-        let produce = crate::item::registry::get(g, produce_name);
+        let produce = crate::item::registry::by_name(g, produce_name);
         for _ in 0..count {
             drop_item(g, lvl, x * 16 + 8, y * 16 + 8, produce.clone());
         }
@@ -204,6 +206,6 @@ fn harvest(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, entity: &mut
         }
     }
 
-    let dirt = g.tiles.get("dirt");
+    let dirt = g.tiles.by_id(ids::DIRT);
     g.set_tile_default(lvl, x, y, &dirt);
 }

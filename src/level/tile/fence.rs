@@ -5,6 +5,7 @@ use super::{Neighbors, TileDef, TileKind};
 use crate::core::game::Game;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
+use crate::level::tile::ids;
 
 /// Java `FenceTile` constructor — `super(name)` (no sprite).
 pub fn make(name: &str) -> TileDef {
@@ -24,10 +25,10 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         ur,
         dl,
         dr,
-    } = Neighbors::matching(g, lvl, x, y, |tile| tile.id == def.id);
+    } = Neighbors::matching_id(g, lvl, x, y, |id| id == def.tid());
 
     // ground first, then one 8x8 fence sprite per connected quadrant
-    let dirt = g.tiles.get("dirt");
+    let dirt = g.tiles.by_id(ids::DIRT);
     dispatch::render(g, screen, &dirt, lvl, x, y);
 
     let sprite = Sprite::new1x1(6, 4, transition_color);

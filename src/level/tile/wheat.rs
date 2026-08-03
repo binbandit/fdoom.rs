@@ -5,7 +5,9 @@ use crate::core::game::Game;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 
 /// Java `WheatTile` constructor — `super(name, (Sprite)null)`.
 pub fn make(name: &str) -> TileDef {
@@ -39,7 +41,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: 
 fn if_water(g: &Game, lvl: usize, xs: i32, ys: i32) -> bool {
     let area_tiles = crate::level::get_area_tiles(g, lvl, xs, ys, 1, 1);
     for t in area_tiles {
-        if t.name == "WATER" {
+        if t.tid() == ids::WATER {
             return true;
         }
     }
@@ -75,7 +77,7 @@ pub fn interact(
     _attack_dir: Direction,
 ) -> bool {
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
-        let dirt = g.tiles.get("dirt");
+        let dirt = g.tiles.by_id(ids::DIRT);
         g.set_tile_default(lvl, xt, yt, &dirt);
         return true;
     }
@@ -111,7 +113,7 @@ pub fn hurt_by(
 fn harvest(g: &mut Game, lvl: usize, x: i32, y: i32, entity: &mut Entity) {
     let age = g.level(lvl).get_data(x, y);
 
-    let seeds = crate::item::registry::get(g, "seeds");
+    let seeds = crate::item::registry::by_name(g, iname::SEEDS);
     crate::level::drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[seeds]);
 
     let mut count = 0;
@@ -121,7 +123,7 @@ fn harvest(g: &mut Game, lvl: usize, x: i32, y: i32, entity: &mut Entity) {
         count = g.random.next_int_bound(2) + 1;
     }
 
-    let wheat = crate::item::registry::get(g, "Wheat");
+    let wheat = crate::item::registry::by_name(g, iname::WHEAT);
     for _ in 0..count {
         crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, wheat.clone());
     }
@@ -131,6 +133,6 @@ fn harvest(g: &mut Game, lvl: usize, x: i32, y: i32, entity: &mut Entity) {
         let score_mode = g.is_mode("score");
         entity.player_mut().add_score(points, score_mode);
     }
-    let dirt = g.tiles.get("dirt");
+    let dirt = g.tiles.by_id(ids::DIRT);
     g.set_tile_default(lvl, x, y, &dirt);
 }

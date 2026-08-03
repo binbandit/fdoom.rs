@@ -6,7 +6,9 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::sprite::make_sprite;
 use crate::gfx::{Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ItemKind, ToolType};
+use crate::level::tile::ids;
 
 /// Java `CloudTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -29,7 +31,7 @@ pub fn make(name: &str) -> TileDef {
 /// Java anonymous `ConnectorSprite.connectsTo` override — connects to everything except
 /// Infinite Fall.
 pub fn connects_to(_def: &TileDef, other: &TileDef, _is_side: bool) -> bool {
-    other.name != "INFINITE FALL"
+    other.tid() != ids::INFINITE_FALL
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -55,9 +57,9 @@ pub fn interact(
             && crate::entity::mob::player_behavior::pay_stamina(player, 5)
             && item.pay_durability(g.is_mode("creative"))
         {
-            let infinite_fall = g.tiles.get("Infinite Fall");
+            let infinite_fall = g.tiles.by_id(ids::INFINITE_FALL);
             g.set_tile_default(lvl, xt, yt, &infinite_fall);
-            let cloud = crate::item::registry::get(g, "cloud");
+            let cloud = crate::item::registry::by_name(g, iname::CLOUD);
             crate::level::drop_items_counted(g, lvl, xt * 16 + 8, yt * 16 + 8, 1, 3, &[cloud]);
             return true;
         }

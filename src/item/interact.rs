@@ -6,8 +6,10 @@ use crate::entity::furniture;
 use crate::entity::mob::player::MAX_HUNGER;
 use crate::entity::mob::player_behavior::pay_stamina;
 use crate::entity::{Direction, Entity, EntityKind};
+use crate::item::ids as iname;
 use crate::item::{Fill, Item, ItemKind, PotionType, ToolType, registry};
 use crate::level::tile::dispatch as tiles;
+use crate::level::tile::ids;
 
 /// Java `item.interact(player, entity, attackDir)` (PowerGlove picks up furniture).
 pub fn item_interact_entity(
@@ -80,8 +82,8 @@ pub fn item_interact_on_tile(
         ItemKind::Tool { ttype, .. } => {
             let ttype = *ttype;
             let tile = g.tile_at(lvl, xt, yt);
-            let fishable = tile.id == g.tiles.get("water").id
-                || tile.id == g.tiles.get("Deep Water").id
+            let fishable = tile.id == ids::WATER.raw()
+                || tile.id == ids::DEEP_WATER.raw()
                 || (matches!(tile.kind, crate::level::tile::TileKind::TidalFlat)
                     && crate::level::tile::tidal::is_submerged(g, xt, yt));
             if ttype == ToolType::FishingRod && fishable {
@@ -166,17 +168,17 @@ pub fn item_interact_on_tile(
             let fill = Fill::VALUES
                 .iter()
                 .copied()
-                .find(|f| g.tiles.get(f.contained_tile()).id == tile.id);
+                .find(|f| f.contained_tile() == tile.tid());
             let Some(fill) = fill else { return false };
             if fill == Fill::Empty && filling != Fill::Empty {
-                let t = g.tiles.get(filling.contained_tile());
+                let t = g.tiles.by_id(filling.contained_tile());
                 g.set_tile_default(lvl, xt, yt, &t);
                 if !g.is_mode("creative") {
                     edit_bucket(item, player, Fill::Empty);
                 }
                 true
             } else if filling == Fill::Empty {
-                let t = g.tiles.get("hole");
+                let t = g.tiles.by_id(ids::HOLE);
                 g.set_tile_default(lvl, xt, yt, &t);
                 if !g.is_mode("creative") {
                     edit_bucket(item, player, fill);
@@ -239,7 +241,7 @@ pub fn item_interact_on_tile(
                 player
                     .player_mut()
                     .inventory
-                    .add(registry::get(g, "Empty Can"));
+                    .add(registry::by_name(g, iname::EMPTY_CAN));
                 if g.random.next_int_bound(4) == 0 {
                     let pd = player.player_mut();
                     pd.stamina = (pd.stamina - 4).max(0);
@@ -404,8 +406,8 @@ pub fn item_interact_on_tile(
         // mineral, still water).
         ItemKind::Stackable { .. } if item.get_name().eq_ignore_ascii_case("Empty Bottle") => {
             let tile = g.tile_at(lvl, xt, yt);
-            if tile.id != g.tiles.get("water").id
-                && tile.id != g.tiles.get("Deep Water").id
+            if tile.id != ids::WATER.raw()
+                && tile.id != ids::DEEP_WATER.raw()
                 && !matches!(tile.kind, crate::level::tile::TileKind::SpringWater)
             {
                 return false;

@@ -7,7 +7,9 @@ use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 
 /// Java `Material.ordinal()`.
 fn ordinal(material: Material) -> i32 {
@@ -124,13 +126,13 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
     );
     g.level_mut(lvl).add(text, lvl);
     if damage >= sbw_health {
-        let (item_name, tilename) = match material {
-            Material::Wood => ("Plank", "Wood Planks"),
-            Material::Stone => ("Stone Brick", "Stone Bricks"),
-            Material::Obsidian => ("Obsidian Brick", "Obsidian"),
+        let (item_name, tile_id) = match material {
+            Material::Wood => (iname::PLANK, ids::WOOD_PLANKS),
+            Material::Stone => (iname::STONE_BRICK, ids::STONE_BRICKS),
+            Material::Obsidian => (iname::OBSIDIAN_BRICK, ids::OBSIDIAN),
         };
 
-        let item = crate::item::registry::get(g, item_name);
+        let item = crate::item::registry::by_name(g, item_name);
         crate::level::drop_items_counted(
             g,
             lvl,
@@ -140,7 +142,7 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
             3 - ordinal(material),
             &[item],
         );
-        let tile = g.tiles.get(tilename);
+        let tile = g.tiles.by_id(tile_id);
         g.set_tile_default(lvl, x, y, &tile);
     } else {
         g.level_mut(lvl).set_data(x, y, damage);

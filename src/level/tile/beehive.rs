@@ -23,7 +23,9 @@ use crate::entity::behavior::mob_hurt_tile;
 use crate::entity::particle::new_smoke_particle;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ItemKind};
+use crate::level::tile::ids;
 use crate::level::{drop_item, drop_items_counted};
 
 /// Full hive (fresh chunks generate full for free — data bytes default to 0).
@@ -41,7 +43,7 @@ pub fn make(name: &str) -> TileDef {
 pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: i32, y: i32) {
     // the hive's tree renders exactly like the broadleaf (canopy connects to real
     // tree neighbors), then the hive lump hangs low on the trunk line
-    let tree = g.tiles.get("tree");
+    let tree = g.tiles.by_id(ids::TREE);
     dispatch::render(g, screen, &tree, lvl, x, y);
     let full = g.level(lvl).get_data(x, y) == DATA_FULL;
     let col = if full {
@@ -72,7 +74,7 @@ pub fn tick(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32) {
 }
 
 fn drop_honeycomb(g: &mut Game, lvl: usize, x: i32, y: i32) {
-    let comb = crate::item::registry::get(g, "Honeycomb");
+    let comb = crate::item::registry::by_name(g, iname::HONEYCOMB);
     drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[comb]);
     g.level_mut(lvl).set_data(x, y, DATA_REGROWING);
     g.play_sound(Sound::MonsterHurt);
@@ -101,9 +103,9 @@ pub fn hurt_by(
         }
     } else {
         // spent husk: one hit knocks it down, leaving the plain tree to chop
-        let stick = crate::item::registry::get(g, "Stick");
+        let stick = crate::item::registry::by_name(g, iname::STICK);
         drop_item(g, lvl, x * 16 + 8, y * 16 + 8, stick);
-        let tree = g.tiles.get("tree");
+        let tree = g.tiles.by_id(ids::TREE);
         g.set_tile_default(lvl, x, y, &tree);
         g.play_sound(Sound::MonsterHurt);
     }

@@ -7,8 +7,10 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::entity::particle::{new_smash_particle, new_text_particle};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids::{self as iname, ItemName};
 use crate::item::{Item, ToolType};
 use crate::level::drop_item;
+use crate::level::tile::ids;
 
 /// Java `OreType.color`.
 pub fn ore_color(ore_type: OreType) -> i32 {
@@ -21,18 +23,18 @@ pub fn ore_color(ore_type: OreType) -> i32 {
 }
 
 /// Java `OreType.drop` (the item name; `OreType.getOre()` clones it).
-fn ore_item_name(ore_type: OreType) -> &'static str {
+fn ore_item_name(ore_type: OreType) -> ItemName {
     match ore_type {
-        OreType::Iron => "Iron Ore",
-        OreType::Lapis => "Lapis",
-        OreType::Gold => "Gold Ore",
-        OreType::Gem => "Gem",
+        OreType::Iron => iname::IRON_ORE,
+        OreType::Lapis => iname::LAPIS,
+        OreType::Gold => iname::GOLD_ORE,
+        OreType::Gem => iname::GEM,
     }
 }
 
 /// Java `OreType.getOre()`.
 pub fn get_ore(g: &Game, ore_type: OreType) -> Item {
-    crate::item::registry::get(g, ore_item_name(ore_type))
+    crate::item::registry::by_name(g, ore_item_name(ore_type))
 }
 
 /// Java `OreTile` constructor.
@@ -132,7 +134,7 @@ pub fn hurt_dmg(g: &mut Game, def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i3
     if dmg > 0 {
         let mut count = g.random.next_int_bound(2);
         if damage >= ore_h {
-            let dirt = g.tiles.get("dirt");
+            let dirt = g.tiles.by_id(ids::DIRT);
             g.set_tile_default(lvl, x, y, &dirt);
             count += 2;
             // fossicking: ore still hiding within 2 tiles sparkles briefly, so the

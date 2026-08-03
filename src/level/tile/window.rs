@@ -17,6 +17,8 @@ use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
+use crate::level::tile::ids;
 
 pub fn make(name: &str) -> TileDef {
     let mut def = TileDef::new(name, TileKind::Window);
@@ -70,10 +72,10 @@ pub fn hurt_by(
     _attack_dir: Direction,
 ) -> bool {
     if g.random.next_int_bound(2) == 0 {
-        let glass = crate::item::registry::get(g, "glass");
+        let glass = crate::item::registry::by_name(g, iname::GLASS);
         crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, glass);
     }
-    let planks = g.tiles.get("Wood Planks");
+    let planks = g.tiles.by_id(ids::WOOD_PLANKS);
     g.set_tile_default(lvl, x, y, &planks);
     g.play_sound(Sound::MonsterHurt);
     let smash = crate::entity::particle::new_smash_particle(x * 16, y * 16);

@@ -7,7 +7,9 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::sprite::make_sprite;
 use crate::gfx::{Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ItemKind, ToolType};
+use crate::level::tile::ids;
 
 /// Java `HardRockTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -97,11 +99,11 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
     );
     g.level_mut(lvl).add(text, lvl);
     if damage >= hr_health {
-        let stone = crate::item::registry::get(g, "Stone");
+        let stone = crate::item::registry::by_name(g, iname::STONE);
         crate::level::drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 3, &[stone]);
-        let coal = crate::item::registry::get(g, "coal");
+        let coal = crate::item::registry::by_name(g, iname::COAL);
         crate::level::drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 0, 1, &[coal]);
-        let dirt = g.tiles.get("dirt");
+        let dirt = g.tiles.by_id(ids::DIRT);
         g.set_tile_default(lvl, x, y, &dirt);
     } else {
         g.level_mut(lvl).set_data(x, y, damage);

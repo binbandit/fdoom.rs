@@ -24,8 +24,10 @@ use crate::core::updater::DAY_LENGTH;
 use crate::entity::behavior::can_swim;
 use crate::entity::{Entity, EntityKind};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::level::drop_item;
 use crate::level::infinite_gen::{hash, land_at, unit};
+use crate::level::tile::ids;
 
 /// The tidal band in `land`-field units: low tide exposes down to `BAND_LOW`, high
 /// tide submerges up to `BAND_HIGH`. Sits inside the Ocean strip (`land < 0.42`) and
@@ -71,7 +73,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i32) {
     if is_submerged(g, x, y) {
         // under the tide: ride on the regular water art, a touch darker than open
         // water so the flooded flat still reads as "shallow shore"
-        let water = g.tiles.get("water");
+        let water = g.tiles.by_id(ids::WATER);
         dispatch::render(g, screen, &water, lvl, x, y);
         screen.darken_rect(x * 16, y * 16, 16, 16, 40);
         return;
@@ -83,7 +85,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, lvl: usize, x: i32, y: i32) {
     // connector *shapes* in a damp palette, so the flat still blends seamlessly
     // into the dry beach above it. Shade roles: 0 damp patch, 1 base, 2 sheen,
     // 3 ripple shadow.
-    let mut wet = (*g.tiles.get("sand")).clone();
+    let mut wet = (*g.tiles.by_id(ids::SAND)).clone();
     let cs = wet.csprite.as_mut().expect("sand has a csprite");
     cs.sparse = Sprite::new(11, 0, 3, 3, color::get4(330, 431, 330, 210), 3);
     cs.sides = cs.sparse.clone();
@@ -180,12 +182,12 @@ pub fn tick(g: &mut Game, lvl: usize, xt: i32, yt: i32) {
         yt,
     ));
     let name = if roll < 0.55 {
-        "Grass Fibers"
+        iname::GRASS_FIBERS
     } else if roll < 0.95 {
-        "Stone"
+        iname::STONE
     } else {
-        "gem"
+        iname::GEM
     };
-    let item = crate::item::registry::get(g, name);
+    let item = crate::item::registry::by_name(g, name);
     drop_item(g, lvl, cx, cy, item);
 }

@@ -27,6 +27,7 @@ use super::chunk::{CHUNK_SIZE, Chunk, chunk_coord};
 use super::infinite_gen::{Biome, biome_at, hash, richness_at, unit};
 use super::tile::{Tiles, fossick};
 use crate::core::game::Game;
+use crate::level::tile::ids;
 use crate::rng::Rng;
 
 /// Largest half-extent of any feature footprint (stamp/query padding).
@@ -143,9 +144,9 @@ pub fn spring_pool_tiles(seed: i64, sx: i32, sy: i32) -> Vec<(i32, i32)> {
 }
 
 /// Tile writes of one hot spring, in stamping order. Pure.
-pub fn spring_writes(seed: i64, sx: i32, sy: i32, tiles: &Tiles) -> Vec<(i32, i32, u8)> {
-    let spring = tiles.get("Spring Water").id;
-    let rock = tiles.get("rock").id;
+pub fn spring_writes(seed: i64, sx: i32, sy: i32, _tiles: &Tiles) -> Vec<(i32, i32, u8)> {
+    let spring = ids::SPRING_WATER.raw();
+    let rock = ids::ROCK.raw();
     let mut w = Vec::new();
     // the odd sitting stone on the rim first, so the pool always wins an overlap
     for (i, (dx, dy)) in [(2, 1), (-2, -1), (1, -2)].into_iter().enumerate() {
@@ -161,12 +162,12 @@ pub fn spring_writes(seed: i64, sx: i32, sy: i32, tiles: &Tiles) -> Vec<(i32, i3
 
 /// Surface tile writes of one mine shaft: spoil apron, plank floor remnant, the
 /// headframe props, rubble, and the chasm mouth last. Pure.
-pub fn shaft_surface_writes(seed: i64, sx: i32, sy: i32, tiles: &Tiles) -> Vec<(i32, i32, u8)> {
-    let dirt = tiles.get("dirt").id;
-    let rock = tiles.get("rock").id;
-    let planks = tiles.get("Wood Planks").id;
-    let prop = tiles.get("Timber Prop").id;
-    let chasm = tiles.get("Chasm").id;
+pub fn shaft_surface_writes(seed: i64, sx: i32, sy: i32, _tiles: &Tiles) -> Vec<(i32, i32, u8)> {
+    let dirt = ids::DIRT.raw();
+    let rock = ids::ROCK.raw();
+    let planks = ids::WOOD_PLANKS.raw();
+    let prop = ids::TIMBER_PROP.raw();
+    let chasm = ids::CHASM.raw();
     let detail = |x: i32, y: i32| unit(hash(seed, SHAFT_DETAIL_SALT, x, y));
     let mut w = Vec::new();
     // trampled spoil apron, ragged at the edge
@@ -203,13 +204,18 @@ pub fn shaft_surface_writes(seed: i64, sx: i32, sy: i32, tiles: &Tiles) -> Vec<(
 /// rubble flag on the fallen rocks. Pure; the whole pocket is carved
 /// unconditionally over whatever `mine_tile` generated, so the room exists no
 /// matter how the cave noise rolled.
-pub fn shaft_gallery_writes(seed: i64, sx: i32, sy: i32, tiles: &Tiles) -> Vec<(i32, i32, u8, u8)> {
-    let dirt = tiles.get("dirt").id;
-    let rock = tiles.get("rock").id;
-    let prop = tiles.get("Timber Prop").id;
-    let ladder = tiles.get("Ladder").id;
-    let iron = tiles.get("iron ore").id;
-    let lapis = tiles.get("lapis").id;
+pub fn shaft_gallery_writes(
+    seed: i64,
+    sx: i32,
+    sy: i32,
+    _tiles: &Tiles,
+) -> Vec<(i32, i32, u8, u8)> {
+    let dirt = ids::DIRT.raw();
+    let rock = ids::ROCK.raw();
+    let prop = ids::TIMBER_PROP.raw();
+    let ladder = ids::LADDER.raw();
+    let iron = ids::IRON_ORE.raw();
+    let lapis = ids::LAPIS.raw();
     let detail = |x: i32, y: i32| unit(hash(seed, SHAFT_DETAIL_SALT ^ 0x6A11, x, y));
     let mut w: Vec<(i32, i32, u8, u8)> = Vec::new();
 

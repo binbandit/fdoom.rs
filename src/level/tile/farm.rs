@@ -6,6 +6,7 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 
 /// Java `FarmTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -34,7 +35,7 @@ pub fn interact(
     _attack_dir: Direction,
 ) -> bool {
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
-        let dirt = g.tiles.get("dirt");
+        let dirt = g.tiles.by_id(ids::DIRT);
         g.set_tile_default(lvl, xt, yt, &dirt);
         return true;
     }
@@ -61,6 +62,6 @@ pub fn stepped_on(g: &mut Game, _def: &TileDef, lvl: usize, xt: i32, yt: i32, _e
     if g.level(lvl).get_data(xt, yt) < 5 {
         return;
     }
-    let dirt = g.tiles.get("dirt");
+    let dirt = g.tiles.by_id(ids::DIRT);
     g.set_tile_default(lvl, xt, yt, &dirt);
 }

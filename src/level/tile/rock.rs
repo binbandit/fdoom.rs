@@ -21,9 +21,11 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::entity::particle::{new_smash_particle, new_text_particle};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
 use crate::level::drop_items_counted;
 use crate::level::infinite_gen;
+use crate::level::tile::ids;
 
 // Coal eligibility is decided per break, never stored: `hurt_dmg_inner` takes a
 // `drops_coal` flag — true from the pickaxe interact (and creative breaks), false from
@@ -98,19 +100,19 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     }
     if !interior {
         let under = if snow_n >= grass_n.max(sand_n) && snow_n > 0 {
-            "snow"
+            ids::SNOW
         } else if water_n > grass_n.max(sand_n) {
-            "water"
+            ids::WATER
         } else if heath_n > grass_n.max(sand_n) {
-            "heath"
+            ids::HEATH
         } else if sand_n > grass_n {
-            "sand"
+            ids::SAND
         } else if grass_n > 0 {
-            "grass"
+            ids::GRASS
         } else {
-            "dirt" // mines: the gallery floor
+            ids::DIRT // mines: the gallery floor
         };
-        let under = g.tiles.get(under);
+        let under = g.tiles.by_id(under);
         dispatch::render(g, screen, &under, lvl, x, y);
     }
     let col = color::get4(111, 444, 555, -1);
@@ -274,7 +276,7 @@ fn hurt_dmg_inner(
         };
         if !drops_coal {
             let (min, max) = if rubble { (1, 2) } else { (1, 4) };
-            let stone = crate::item::registry::get(g, "Stone");
+            let stone = crate::item::registry::by_name(g, iname::STONE);
             drop_items_counted(
                 g,
                 lvl,
@@ -285,7 +287,7 @@ fn hurt_dmg_inner(
                 &[stone],
             );
         } else {
-            let stone = crate::item::registry::get(g, "Stone");
+            let stone = crate::item::registry::by_name(g, iname::STONE);
             drop_items_counted(
                 g,
                 lvl,
@@ -301,10 +303,10 @@ fn hurt_dmg_inner(
                 mincoal += 1;
                 maxcoal += 1;
             }
-            let coal = crate::item::registry::get(g, "coal");
+            let coal = crate::item::registry::by_name(g, iname::COAL);
             drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, mincoal, maxcoal, &[coal]);
         }
-        let dirt = g.tiles.get("dirt");
+        let dirt = g.tiles.by_id(ids::DIRT);
         g.set_tile_default(lvl, x, y, &dirt);
         // fossicking: a widening unpropped gallery can bring the ceiling down
         // (rubble falls never re-trigger, so collapses don't cascade)

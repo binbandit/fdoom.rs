@@ -7,7 +7,9 @@ use super::{TileDef, TileKind};
 use crate::core::game::Game;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::level::drop_item;
+use crate::level::tile::ids;
 
 /// Java `PumpkinTile` constructor; `lit = true` is the Jack-O-Lantern.
 pub fn make(name: &str, lit: bool) -> TileDef {
@@ -19,7 +21,7 @@ pub fn make(name: &str, lit: bool) -> TileDef {
 
 #[allow(clippy::too_many_arguments)]
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let grass = g.tiles.get("grass");
+    let grass = g.tiles.by_id(ids::GRASS);
     dispatch::render(g, screen, &grass, lvl, x, y);
     if let Some(sprite) = &def.sprite {
         sprite.render_color(screen, x * 16, y * 16, color::get4(-1, 210, 530, 550));
@@ -54,17 +56,17 @@ pub fn hurt_by(
     _attack_dir: Direction,
 ) -> bool {
     let item_name = match def.kind {
-        TileKind::Pumpkin { lit: true } => "Jack-O-Lantern",
-        _ => "Pumpkin",
+        TileKind::Pumpkin { lit: true } => iname::JACK_O_LANTERN,
+        _ => iname::PUMPKIN,
     };
-    let item = crate::item::registry::get(g, item_name);
+    let item = crate::item::registry::by_name(g, item_name);
     drop_item(g, lvl, x * 16 + 8, y * 16 + 8, item);
     // farming wave: an uncarved pumpkin spills seed stock for a farmland vine
     if !matches!(def.kind, TileKind::Pumpkin { lit: true }) {
-        let seeds = crate::item::registry::get(g, "Pumpkin Seeds");
+        let seeds = crate::item::registry::by_name(g, iname::PUMPKIN_SEEDS);
         crate::level::drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 0, 2, &[seeds]);
     }
-    let grass = g.tiles.get("grass");
+    let grass = g.tiles.by_id(ids::GRASS);
     g.set_tile_default(lvl, x, y, &grass);
     g.play_sound(crate::core::io::sound::Sound::MonsterHurt);
     true

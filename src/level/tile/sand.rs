@@ -6,8 +6,10 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::sprite::Px;
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
 use crate::level::drop_item;
+use crate::level::tile::ids;
 
 /// Java `SandTile.steppedOn` (the static footprint sprite).
 fn stepped_on_sprite() -> Sprite {
@@ -94,9 +96,9 @@ pub fn interact(
         return true;
     }
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
-        let dirt = g.tiles.get("dirt");
+        let dirt = g.tiles.by_id(ids::DIRT);
         g.set_tile_default(lvl, xt, yt, &dirt);
-        let sand = crate::item::registry::get(g, "sand");
+        let sand = crate::item::registry::by_name(g, iname::SAND);
         drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, sand);
         return true;
     }

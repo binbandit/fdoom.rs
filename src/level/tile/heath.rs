@@ -15,9 +15,11 @@ use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
 use crate::level::drop_item;
 use crate::level::infinite_gen::{hash, unit};
+use crate::level::tile::ids;
 
 /// Salt of the heather-patch cluster field (coarse cells + per-tile edge roll).
 const HEATHER_SALT: u64 = 0x4EA7; // "heat(h)"
@@ -86,11 +88,11 @@ pub fn interact(
 ) -> bool {
     // shovelling the stony turf exposes plain dirt; the gravel sometimes pays a stone
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
-        let dirt = g.tiles.get("dirt");
+        let dirt = g.tiles.by_id(ids::DIRT);
         g.set_tile_default(lvl, xt, yt, &dirt);
         g.play_sound(Sound::MonsterHurt);
         if g.random.next_int_bound(3) == 0 {
-            let stone = crate::item::registry::get(g, "Stone");
+            let stone = crate::item::registry::by_name(g, iname::STONE);
             drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, stone);
         }
         return true;

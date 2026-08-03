@@ -7,8 +7,10 @@ use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::{Direction, Entity};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
 use crate::level::drop_item;
+use crate::level::tile::ids;
 
 pub fn make(name: &str) -> TileDef {
     // Deliberately NOT `connects_to_water`: mud is a bank, not part of the pool.
@@ -39,9 +41,9 @@ pub fn interact(
         return true;
     }
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
-        let pit = g.tiles.get("Dug Pit");
+        let pit = g.tiles.by_id(ids::DUG_PIT);
         g.set_tile_default(lvl, xt, yt, &pit);
-        let dirt = crate::item::registry::get(g, "dirt");
+        let dirt = crate::item::registry::by_name(g, iname::DIRT);
         drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
         g.play_sound(Sound::MonsterHurt);
         return true;

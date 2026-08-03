@@ -6,7 +6,9 @@ use crate::core::game::Game;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 use crate::level::{drop_item, drop_items_counted};
 
 /// Three meadow species on the `tiles/flower_species` strip (one 8x8 cell each):
@@ -43,11 +45,11 @@ pub fn hurt_by(
     _dmg: i32,
     _attack_dir: Direction,
 ) -> bool {
-    let flower = crate::item::registry::get(g, "Flower");
+    let flower = crate::item::registry::by_name(g, iname::FLOWER);
     drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[flower]);
-    let rose = crate::item::registry::get(g, "Rose");
+    let rose = crate::item::registry::by_name(g, iname::ROSE);
     drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 0, 1, &[rose]);
-    let grass = g.tiles.get("grass");
+    let grass = g.tiles.by_id(ids::GRASS);
     g.set_tile_default(lvl, x, y, &grass);
     true
 }
@@ -64,11 +66,11 @@ pub fn interact(
     _attack_dir: Direction,
 ) -> bool {
     if tool_use(g, player, item, ToolType::Shovel, 2).is_some() {
-        let flower = crate::item::registry::get(g, "Flower");
+        let flower = crate::item::registry::by_name(g, iname::FLOWER);
         drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, flower);
-        let rose = crate::item::registry::get(g, "Rose");
+        let rose = crate::item::registry::by_name(g, iname::ROSE);
         drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, rose);
-        let grass = g.tiles.get("grass");
+        let grass = g.tiles.by_id(ids::GRASS);
         g.set_tile_default(lvl, xt, yt, &grass);
         return true;
     }
@@ -76,7 +78,7 @@ pub fn interact(
 }
 
 pub fn render(g: &mut Game, screen: &mut Screen, _def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let grass = g.tiles.get("grass");
+    let grass = g.tiles.by_id(ids::GRASS);
     dispatch::render(g, screen, &grass, lvl, x, y);
 
     // Species and blossom placement vary per position (gen never writes flower

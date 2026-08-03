@@ -1,13 +1,15 @@
 //! Port of `fdoom.level.tile.GrassTile`.
 
-use super::{ConnectorSprite, TileDef, TileKind, tool_use};
+use super::{ConnectorSprite, TileDef, TileKind, tile_id_at, tool_use};
 use crate::core::game::Game;
 use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
 use crate::level::drop_item;
+use crate::level::tile::ids;
 
 /// Java `GrassTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -38,7 +40,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
         yn += g.random.next_int_bound(2) * 2 - 1;
     }
 
-    if g.tile_at(lvl, xn, yn).same_tile(&g.tiles.get("dirt")) {
+    if tile_id_at(g, lvl, xn, yn) == ids::DIRT {
         g.set_tile_default(lvl, xn, yn, def);
     }
 
@@ -60,17 +62,17 @@ pub fn interact(
     _attack_dir: Direction,
 ) -> bool {
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
-        let dirt = g.tiles.get("dirt");
+        let dirt = g.tiles.by_id(ids::DIRT);
         g.set_tile_default(lvl, xt, yt, &dirt);
         g.play_sound(Sound::MonsterHurt);
         // Digging up turf occasionally frees usable fibers — the rare plain-grass
         // counterpart to the reliable Tall Grass drop.
         if g.random.next_int_bound(4) == 0 {
-            let fibers = crate::item::registry::get(g, "Grass Fibers");
+            let fibers = crate::item::registry::by_name(g, iname::GRASS_FIBERS);
             drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, fibers);
         }
         if g.random.next_int_bound(5) == 0 {
-            let seeds = crate::item::registry::get(g, "seeds");
+            let seeds = crate::item::registry::by_name(g, iname::SEEDS);
             for _ in 0..2 {
                 drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, seeds.clone());
             }
@@ -82,11 +84,11 @@ pub fn interact(
         g.play_sound(Sound::MonsterHurt);
         // hoeing either turns up seeds or readies the ground, never both
         if g.random.next_int_bound(5) == 0 {
-            let seeds = crate::item::registry::get(g, "seeds");
+            let seeds = crate::item::registry::by_name(g, iname::SEEDS);
             drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, seeds);
             return true;
         }
-        let farmland = g.tiles.get("farmland");
+        let farmland = g.tiles.by_id(ids::FARMLAND);
         g.set_tile_default(lvl, xt, yt, &farmland);
         return true;
     }

@@ -7,6 +7,8 @@ use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
+use crate::level::tile::ids;
 
 /// Java static `small` sprite.
 fn small() -> Sprite {
@@ -46,7 +48,9 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     };
     // draw the actual ground first, then the tuft over it — overgrowth tufts on a
     // cemetery/town dirt plot used to stamp grass-green squares (ODDITIES O6)
-    let on_type = g.tiles.get(super::ground_beneath(g, lvl, x, y, "grass"));
+    let on_type = g
+        .tiles
+        .by_id(super::ground_beneath(g, lvl, x, y, ids::GRASS));
     dispatch::render(g, screen, &on_type, lvl, x, y);
     match kind {
         0 => small().render(screen, x * 16, y * 16),
@@ -65,8 +69,8 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
     // slow growth: ~1-in-2000 per random tick, so a stage takes a few in-game days
     if kind < 2 && g.random.next_int_bound(2000) == 4 {
         let next = match kind {
-            0 => g.tiles.get_id(40),
-            _ => g.tiles.get_id(41),
+            0 => g.tiles.by_id(ids::MEDIUM_GRASS),
+            _ => g.tiles.by_id(ids::TALL_GRASS),
         };
         g.set_tile_default(lvl, xt, yt, &next);
     }
@@ -86,15 +90,15 @@ pub fn hurt_by(
     let TileKind::TallGrass { kind } = def.kind else {
         return false;
     };
-    let grass = g.tiles.get("grass");
+    let grass = g.tiles.by_id(ids::GRASS);
     g.set_tile_default(lvl, x, y, &grass);
     g.play_sound(Sound::MonsterHurt);
 
     // Drops scale with growth (kind 0/1 = small/medium, 2 = tall). Tall grass is the
     // reliable fiber source of the bare-handed starter loop; every stage can also
     // uncover a loose stone "pebble" — the no-pickaxe way to get Stone for knapping.
-    let fibers = crate::item::registry::get(g, "grass fibers");
-    let stone = crate::item::registry::get(g, "Stone");
+    let fibers = crate::item::registry::by_name(g, iname::GRASS_FIBERS);
+    let stone = crate::item::registry::by_name(g, iname::STONE);
     if kind == KIND_REEDS {
         // reeds shred into fibers, no pebbles (they grow in soft marsh ground)
         for _ in 0..2 {

@@ -6,8 +6,10 @@ use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
 use crate::level::drop_item;
+use crate::level::tile::ids;
 
 /// Java `DirtTile.dCol(depth)` — the readable dirt color for a level depth.
 pub fn d_col(depth: i32) -> i32 {
@@ -54,15 +56,15 @@ pub fn interact(
     }
     if tool_use(g, player, item, ToolType::Shovel, 4).is_some() {
         // multi-level terrain: shoveling starts a pit you can keep digging deeper
-        let pit = g.tiles.get("Dug Pit");
+        let pit = g.tiles.by_id(ids::DUG_PIT);
         g.set_tile_default(lvl, xt, yt, &pit);
-        let dirt = crate::item::registry::get(g, "dirt");
+        let dirt = crate::item::registry::by_name(g, iname::DIRT);
         drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, dirt);
         g.play_sound(Sound::MonsterHurt);
         return true;
     }
     if tool_use(g, player, item, ToolType::Hoe, 4).is_some() {
-        let farmland = g.tiles.get("farmland");
+        let farmland = g.tiles.by_id(ids::FARMLAND);
         g.set_tile_default(lvl, xt, yt, &farmland);
         g.play_sound(Sound::MonsterHurt);
         return true;

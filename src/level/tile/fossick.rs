@@ -29,7 +29,9 @@ use crate::entity::Entity;
 use crate::entity::mob::player_behavior::pay_stamina;
 use crate::entity::particle::new_smash_particle;
 use crate::item::Item;
+use crate::item::ids as iname;
 use crate::level::infinite_gen::{hash, richness_at, river_zone_at, unit};
+use crate::level::tile::ids;
 use crate::level::{drop_item, get_entities_in_tiles};
 
 /// The panning dish's item name (a plain stackable; tiles recognize it by name).
@@ -179,21 +181,25 @@ pub fn try_pan(
         // tubers live in surface creek banks; underground pools pan them as silt
         PanFind::Tuber if g.level(lvl).depth < 0 => (None, "Nothing but gray sand."),
         PanFind::Tuber => (
-            Some("Seed Potato"),
+            Some(iname::SEED_POTATO),
             "A knobbly tuber rolls out of the silt.",
         ),
-        PanFind::Stone => (Some("Stone"), "A smooth stone clacks in the pan."),
-        PanFind::Coal => (Some("Coal"), "Black flecks settle in the pan."),
-        PanFind::Iron => (Some("Iron Ore"), "A rusty gleam in the gravel."),
-        PanFind::Gold => (Some("Gold Ore"), "A gold nugget winks up at you!"),
-        PanFind::Gem => (Some("gem"), "A gemstone glitters in the silt!"),
+        PanFind::Stone => (Some(iname::STONE), "A smooth stone clacks in the pan."),
+        PanFind::Coal => (Some(iname::COAL), "Black flecks settle in the pan."),
+        PanFind::Iron => (Some(iname::IRON_ORE), "A rusty gleam in the gravel."),
+        PanFind::Gold => (Some(iname::GOLD_ORE), "A gold nugget winks up at you!"),
+        PanFind::Gem => (Some(iname::GEM), "A gemstone glitters in the silt!"),
     };
     if let Some(name) = name {
         // journal tally: real ore only (stones and tubers don't count)
-        if matches!(name, "Coal" | "Iron Ore" | "Gold Ore" | "gem") && player.is_player() {
+        if matches!(
+            name,
+            iname::COAL | iname::IRON_ORE | iname::GOLD_ORE | iname::GEM
+        ) && player.is_player()
+        {
             player.player_mut().notes.ore_panned += 1;
         }
-        let find = crate::item::registry::get(g, name);
+        let find = crate::item::registry::by_name(g, name);
         drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, find);
     }
     g.notifications.push(note.to_string());
@@ -278,7 +284,7 @@ pub fn fuse_tick(g: &mut Game, lvl: usize, x: i32, y: i32) {
 
     // fill nearby open floor with rubble — the broken tile first, then its cardinal
     // neighbors — skipping any tile a mob (or the player) is standing on
-    let rock = g.tiles.get("rock");
+    let rock = g.tiles.by_id(ids::ROCK);
     let mut fell = 0usize;
     for (dx, dy) in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1)] {
         if fell >= RUBBLE_MAX {

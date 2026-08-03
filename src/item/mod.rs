@@ -5,6 +5,7 @@
 //! live in `interact.rs`; this module holds the data model and the `Items` registry.
 
 pub mod cooking;
+pub mod ids;
 pub mod interact;
 pub mod inventory;
 pub mod potion_type;
@@ -21,7 +22,7 @@ pub use tool_type::ToolType;
 use crate::entity::Entity;
 use crate::gfx::{Sprite, color};
 
-/// Java `BucketItem.Fill`. (`contained` tile ids resolve via `fill_contained_tile`.)
+/// Java `BucketItem.Fill`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fill {
     Empty,
@@ -40,12 +41,13 @@ impl Fill {
         }
     }
 
-    /// The tile name Java stored as `contained` (resolved to a Tile at use time).
-    pub fn contained_tile(self) -> &'static str {
+    /// The tile a bucket of this fill pours out (and fills from).
+    pub fn contained_tile(self) -> crate::level::tile::TileId {
+        use crate::level::tile::ids;
         match self {
-            Fill::Empty => "hole",
-            Fill::Water => "water",
-            Fill::Lava => "lava",
+            Fill::Empty => ids::HOLE,
+            Fill::Water => ids::WATER,
+            Fill::Lava => ids::LAVA,
         }
     }
 

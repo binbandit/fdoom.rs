@@ -21,7 +21,7 @@
 //! Entities standing in flames are hurt from `behavior::mob_tick_base` (the same
 //! hook lava uses); the hurt-time window paces the damage.
 
-use super::{TileDef, TileKind};
+use super::{TileDef, TileId, TileKind, ids, tile_id_at};
 use crate::core::game::Game;
 use crate::core::weather;
 use crate::gfx::Screen;
@@ -97,21 +97,21 @@ pub fn extinguish(g: &mut Game, lvl: usize, x: i32, y: i32) {
 }
 
 /// What a burnt-out tile collapses into.
-fn burn_product(def: &TileDef) -> &'static str {
+fn burn_product(def: &TileDef) -> TileId {
     match def.kind {
         // walls and doors drop into charred plank flooring — the rubble stage, which
         // is itself flammable, so a burning house burns *down*, not just out
-        TileKind::Wall { .. } | TileKind::Door { .. } => "Wood Planks",
+        TileKind::Wall { .. } | TileKind::Door { .. } => ids::WOOD_PLANKS,
         // everything else — trees, brush, and the plank floor itself — chars to dirt
-        _ => "dirt",
+        _ => ids::DIRT,
     }
 }
 
 /// Does this neighbor tile douse adjacent flames (open water / wet ground)?
-fn is_wet(def: &TileDef) -> bool {
+fn is_wet(id: TileId) -> bool {
     matches!(
-        def.name.as_str(),
-        "WATER" | "DEEP WATER" | "MUD" | "TIDAL FLAT"
+        id,
+        ids::WATER | ids::DEEP_WATER | ids::MUD | ids::TIDAL_FLAT
     )
 }
 
@@ -131,7 +131,7 @@ pub fn random_tick(g: &mut Game, lvl: usize, x: i32, y: i32) {
     // wet neighbors smother the fire (1-in-2 per burn tick)
     let wet_neighbor = [(0, -1), (0, 1), (-1, 0), (1, 0)]
         .iter()
-        .any(|&(dx, dy)| is_wet(&g.tile_at(lvl, x + dx, y + dy)));
+        .any(|&(dx, dy)| is_wet(tile_id_at(g, lvl, x + dx, y + dy)));
     if wet_neighbor && g.random.next_int_bound(2) == 0 {
         extinguish(g, lvl, x, y);
         puff_smoke(g, lvl, x, y);
@@ -156,7 +156,7 @@ pub fn random_tick(g: &mut Game, lvl: usize, x: i32, y: i32) {
     // advance burn progress; at the end of the fuel, collapse into the burn product
     let progress = (g.level(lvl).get_data(x, y) & !BURN_FLAG) + 1;
     if progress >= fuel.burn_ticks() {
-        let product = g.tiles.get(burn_product(&def));
+        let product = g.tiles.by_id(burn_product(&def));
         g.set_tile_default(lvl, x, y, &product);
     } else {
         g.level_mut(lvl).set_data(x, y, BURN_FLAG | progress);

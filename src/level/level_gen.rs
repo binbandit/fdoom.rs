@@ -9,6 +9,7 @@
 //! which draws from the live game Rng rather than the world seed.
 
 use crate::level::tile::Tiles;
+use crate::level::tile::ids;
 use crate::rng::Rng;
 
 /// Minimum spacing between generated stairwells, in tiles.
@@ -132,7 +133,7 @@ pub fn create_and_validate_map(
     w: i32,
     h: i32,
     level: i32,
-    tiles: &Tiles,
+    _tiles: &Tiles,
     world_seed: i64,
     gen_type: &str,
     theme: &str,
@@ -142,7 +143,6 @@ pub fn create_and_validate_map(
         return Some(create_and_validate_top_map(
             w,
             h,
-            tiles,
             world_seed,
             gen_type,
             theme,
@@ -150,12 +150,12 @@ pub fn create_and_validate_map(
         ));
     }
     if level == -4 {
-        return Some(create_and_validate_dungeon(w, h, tiles, world_seed));
+        return Some(create_and_validate_dungeon(w, h, world_seed));
     }
 
     if level > -4 && level < 0 {
         return Some(create_and_validate_underground_map(
-            w, h, -level, tiles, world_seed,
+            w, h, -level, world_seed,
         ));
     }
 
@@ -167,7 +167,6 @@ pub fn create_and_validate_map(
 fn create_and_validate_top_map(
     w: i32,
     h: i32,
-    tiles: &Tiles,
     world_seed: i64,
     gen_type: &str,
     theme: &str,
@@ -176,7 +175,7 @@ fn create_and_validate_top_map(
     let mut random = Rng::new(world_seed);
     let mut attempt = 0;
     loop {
-        let result = create_top_map(w, h, tiles, &mut random, gen_type, theme);
+        let result = create_top_map(w, h, &mut random, gen_type, theme);
 
         let mut count = [0i32; 256];
 
@@ -186,32 +185,32 @@ fn create_and_validate_top_map(
 
         attempt += 1;
 
-        if count[(tiles.get("rock").id) as usize] < 100 {
+        if count[(ids::ROCK.raw()) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("sand").id) as usize] < 100 {
+        if count[(ids::SAND.raw()) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("grass").id) as usize] < 100 {
+        if count[(ids::GRASS.raw()) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("tree").id) as usize] < 100 {
+        if count[(ids::TREE.raw()) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("snow").id) as usize] < 100 {
+        if count[(ids::SNOW.raw()) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("Stairs Down").id) as usize] < w / 21 {
+        if count[(ids::STAIRS_DOWN.raw()) as usize] < w / 21 {
             continue; // size 128 = 6 stairs min
         }
-        if count[(tiles.get("Quick Sand").id) as usize] < 1 {
+        if count[(ids::QUICK_SAND.raw()) as usize] < 1 {
             continue;
         }
 
         let mut attempt_history = 0;
         loop {
             // add human influence
-            let humans = history_gen::add_history_to_map(&result, w, h, tiles, history_random);
+            let humans = history_gen::add_history_to_map(&result, w, h, history_random);
 
             attempt_history += 1;
             if attempt_history > 5 {
@@ -233,10 +232,10 @@ fn create_and_validate_top_map(
                 count[((humans.0[i] as i8 as i32) & 0xfff) as usize] += 1;
             }
 
-            if count[(tiles.get("fence").id) as usize] < 15 {
+            if count[(ids::FENCE.raw()) as usize] < 15 {
                 continue;
             }
-            if count[(tiles.get("grave stone").id) as usize] < 9 {
+            if count[(ids::GRAVE_STONE.raw()) as usize] < 9 {
                 continue;
             }
 
@@ -250,29 +249,28 @@ fn create_and_validate_underground_map(
     w: i32,
     h: i32,
     depth: i32,
-    tiles: &Tiles,
     world_seed: i64,
 ) -> (Vec<u8>, Vec<u8>) {
     let mut random = Rng::new(world_seed);
     loop {
-        let result = create_underground_map(w, h, depth, tiles, &mut random);
+        let result = create_underground_map(w, h, depth, &mut random);
 
         let mut count = [0i32; 256];
 
         for i in 0..(w * h) as usize {
             count[result.0[i] as usize] += 1;
         }
-        if count[(tiles.get("rock").id) as usize] < 100 {
+        if count[(ids::ROCK.raw()) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("dirt").id) as usize] < 100 {
+        if count[(ids::DIRT.raw()) as usize] < 100 {
             continue;
         }
-        if count[((tiles.get("iron Ore").id) as i32 + depth - 1) as usize] < 20 {
+        if count[((ids::IRON_ORE.raw()) as i32 + depth - 1) as usize] < 20 {
             continue;
         }
 
-        if depth < 3 && count[(tiles.get("Stairs Down").id) as usize] < w / 32 {
+        if depth < 3 && count[(ids::STAIRS_DOWN.raw()) as usize] < w / 32 {
             continue; // size 128 = 4 stairs min
         }
 
@@ -280,25 +278,20 @@ fn create_and_validate_underground_map(
     }
 }
 
-fn create_and_validate_dungeon(
-    w: i32,
-    h: i32,
-    tiles: &Tiles,
-    world_seed: i64,
-) -> (Vec<u8>, Vec<u8>) {
+fn create_and_validate_dungeon(w: i32, h: i32, world_seed: i64) -> (Vec<u8>, Vec<u8>) {
     let mut random = Rng::new(world_seed);
     loop {
-        let result = create_dungeon(w, h, tiles, &mut random);
+        let result = create_dungeon(w, h, &mut random);
 
         let mut count = [0i32; 256];
 
         for i in 0..(w * h) as usize {
             count[result.0[i] as usize] += 1;
         }
-        if count[(tiles.get("Obsidian").id) as usize] < 100 {
+        if count[(ids::OBSIDIAN.raw()) as usize] < 100 {
             continue;
         }
-        if count[(tiles.get("Obsidian Wall").id) as usize] < 100 {
+        if count[(ids::OBSIDIAN_WALL.raw()) as usize] < 100 {
             continue;
         }
 
@@ -309,7 +302,6 @@ fn create_and_validate_dungeon(
 fn create_top_map(
     w: i32,
     h: i32,
-    tiles: &Tiles,
     random: &mut Rng,
     gen_type: &str,
     theme: &str,
@@ -350,54 +342,54 @@ fn create_top_map(
                 "Island" => {
                     if val < -0.5 {
                         if theme == "Hell" {
-                            map[i] = tiles.get("lava").id;
+                            map[i] = ids::LAVA.raw();
                         } else {
-                            map[i] = tiles.get("water").id;
+                            map[i] = ids::WATER.raw();
                         }
                     } else if val > 0.5 && mval < -1.5 {
-                        map[i] = tiles.get("rock").id;
+                        map[i] = ids::ROCK.raw();
                     } else {
-                        map[i] = tiles.get("grass").id;
+                        map[i] = ids::GRASS.raw();
                     }
                 }
                 "Box" => {
                     if val < -1.5 {
                         if theme == "Hell" {
-                            map[i] = tiles.get("lava").id;
+                            map[i] = ids::LAVA.raw();
                         } else {
-                            map[i] = tiles.get("water").id;
+                            map[i] = ids::WATER.raw();
                         }
                     } else if val > 0.5 && mval < -1.5 {
-                        map[i] = tiles.get("rock").id;
+                        map[i] = ids::ROCK.raw();
                     } else {
-                        map[i] = tiles.get("grass").id;
+                        map[i] = ids::GRASS.raw();
                     }
                 }
                 "Mountain" => {
                     if val < -0.4 {
-                        map[i] = tiles.get("grass").id;
+                        map[i] = ids::GRASS.raw();
                     } else if val > 0.5 && mval < -1.5 {
                         if theme == "Hell" {
-                            map[i] = tiles.get("lava").id;
+                            map[i] = ids::LAVA.raw();
                         } else {
-                            map[i] = tiles.get("water").id;
+                            map[i] = ids::WATER.raw();
                         }
                     } else {
-                        map[i] = tiles.get("rock").id;
+                        map[i] = ids::ROCK.raw();
                     }
                 }
                 "Irregular" => {
                     if val < -0.5 && mval < -0.5 {
                         if theme == "Hell" {
-                            map[i] = tiles.get("lava").id;
+                            map[i] = ids::LAVA.raw();
                         }
                         if theme != "Hell" {
-                            map[i] = tiles.get("water").id;
+                            map[i] = ids::WATER.raw();
                         }
                     } else if val > 0.5 && mval < -1.5 {
-                        map[i] = tiles.get("rock").id;
+                        map[i] = ids::ROCK.raw();
                     } else {
-                        map[i] = tiles.get("grass").id;
+                        map[i] = ids::GRASS.raw();
                     }
                 }
                 _ => {} // unrecognized gen type: tiles stay id 0 (grass)
@@ -418,8 +410,8 @@ fn create_top_map(
                     for xx in xo - 1..=xo + 1 {
                         if xx >= 0 && yy >= 0 && xx < w && yy < h {
                             let idx = (xx + yy * w) as usize;
-                            if map[idx] == tiles.get("grass").id {
-                                map[idx] = tiles.get("snow").id;
+                            if map[idx] == ids::GRASS.raw() {
+                                map[idx] = ids::SNOW.raw();
                             }
                         }
                     }
@@ -436,8 +428,8 @@ fn create_top_map(
             let yy = y + random.next_int_bound(5) - random.next_int_bound(5);
             if xx >= 0 && yy >= 0 && xx < w && yy < h {
                 let idx = (xx + yy * w) as usize;
-                if map[idx] == tiles.get("grass").id {
-                    map[idx] = tiles.get("pumpkin").id;
+                if map[idx] == ids::GRASS.raw() {
+                    map[idx] = ids::PUMPKIN.raw();
                 }
             }
         }
@@ -452,8 +444,8 @@ fn create_top_map(
             let yy = y + random.next_int_bound(5) - random.next_int_bound(5);
             if xx >= 0 && yy >= 0 && xx < w && yy < h {
                 let idx = (xx + yy * w) as usize;
-                if map[idx] == tiles.get("grass").id {
-                    map[idx] = tiles.get("grave stone").id;
+                if map[idx] == ids::GRASS.raw() {
+                    map[idx] = ids::GRAVE_STONE.raw();
                 }
             }
         }
@@ -473,8 +465,8 @@ fn create_top_map(
                         for xx in xo - 1..=xo + 1 {
                             if xx >= 0 && yy >= 0 && xx < w && yy < h {
                                 let idx = (xx + yy * w) as usize;
-                                if map[idx] == tiles.get("grass").id {
-                                    map[idx] = tiles.get("sand").id;
+                                if map[idx] == ids::GRASS.raw() {
+                                    map[idx] = ids::SAND.raw();
                                 }
                             }
                         }
@@ -498,8 +490,8 @@ fn create_top_map(
                         for xx in xo - 1..=xo + 1 {
                             if xx >= 0 && yy >= 0 && xx < w && yy < h {
                                 let idx = (xx + yy * w) as usize;
-                                if map[idx] == tiles.get("grass").id {
-                                    map[idx] = tiles.get("sand").id;
+                                if map[idx] == ids::GRASS.raw() {
+                                    map[idx] = ids::SAND.raw();
                                 }
                             }
                         }
@@ -518,8 +510,8 @@ fn create_top_map(
                 let yy = y + random.next_int_bound(15) - random.next_int_bound(15);
                 if xx >= 0 && yy >= 0 && xx < w && yy < h {
                     let idx = (xx + yy * w) as usize;
-                    if map[idx] == tiles.get("grass").id {
-                        map[idx] = tiles.get("tree").id;
+                    if map[idx] == ids::GRASS.raw() {
+                        map[idx] = ids::TREE.raw();
                     }
                 }
             }
@@ -534,10 +526,10 @@ fn create_top_map(
                 let yy = y + random.next_int_bound(15) - random.next_int_bound(15);
                 if xx >= 0 && yy >= 0 && xx < w && yy < h {
                     let idx = (xx + yy * w) as usize;
-                    if map[idx] == tiles.get("grass").id {
-                        map[idx] = tiles.get("tree").id;
-                    } else if map[idx] == tiles.get("snow").id {
-                        map[idx] = tiles.get("snow tree").id;
+                    if map[idx] == ids::GRASS.raw() {
+                        map[idx] = ids::TREE.raw();
+                    } else if map[idx] == ids::SNOW.raw() {
+                        map[idx] = ids::SNOW_TREE.raw();
                     }
                 }
             }
@@ -553,8 +545,8 @@ fn create_top_map(
                 let yy = y + random.next_int_bound(15) - random.next_int_bound(15);
                 if xx >= 0 && yy >= 0 && xx < w && yy < h {
                     let idx = (xx + yy * w) as usize;
-                    if map[idx] == tiles.get("grass").id {
-                        map[idx] = tiles.get("tree").id;
+                    if map[idx] == ids::GRASS.raw() {
+                        map[idx] = ids::TREE.raw();
                     }
                 }
             }
@@ -569,8 +561,8 @@ fn create_top_map(
                 let yy = y + random.next_int_bound(15) - random.next_int_bound(15);
                 if xx >= 0 && yy >= 0 && xx < w && yy < h {
                     let idx = (xx + yy * w) as usize;
-                    if map[idx] == tiles.get("grass").id {
-                        map[idx] = tiles.get("tree").id;
+                    if map[idx] == ids::GRASS.raw() {
+                        map[idx] = ids::TREE.raw();
                     }
                 }
             }
@@ -586,8 +578,8 @@ fn create_top_map(
             let yy = y + random.next_int_bound(5) - random.next_int_bound(5);
             if xx >= 0 && yy >= 0 && xx < w && yy < h {
                 let idx = (xx + yy * w) as usize;
-                if map[idx] == tiles.get("grass").id {
-                    map[idx] = tiles.get("flower").id;
+                if map[idx] == ids::GRASS.raw() {
+                    map[idx] = ids::FLOWER.raw();
                     // data determines which way the flower faces
                     data[idx] = (col + random.next_int_bound(4) * 16) as u8;
                 }
@@ -600,8 +592,8 @@ fn create_top_map(
         let yy = random.next_int_bound(h);
         if xx >= 0 && yy >= 0 && xx < w && yy < h {
             let idx = (xx + yy * w) as usize;
-            if map[idx] == tiles.get("sand").id {
-                map[idx] = tiles.get("cactus").id;
+            if map[idx] == ids::SAND.raw() {
+                map[idx] = ids::CACTUS.raw();
             }
         }
     }
@@ -611,8 +603,8 @@ fn create_top_map(
         let yy = random.next_int_bound(h);
         if xx >= 0 && yy >= 0 && xx < w && yy < h {
             let idx = (xx + yy * w) as usize;
-            if map[idx] == tiles.get("sand").id {
-                map[idx] = tiles.get("Quick Sand").id;
+            if map[idx] == ids::SAND.raw() {
+                map[idx] = ids::QUICK_SAND.raw();
                 break;
             }
         }
@@ -629,7 +621,7 @@ fn create_top_map(
         // completely surrounded by rock.
         for yy in y - 1..=y + 1 {
             for xx in x - 1..=x + 1 {
-                if map[(xx + yy * w) as usize] != tiles.get("rock").id {
+                if map[(xx + yy * w) as usize] != ids::ROCK.raw() {
                     continue 'stairs_loop;
                 }
             }
@@ -639,13 +631,13 @@ fn create_top_map(
         // other stairsDown tile.
         for yy in 0.max(y - STAIR_RADIUS)..=(h - 1).min(y + STAIR_RADIUS) {
             for xx in 0.max(x - STAIR_RADIUS)..=(w - 1).min(x + STAIR_RADIUS) {
-                if map[(xx + yy * w) as usize] == tiles.get("Stairs Down").id {
+                if map[(xx + yy * w) as usize] == ids::STAIRS_DOWN.raw() {
                     continue 'stairs_loop;
                 }
             }
         }
 
-        map[(x + y * w) as usize] = tiles.get("Stairs Down").id;
+        map[(x + y * w) as usize] = ids::STAIRS_DOWN.raw();
 
         count += 1;
         if count >= w / 21 {
@@ -656,7 +648,7 @@ fn create_top_map(
     (map, data)
 }
 
-fn create_dungeon(w: i32, h: i32, tiles: &Tiles, random: &mut Rng) -> (Vec<u8>, Vec<u8>) {
+fn create_dungeon(w: i32, h: i32, random: &mut Rng) -> (Vec<u8>, Vec<u8>) {
     let noise1 = LevelGen::new(w, h, 8, random);
     let noise2 = LevelGen::new(w, h, 8, random);
 
@@ -684,9 +676,9 @@ fn create_dungeon(w: i32, h: i32, tiles: &Tiles, random: &mut Rng) -> (Vec<u8>, 
             let val = val + 1.0 - dist * 2.0;
 
             if val < -0.35 {
-                map[i] = tiles.get("Obsidian Wall").id;
+                map[i] = ids::OBSIDIAN_WALL.raw();
             } else {
-                map[i] = tiles.get("Obsidian").id;
+                map[i] = ids::OBSIDIAN.raw();
             }
         }
     }
@@ -697,29 +689,23 @@ fn create_dungeon(w: i32, h: i32, tiles: &Tiles, random: &mut Rng) -> (Vec<u8>, 
 
         for yy in y - 1..=y + 1 {
             for xx in x - 1..=x + 1 {
-                if map[(xx + yy * w) as usize] != tiles.get("Obsidian Wall").id {
+                if map[(xx + yy * w) as usize] != ids::OBSIDIAN_WALL.raw() {
                     continue 'lava_loop;
                 }
             }
         }
 
-        map[(x + y * w) as usize] = tiles.get("lava").id;
-        map[(x + (y + 1) * w) as usize] = tiles.get("lava").id;
-        map[(x + 1 + (y + 1) * w) as usize] = tiles.get("lava").id;
-        map[(x + 1 + y * w) as usize] = tiles.get("lava").id;
+        map[(x + y * w) as usize] = ids::LAVA.raw();
+        map[(x + (y + 1) * w) as usize] = ids::LAVA.raw();
+        map[(x + 1 + (y + 1) * w) as usize] = ids::LAVA.raw();
+        map[(x + 1 + y * w) as usize] = ids::LAVA.raw();
     }
 
     (map, data)
 }
 
 /// Java `createUndergroundMap`.
-fn create_underground_map(
-    w: i32,
-    h: i32,
-    depth: i32,
-    tiles: &Tiles,
-    random: &mut Rng,
-) -> (Vec<u8>, Vec<u8>) {
+fn create_underground_map(w: i32, h: i32, depth: i32, random: &mut Rng) -> (Vec<u8>, Vec<u8>) {
     let mnoise1 = LevelGen::new(w, h, 16, random);
     let mnoise2 = LevelGen::new(w, h, 16, random);
     let mnoise3 = LevelGen::new(w, h, 16, random);
@@ -770,16 +756,16 @@ fn create_underground_map(
             // integer division first is deliberate: depth / 2 * 3 = 0, 3, 3 for depths 1..=3
             if val > -1.0 && wval < -1.0 + (depth / 2 * 3) as f64 {
                 if depth == 3 {
-                    map[i] = tiles.get("lava").id;
+                    map[i] = ids::LAVA.raw();
                 } else if depth == 1 {
-                    map[i] = tiles.get("dirt").id;
+                    map[i] = ids::DIRT.raw();
                 } else {
-                    map[i] = tiles.get("water").id;
+                    map[i] = ids::WATER.raw();
                 }
             } else if val > -2.0 && (mval < -1.7 || nval < -1.4) {
-                map[i] = tiles.get("dirt").id;
+                map[i] = ids::DIRT.raw();
             } else {
-                map[i] = tiles.get("rock").id;
+                map[i] = ids::ROCK.raw();
             }
         }
     }
@@ -793,8 +779,8 @@ fn create_underground_map(
                 let yy = y + random.next_int_bound(5) - random.next_int_bound(5);
                 if xx >= r && yy >= r && xx < w - r && yy < h - r {
                     let idx = (xx + yy * w) as usize;
-                    if map[idx] == tiles.get("rock").id {
-                        map[idx] = ((tiles.get("iron Ore").id) as i32 + depth - 1) as u8;
+                    if map[idx] == ids::ROCK.raw() {
+                        map[idx] = ((ids::IRON_ORE.raw()) as i32 + depth - 1) as u8;
                     }
                 }
             }
@@ -803,8 +789,8 @@ fn create_underground_map(
                 let yy = y + random.next_int_bound(3) - random.next_int_bound(2);
                 if xx >= r && yy >= r && xx < w - r && yy < h - r {
                     let idx = (xx + yy * w) as usize;
-                    if map[idx] == tiles.get("rock").id {
-                        map[idx] = tiles.get("Lapis").id;
+                    if map[idx] == ids::ROCK.raw() {
+                        map[idx] = ids::LAPIS.raw();
                     }
                 }
             }
@@ -821,8 +807,8 @@ fn create_underground_map(
         for _ in 0..(w * h / 380) {
             for _ in 0..10 {
                 if xx < w - r && yy < h - r {
-                    let ow = tiles.get("Obsidian Wall").id;
-                    let ob = tiles.get("Obsidian").id;
+                    let ow = ids::OBSIDIAN_WALL.raw();
+                    let ob = ids::OBSIDIAN.raw();
                     map[(xx + yy * w) as usize] = ow;
                     map[(xx + 1 + yy * w) as usize] = ow;
                     map[(xx + (yy + 1) * w) as usize] = ow;
@@ -841,7 +827,7 @@ fn create_underground_map(
                     map[(xx + 3 + (yy + 3) * w) as usize] = ob;
                     map[(xx + 3 + (yy + 4) * w) as usize] = ow;
                     map[(xx + 2 + (yy + 1) * w) as usize] = ob;
-                    map[(xx + 2 + (yy + 2) * w) as usize] = tiles.get("Stairs Down").id;
+                    map[(xx + 2 + (yy + 2) * w) as usize] = ids::STAIRS_DOWN.raw();
                     map[(xx + 2 + (yy + 3) * w) as usize] = ob;
                     map[(xx + 2 + (yy + 4) * w) as usize] = ow;
                     map[(xx + 1 + (yy + 1) * w) as usize] = ob;
@@ -861,7 +847,7 @@ fn create_underground_map(
 
             for yy in y - 1..=y + 1 {
                 for xx in x - 1..=x + 1 {
-                    if map[(xx + yy * w) as usize] != tiles.get("rock").id {
+                    if map[(xx + yy * w) as usize] != ids::ROCK.raw() {
                         continue 'stairs_loop;
                     }
                 }
@@ -871,13 +857,13 @@ fn create_underground_map(
             // other stairsDown tile.
             for yy in 0.max(y - STAIR_RADIUS)..=(h - 1).min(y + STAIR_RADIUS) {
                 for xx in 0.max(x - STAIR_RADIUS)..=(w - 1).min(x + STAIR_RADIUS) {
-                    if map[(xx + yy * w) as usize] == tiles.get("Stairs Down").id {
+                    if map[(xx + yy * w) as usize] == ids::STAIRS_DOWN.raw() {
                         continue 'stairs_loop;
                     }
                 }
             }
 
-            map[(x + y * w) as usize] = tiles.get("Stairs Down").id;
+            map[(x + y * w) as usize] = ids::STAIRS_DOWN.raw();
             count += 1;
             if count >= w / 32 {
                 break;
@@ -891,30 +877,26 @@ fn create_underground_map(
 /// "Human history" decoration for the surface map: stamps ruins (currently only
 /// graveyards) onto suitable terrain clusters.
 mod history_gen {
-    use crate::level::tile::Tiles;
+    use crate::level::tile::ids;
     use crate::rng::Rng;
 
-    // Patterns store tile ids as signed bytes; -1 ("O") is transparent. Note the name
-    // quirk: `Tiles.get("farm")` doesn't resolve (the tile is registered as "Farmland")
-    // and falls back to Grass (id 0) with a console warning — kept, since the active
-    // patterns don't use it.
+    // Patterns store tile ids as signed bytes; -1 ("O") is transparent.
     struct Patterns {
         #[allow(dead_code)]
         hut1: Vec<Vec<i8>>,
         graveyard1: Vec<Vec<i8>>,
     }
 
-    fn make_patterns(tiles: &Tiles) -> Patterns {
+    fn make_patterns() -> Patterns {
         let o: i8 = -1; // zer0 (transparent)
-        let g = tiles.get("grass").id as i8; // Grass
-        let d = tiles.get("dirt").id as i8; // Dirt
-        let w = tiles.get_id(32).id as i8; // Wooden Wall
-        let f = tiles.get("fence").id as i8; // Fence
-        let a = tiles.get("farm").id as i8; // farmland ("farm" falls back to Grass; see above)
-        let s = tiles.get_id(33).id as i8; // Stone wall
-        let p = tiles.get_id(30).id as i8; // Stone floor
-        let gr = tiles.get("Grave stone").id as i8; // Grave stone
-        let _ = (o, g, a, s, p); // unused by the active patterns
+        let g = ids::GRASS.raw() as i8; // Grass
+        let d = ids::DIRT.raw() as i8; // Dirt
+        let w = ids::WOOD_WALL.raw() as i8; // Wooden Wall
+        let f = ids::FENCE.raw() as i8; // Fence
+        let s = ids::STONE_WALL.raw() as i8; // Stone wall
+        let p = ids::STONE_BRICKS.raw() as i8; // Stone floor
+        let gr = ids::GRAVE_STONE.raw() as i8; // Grave stone
+        let _ = (o, g, s, p); // unused by the active patterns
 
         Patterns {
             hut1: vec![vec![w, w, w], vec![w, d, w]],
@@ -947,20 +929,19 @@ mod history_gen {
         original_map: &(Vec<u8>, Vec<u8>),
         w: i32,
         h: i32,
-        tiles: &Tiles,
         rand: &mut Rng,
     ) -> (Vec<u8>, Vec<u8>) {
         let mut map = original_map.0.clone();
         let data = original_map.1.clone();
 
         let forest_ids: [i8; 3] = [
-            tiles.get("tree").id as i8,
-            tiles.get("grass").id as i8,
-            tiles.get("dirt").id as i8,
+            ids::TREE.raw() as i8,
+            ids::GRASS.raw() as i8,
+            ids::DIRT.raw() as i8,
         ];
 
         // the graveyard is the only pattern actually placed (hut1 is kept but unused)
-        let patterns = make_patterns(tiles);
+        let patterns = make_patterns();
         let scenery_forest: Vec<&Vec<Vec<i8>>> = vec![&patterns.graveyard1];
 
         // generate forest scenery

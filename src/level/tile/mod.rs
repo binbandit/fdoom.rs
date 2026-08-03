@@ -40,6 +40,7 @@ pub mod grave_stone;
 pub mod hard_rock;
 pub mod heath;
 pub mod hole;
+pub mod ids;
 pub mod infinite_fall;
 pub mod lava;
 pub mod lava_brick;
@@ -70,7 +71,10 @@ pub mod wild_carrot;
 pub mod window;
 pub mod wool;
 
+use std::borrow::Cow;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
 use std::rc::Rc;
 
 use crate::core::game::Game;
@@ -78,6 +82,8 @@ use crate::entity::Entity;
 use crate::entity::mob::player_behavior::pay_stamina;
 use crate::gfx::Sprite;
 use crate::item::{Item, ItemKind, ToolType};
+
+pub use ids::TileId;
 
 /// The eight tiles surrounding one tile, sampled in cardinal then diagonal order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,10 +101,15 @@ pub struct Neighbors {
 impl Neighbors {
     /// Sample neighbors using [`TileDef::same_tile`] semantics.
     pub fn same_tile(g: &Game, def: &TileDef, lvl: usize, x: i32, y: i32) -> Self {
-        Self::matching(g, lvl, x, y, |tile| tile.same_tile(def))
+        Self::matching_id(g, lvl, x, y, |id| id == def.tid())
     }
 
-    /// Sample neighbors using the caller's exact matching semantics.
+    /// Sample neighbors on a predicate over the full [`TileDef`].
+    ///
+    /// For predicates on tile *properties* — `connects_to_water`, `blocks_light`,
+    /// `flammable` — which need the def, not just its identity. Identity checks belong in
+    /// [`Neighbors::matching_id`]: this form materializes eight `Rc<TileDef>` clones per
+    /// call and runs per connector-sprite tile per frame.
     pub fn matching<F>(g: &Game, lvl: usize, x: i32, y: i32, mut pred: F) -> Self
     where
         F: FnMut(&TileDef) -> bool,
@@ -113,6 +124,36 @@ impl Neighbors {
             dl: pred(&g.tile_at(lvl, x - 1, y + 1)),
             dr: pred(&g.tile_at(lvl, x + 1, y + 1)),
         }
+    }
+
+    /// Sample neighbors by interned id — reads the level's tile bytes directly, with no
+    /// registry lookup or `Rc` traffic per probe.
+    pub fn matching_id<F>(g: &Game, lvl: usize, x: i32, y: i32, mut pred: F) -> Self
+    where
+        F: FnMut(TileId) -> bool,
+    {
+        Self {
+            u: pred(tile_id_at(g, lvl, x, y - 1)),
+            d: pred(tile_id_at(g, lvl, x, y + 1)),
+            l: pred(tile_id_at(g, lvl, x - 1, y)),
+            r: pred(tile_id_at(g, lvl, x + 1, y)),
+            ul: pred(tile_id_at(g, lvl, x - 1, y - 1)),
+            ur: pred(tile_id_at(g, lvl, x + 1, y - 1)),
+            dl: pred(tile_id_at(g, lvl, x - 1, y + 1)),
+            dr: pred(tile_id_at(g, lvl, x + 1, y + 1)),
+        }
+    }
+}
+
+/// The interned id at `(x, y)`, without building a [`TileDef`].
+///
+/// Matches [`Game::tile_at`]'s out-of-bounds contract exactly: an unloaded chunk, an
+/// out-of-range coordinate, or an absent level all read as rock.
+#[inline]
+pub fn tile_id_at(g: &Game, lvl: usize, x: i32, y: i32) -> TileId {
+    match g.levels[lvl].as_ref().and_then(|l| l.tile_id(x, y)) {
+        Some(id) => TileId::new(id),
+        None => ids::ROCK,
     }
 }
 
@@ -225,16 +266,16 @@ impl ConnectorSprite {
 /// dirt, border-band pines stamped snow squares onto grass country (ODDITIES
 /// O6/O7). Other props/floors/water don't vote; if nothing votes (e.g. deep inside
 /// a same-species tree cluster) the caller's `default` stands.
-pub fn ground_beneath(g: &Game, lvl: usize, x: i32, y: i32, default: &'static str) -> &'static str {
+pub fn ground_beneath(g: &Game, lvl: usize, x: i32, y: i32, default: TileId) -> TileId {
     // vote slots double as the tie-break order: hard/rare grounds outrank fillers
     let mut names = [
-        ("snow", 0i32),
-        ("sand", 0),
-        ("Layered Clay", 0),
-        ("heath", 0),
-        ("mud", 0),
-        ("dirt", 0),
-        ("grass", 0),
+        (ids::SNOW, 0i32),
+        (ids::SAND, 0),
+        (ids::LAYERED_CLAY, 0),
+        (ids::HEATH, 0),
+        (ids::MUD, 0),
+        (ids::DIRT, 0),
+        (ids::GRASS, 0),
     ];
     for (dx, dy) in [
         (0, -1),
@@ -260,8 +301,8 @@ pub fn ground_beneath(g: &Game, lvl: usize, x: i32, y: i32, default: &'static st
         names[slot].1 += if cardinal { 2 } else { 1 };
     }
     // max_by_key keeps the LAST maximum, so reverse: ties go to the earlier slot
-    let (name, votes) = names.iter().rev().max_by_key(|(_, n)| *n).unwrap();
-    if *votes > 0 { name } else { default }
+    let (id, votes) = names.iter().rev().max_by_key(|(_, n)| *n).unwrap();
+    if *votes > 0 { *id } else { default }
 }
 
 /// One Java tile class instance (e.g. "GRASS", or "WOOD DOOR").
@@ -317,9 +358,19 @@ impl TileDef {
         self.connects_to_water || self.connects_to_lava
     }
 
-    /// Java `Tile.equals` — by name.
+    /// This tile's interned id.
+    #[inline]
+    pub fn tid(&self) -> TileId {
+        TileId::new(self.id)
+    }
+
+    /// Tile identity.
+    ///
+    /// Java compared names; ids are equivalent because every registered tile has a
+    /// distinct name (`tests/tile_ids.rs` enforces that, torch variants included), and
+    /// they compare in one byte instead of a string.
     pub fn same_tile(&self, other: &TileDef) -> bool {
-        self.name == other.name
+        self.id == other.id
     }
 }
 
@@ -346,8 +397,8 @@ pub enum TileKind {
         species: TreeSpecies,
     },
     Sapling {
-        on_type: String,
-        grows_to: String,
+        on_type: TileId,
+        grows_to: TileId,
     },
     Sand,
     Cactus,
@@ -431,14 +482,100 @@ pub enum TileKind {
     /// Java `TorchTile` — wraps the tile it stands on; registered dynamically at
     /// `onType.id + 128`.
     Torch {
-        on_type: String,
+        on_type: TileId,
     },
 }
 
 /// Java `Tiles` — the tile registry. Interior mutability because torch tiles register
 /// on demand (Java `Tiles.add` from `TorchTile.getTorchTile`).
+///
+/// Prefer [`Tiles::by_id`] with an [`ids`] constant. The name-keyed lookups are for the
+/// boundary where a name genuinely arrives as text (saves, dev console).
 pub struct Tiles {
     list: RefCell<Vec<Option<Rc<TileDef>>>>,
+    /// Uppercase name -> id, built once from `list`. Replaces the linear scan that every
+    /// name lookup used to pay; base tiles only, since the `TORCH ` prefix is stripped
+    /// before the table is consulted.
+    by_name: HashMap<String, u8, BuildHasherDefault<Fnv1a>>,
+}
+
+/// FNV-1a, for the name index only.
+///
+/// With the default `SipHash` the index barely beat the linear scan it replaced: the
+/// table is under 100 entries of ~10 ASCII bytes each, so hashing dominated the lookup.
+/// FNV is what turns the index into a real win (measured ~57 ns -> ~34 ns per lookup).
+/// Nothing here is exposed to untrusted input — tile names come from the registry and
+/// from our own save files.
+struct Fnv1a(u64);
+
+impl Default for Fnv1a {
+    fn default() -> Self {
+        Fnv1a(0xcbf2_9ce4_8422_2325) // FNV offset basis
+    }
+}
+
+impl std::hash::Hasher for Fnv1a {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = self.0;
+        for &b in bytes {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3); // FNV prime
+        }
+        self.0 = h;
+    }
+}
+
+/// Registry names are short (longest is "BROKEN GRAVE STONE", 18 bytes); this covers
+/// them with room to spare so the common lookup normalizes on the stack.
+const NORM_CAP: usize = 32;
+
+/// Split a requested name into `(normalized base name, wants the torch variant)`.
+///
+/// Mirrors the Java lookup's tolerance: case-insensitive, an optional `TORCH ` prefix,
+/// and an optional `_data` suffix that is not part of the name. ASCII names normalize
+/// into `buf` without allocating; anything else falls back to `to_uppercase` so the
+/// result stays byte-identical to the original Unicode-aware path.
+fn normalize_request<'b>(name: &str, buf: &'b mut [u8; NORM_CAP]) -> (Cow<'b, str>, bool) {
+    // Non-ASCII takes the original Unicode path verbatim (uppercase, then trim), so the
+    // fast path can never disagree with it. No registered name is non-ASCII.
+    if !name.is_ascii() || name.len() > NORM_CAP {
+        let mut norm = name.to_uppercase();
+        let is_torch = norm.starts_with("TORCH ");
+        if is_torch {
+            norm.drain(..6);
+        }
+        if let Some(idx) = norm.find('_') {
+            norm.truncate(idx);
+        }
+        return (Cow::Owned(norm), is_torch);
+    }
+
+    // ASCII: trim on the raw input first — slicing is free, and neither the prefix test
+    // nor the `_` split shifts under ASCII uppercasing.
+    let mut base = name;
+    let is_torch = base.len() >= 6 && base[..6].eq_ignore_ascii_case("TORCH ");
+    if is_torch {
+        base = &base[6..];
+    }
+    if let Some(idx) = base.find('_') {
+        base = &base[..idx];
+    }
+
+    let n = base.len();
+    for (slot, &b) in buf[..n].iter_mut().zip(base.as_bytes()) {
+        *slot = b.to_ascii_uppercase();
+    }
+    // ASCII in, ASCII out — always valid UTF-8.
+    (
+        Cow::Borrowed(std::str::from_utf8(&buf[..n]).unwrap_or("")),
+        is_torch,
+    )
 }
 
 impl Default for Tiles {
@@ -452,185 +589,278 @@ impl Tiles {
     pub fn new() -> Tiles {
         let mut t: Vec<Option<Rc<TileDef>>> = vec![None; 256];
 
-        let mut set = |id: usize, def: TileDef| {
+        // Registration is keyed by the `ids` constants, so the constants and the table
+        // cannot drift apart; `tests/tile_ids.rs` checks every constant's name too.
+        let mut set = |id: TileId, def: TileDef| {
             let mut def = def;
-            def.id = id as u8;
-            t[id] = Some(Rc::new(def));
+            def.id = id.raw();
+            t[id.index()] = Some(Rc::new(def));
         };
 
-        set(0, dispatch::make_grass_tile("Grass"));
-        set(1, dispatch::make_dirt_tile("Dirt"));
-        set(2, dispatch::make_flower_tile("Flower"));
-        set(3, dispatch::make_hole_tile("Hole"));
-        set(4, dispatch::make_stairs_tile("Stairs Up", true));
-        set(5, dispatch::make_stairs_tile("Stairs Down", false));
-        set(6, dispatch::make_water_tile("Water"));
-        set(7, dispatch::make_rock_tile("Rock"));
-        set(8, dispatch::make_tree_tile("Tree"));
+        set(ids::GRASS, dispatch::make_grass_tile("Grass"));
+        set(ids::DIRT, dispatch::make_dirt_tile("Dirt"));
+        set(ids::FLOWER, dispatch::make_flower_tile("Flower"));
+        set(ids::HOLE, dispatch::make_hole_tile("Hole"));
         set(
-            9,
-            dispatch::make_sapling_tile("Tree Sapling", "Grass", "Tree"),
+            ids::STAIRS_UP,
+            dispatch::make_stairs_tile("Stairs Up", true),
         );
-        set(10, dispatch::make_sand_tile("Sand"));
-        set(11, dispatch::make_cactus_tile("Cactus"));
         set(
-            12,
-            dispatch::make_sapling_tile("Cactus Sapling", "Sand", "Cactus"),
+            ids::STAIRS_DOWN,
+            dispatch::make_stairs_tile("Stairs Down", false),
         );
-        set(17, dispatch::make_lava_tile("Lava"));
-        set(18, dispatch::make_lava_brick_tile("Lava Brick"));
-        set(13, dispatch::make_ore_tile(OreType::Iron));
-        set(14, dispatch::make_ore_tile(OreType::Gold));
-        set(15, dispatch::make_ore_tile(OreType::Gem));
-        set(16, dispatch::make_ore_tile(OreType::Lapis));
-        set(19, dispatch::make_exploded_tile("Explode"));
-        set(20, dispatch::make_farm_tile("Farmland"));
-        set(21, dispatch::make_wheat_tile("Wheat"));
-        set(22, dispatch::make_hard_rock_tile("Hard Rock"));
-        set(23, dispatch::make_infinite_fall_tile("Infinite Fall"));
-        set(24, dispatch::make_cloud_tile("Cloud"));
-        set(25, dispatch::make_cloud_cactus_tile("Cloud Cactus"));
-        set(29, dispatch::make_floor_tile(Material::Wood));
-        set(30, dispatch::make_floor_tile(Material::Stone));
-        set(31, dispatch::make_floor_tile(Material::Obsidian));
-        set(32, dispatch::make_wall_tile(Material::Wood));
-        set(33, dispatch::make_wall_tile(Material::Stone));
-        set(34, dispatch::make_wall_tile(Material::Obsidian));
-        set(26, dispatch::make_door_tile(Material::Wood));
-        set(27, dispatch::make_door_tile(Material::Stone));
-        set(28, dispatch::make_door_tile(Material::Obsidian));
-        set(35, dispatch::make_wool_tile());
-        set(36, dispatch::make_quicksand_tile("Quick Sand"));
-        set(37, dispatch::make_snow_tile("Snow"));
-        set(38, dispatch::make_snow_tree_tile("Snow Tree"));
+        set(ids::WATER, dispatch::make_water_tile("Water"));
+        set(ids::ROCK, dispatch::make_rock_tile("Rock"));
+        set(ids::TREE, dispatch::make_tree_tile("Tree"));
         set(
-            39,
+            ids::TREE_SAPLING,
+            dispatch::make_sapling_tile("Tree Sapling", ids::GRASS, ids::TREE),
+        );
+        set(ids::SAND, dispatch::make_sand_tile("Sand"));
+        set(ids::CACTUS, dispatch::make_cactus_tile("Cactus"));
+        set(
+            ids::CACTUS_SAPLING,
+            dispatch::make_sapling_tile("Cactus Sapling", ids::SAND, ids::CACTUS),
+        );
+        set(ids::LAVA, dispatch::make_lava_tile("Lava"));
+        set(
+            ids::LAVA_BRICK,
+            dispatch::make_lava_brick_tile("Lava Brick"),
+        );
+        set(ids::IRON_ORE, dispatch::make_ore_tile(OreType::Iron));
+        set(ids::GOLD_ORE, dispatch::make_ore_tile(OreType::Gold));
+        set(ids::GEM_ORE, dispatch::make_ore_tile(OreType::Gem));
+        set(ids::LAPIS, dispatch::make_ore_tile(OreType::Lapis));
+        set(ids::EXPLODE, dispatch::make_exploded_tile("Explode"));
+        set(ids::FARMLAND, dispatch::make_farm_tile("Farmland"));
+        set(ids::WHEAT, dispatch::make_wheat_tile("Wheat"));
+        set(ids::HARD_ROCK, dispatch::make_hard_rock_tile("Hard Rock"));
+        set(
+            ids::INFINITE_FALL,
+            dispatch::make_infinite_fall_tile("Infinite Fall"),
+        );
+        set(ids::CLOUD, dispatch::make_cloud_tile("Cloud"));
+        set(
+            ids::CLOUD_CACTUS,
+            dispatch::make_cloud_cactus_tile("Cloud Cactus"),
+        );
+        set(ids::WOOD_PLANKS, dispatch::make_floor_tile(Material::Wood));
+        set(
+            ids::STONE_BRICKS,
+            dispatch::make_floor_tile(Material::Stone),
+        );
+        set(ids::OBSIDIAN, dispatch::make_floor_tile(Material::Obsidian));
+        set(ids::WOOD_WALL, dispatch::make_wall_tile(Material::Wood));
+        set(ids::STONE_WALL, dispatch::make_wall_tile(Material::Stone));
+        set(
+            ids::OBSIDIAN_WALL,
+            dispatch::make_wall_tile(Material::Obsidian),
+        );
+        set(ids::WOOD_DOOR, dispatch::make_door_tile(Material::Wood));
+        set(ids::STONE_DOOR, dispatch::make_door_tile(Material::Stone));
+        set(
+            ids::OBSIDIAN_DOOR,
+            dispatch::make_door_tile(Material::Obsidian),
+        );
+        set(ids::WOOL, dispatch::make_wool_tile());
+        set(ids::QUICK_SAND, dispatch::make_quicksand_tile("Quick Sand"));
+        set(ids::SNOW, dispatch::make_snow_tile("Snow"));
+        set(ids::SNOW_TREE, dispatch::make_snow_tree_tile("Snow Tree"));
+        set(
+            ids::SMALL_GRASS,
             dispatch::make_tall_grass_tile("Small Grass", "grass", 0),
         );
         set(
-            40,
+            ids::MEDIUM_GRASS,
             dispatch::make_tall_grass_tile("Medium Grass", "grass", 1),
         );
-        set(41, dispatch::make_tall_grass_tile("Tall Grass", "grass", 2));
-        set(42, dispatch::make_pumpkin_tile("pumpkin", false));
-        set(62, dispatch::make_pumpkin_tile("Jack-O-Lantern", true));
-        set(43, dispatch::make_grave_stone_tile("Grave stone", false));
         set(
-            44,
+            ids::TALL_GRASS,
+            dispatch::make_tall_grass_tile("Tall Grass", "grass", 2),
+        );
+        set(ids::PUMPKIN, dispatch::make_pumpkin_tile("pumpkin", false));
+        set(
+            ids::JACK_O_LANTERN,
+            dispatch::make_pumpkin_tile("Jack-O-Lantern", true),
+        );
+        set(
+            ids::GRAVE_STONE,
+            dispatch::make_grave_stone_tile("Grave stone", false),
+        );
+        set(
+            ids::BROKEN_GRAVE_STONE,
             dispatch::make_grave_stone_tile("Broken Grave Stone", true),
         );
-        set(45, dispatch::make_fence_tile("Fence"));
-        set(46, super::tile::depth::make_deep_water("Deep Water"));
-        set(47, super::tile::depth::make_dug_pit("Dug Pit"));
-        set(48, super::tile::depth::make_chasm("Chasm"));
-        set(49, super::tile::depth::make_ladder("Ladder"));
-        set(50, super::tile::mud::make("Mud"));
+        set(ids::FENCE, dispatch::make_fence_tile("Fence"));
+        set(
+            ids::DEEP_WATER,
+            super::tile::depth::make_deep_water("Deep Water"),
+        );
+        set(ids::DUG_PIT, super::tile::depth::make_dug_pit("Dug Pit"));
+        set(ids::CHASM, super::tile::depth::make_chasm("Chasm"));
+        set(ids::LADDER, super::tile::depth::make_ladder("Ladder"));
+        set(ids::MUD, super::tile::mud::make("Mud"));
 
         // flora wave (ids 51+): biome tree species, food flora, ocean life, reeds
         set(
-            51,
+            ids::PINE_TREE,
             dispatch::make_tree_species_tile("Pine Tree", TreeSpecies::Pine),
         );
         set(
-            52,
+            ids::DEAD_TREE,
             dispatch::make_tree_species_tile("Dead Tree", TreeSpecies::Dead),
         );
         set(
-            53,
+            ids::WILLOW,
             dispatch::make_tree_species_tile("Willow", TreeSpecies::Willow),
         );
         set(
-            54,
+            ids::PALM_TREE,
             dispatch::make_tree_species_tile("Palm Tree", TreeSpecies::Palm),
         );
         set(
-            55,
+            ids::FLAT_CROWN_TREE,
             dispatch::make_tree_species_tile("Flat-Crown Tree", TreeSpecies::FlatCrown),
         );
-        set(56, dispatch::make_berry_bush_tile("Berry Bush"));
-        set(57, dispatch::make_mushroom_tile("Mushroom"));
-        set(58, dispatch::make_fruiting_cactus_tile("Fruiting Cactus"));
-        set(59, dispatch::make_seaweed_tile("Seaweed"));
-        set(60, dispatch::make_coral_tile("Coral"));
-        set(61, dispatch::make_tall_grass_tile("Reeds", "grass", 3));
+        set(
+            ids::BERRY_BUSH,
+            dispatch::make_berry_bush_tile("Berry Bush"),
+        );
+        set(ids::MUSHROOM, dispatch::make_mushroom_tile("Mushroom"));
+        set(
+            ids::FRUITING_CACTUS,
+            dispatch::make_fruiting_cactus_tile("Fruiting Cactus"),
+        );
+        set(ids::SEAWEED, dispatch::make_seaweed_tile("Seaweed"));
+        set(ids::CORAL, dispatch::make_coral_tile("Coral"));
+        set(
+            ids::REEDS,
+            dispatch::make_tall_grass_tile("Reeds", "grass", 3),
+        );
         // 62 = Jack-O-Lantern (registered next to pumpkin above)
-        set(63, dispatch::make_dry_bush_tile("Dry Bush"));
+        set(ids::DRY_BUSH, dispatch::make_dry_bush_tile("Dry Bush"));
 
         // tides: the intertidal band between ocean and beach (see tidal.rs)
-        set(64, super::tile::tidal::make("Tidal Flat"));
+        set(ids::TIDAL_FLAT, super::tile::tidal::make("Tidal Flat"));
 
         // fossicking: the mine-ceiling support post (see fossick.rs)
-        set(65, dispatch::make_timber_prop_tile("Timber Prop"));
+        set(
+            ids::TIMBER_PROP,
+            dispatch::make_timber_prop_tile("Timber Prop"),
+        );
 
         // light & shelter: the glass-paned wall segment (see window.rs)
-        set(66, dispatch::make_window_tile("Window"));
+        set(ids::WINDOW, dispatch::make_window_tile("Window"));
 
         // biome identity: the Mountains highland ground (see heath.rs)
-        set(67, dispatch::make_heath_tile("Heath"));
+        set(ids::HEATH, dispatch::make_heath_tile("Heath"));
 
         // farming wave (ids 68+): row crops on farmland + the foraged wild carrot
         set(
-            68,
+            ids::CARROT_CROP,
             dispatch::make_crop_tile("Carrot Crop", crop::CropKind::Carrot),
         );
         set(
-            69,
+            ids::POTATO_CROP,
             dispatch::make_crop_tile("Potato Crop", crop::CropKind::Potato),
         );
         set(
-            70,
+            ids::CORN_CROP,
             dispatch::make_crop_tile("Corn Crop", crop::CropKind::Corn),
         );
         set(
-            71,
+            ids::PUMPKIN_VINE,
             dispatch::make_crop_tile("Pumpkin Vine", crop::CropKind::PumpkinVine),
         );
-        set(72, dispatch::make_wild_carrot_tile("Wild Carrot"));
+        set(
+            ids::WILD_CARROT,
+            dispatch::make_wild_carrot_tile("Wild Carrot"),
+        );
 
         // content wave (ids 73+): hot-spring water, forest beehives, badlands ground
-        set(73, dispatch::make_spring_water_tile("Spring Water"));
-        set(74, dispatch::make_beehive_tile("Beehive"));
-        set(75, dispatch::make_clay_tile("Layered Clay"));
-        set(76, dispatch::make_ore_freckle_tile("Ore Freckle"));
+        set(
+            ids::SPRING_WATER,
+            dispatch::make_spring_water_tile("Spring Water"),
+        );
+        set(ids::BEEHIVE, dispatch::make_beehive_tile("Beehive"));
+        set(ids::LAYERED_CLAY, dispatch::make_clay_tile("Layered Clay"));
+        set(
+            ids::ORE_FRECKLE,
+            dispatch::make_ore_freckle_tile("Ore Freckle"),
+        );
+
+        // Built from the registered defs themselves, so the index can never disagree
+        // with the table it indexes.
+        let by_name = t
+            .iter()
+            .flatten()
+            .map(|def| (def.name.clone(), def.id))
+            .collect();
+
         Tiles {
             list: RefCell::new(t),
+            by_name,
         }
     }
 
-    /// Java `Tiles.get(name)` — handles "TORCH x" prefixes and "_data" suffixes.
-    pub fn get(&self, name: &str) -> Rc<TileDef> {
-        let mut name = name.to_uppercase();
+    /// The tile registered at `id`, or grass when the slot is empty.
+    #[inline]
+    fn slot(&self, id: u8) -> Rc<TileDef> {
+        self.list.borrow()[id as usize]
+            .clone()
+            .expect("tile 0 must exist")
+    }
 
-        let mut is_torch = false;
-        if let Some(stripped) = name.strip_prefix("TORCH ") {
-            is_torch = true;
-            name = stripped.to_string();
-        }
+    /// Fetch by interned id — an array index, no scan and no allocation.
+    ///
+    /// This is the form to reach for: `tiles.by_id(ids::ROCK)` is checked at compile
+    /// time and costs a bounds check plus an `Rc` bump.
+    #[inline]
+    pub fn by_id(&self, id: TileId) -> Rc<TileDef> {
+        self.get_id(id.raw() as i32)
+    }
 
-        if let Some(idx) = name.find('_') {
-            name.truncate(idx);
-        }
+    /// Resolve a name to its interned id. `None` when nothing registers under it.
+    pub fn id_of(&self, name: &str) -> Option<TileId> {
+        let mut buf = [0u8; NORM_CAP];
+        let (base, is_torch) = normalize_request(name, &mut buf);
+        let id = TileId::new(*self.by_name.get(base.as_ref())?);
+        Some(if is_torch { id.torch() } else { id })
+    }
 
-        let getting = self
-            .list
-            .borrow()
-            .iter()
-            .flatten()
-            .find(|t| t.name == name)
-            .cloned();
-
-        let getting = match getting {
-            Some(t) => t,
-            None => {
-                println!("TILES.GET: invalid tile requested: {name}");
-                self.list.borrow()[0].clone().expect("tile 0 must exist")
-            }
-        };
-
-        if is_torch {
-            self.get_torch_tile(getting)
+    /// Name lookup that admits failure — the boundary form.
+    ///
+    /// Names only genuinely arrive as text from save files and the dev console, and both
+    /// would rather see `None` than silently receive grass. Code that knows which tile it
+    /// wants should name it with an [`ids`] constant and call [`Tiles::by_id`].
+    pub fn get_checked(&self, name: &str) -> Option<Rc<TileDef>> {
+        let mut buf = [0u8; NORM_CAP];
+        let (base, is_torch) = normalize_request(name, &mut buf);
+        let def = self.slot(*self.by_name.get(base.as_ref())?);
+        Some(if is_torch {
+            self.get_torch_tile(def)
         } else {
-            getting
+            def
+        })
+    }
+
+    /// Java `Tiles.get(name)` — handles "TORCH x" prefixes and "_data" suffixes.
+    ///
+    /// Kept for callers that still hold a runtime name; an unknown name warns and yields
+    /// grass exactly as before. Prefer [`Tiles::get_checked`] at a real boundary and
+    /// [`Tiles::by_id`] everywhere else.
+    pub fn get(&self, name: &str) -> Rc<TileDef> {
+        if let Some(t) = self.get_checked(name) {
+            return t;
+        }
+        let mut buf = [0u8; NORM_CAP];
+        let (base, is_torch) = normalize_request(name, &mut buf);
+        println!("TILES.GET: invalid tile requested: {base}");
+        let grass = self.slot(0);
+        if is_torch {
+            self.get_torch_tile(grass)
+        } else {
+            grass
         }
     }
 

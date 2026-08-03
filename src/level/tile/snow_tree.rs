@@ -8,7 +8,9 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::sprite_sheet::cell;
 use crate::gfx::{Screen, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
+use crate::level::tile::ids;
 
 // Java static `col`/`col1`/`col2` (assigned in the constructor).
 const COL: i32 = color::get4(10, 30, 151, -1);
@@ -24,7 +26,7 @@ pub fn make(name: &str) -> TileDef {
 
 #[allow(clippy::too_many_arguments)]
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
-    let snow = g.tiles.get("snow");
+    let snow = g.tiles.by_id(ids::SNOW);
     dispatch::render(g, screen, &snow, lvl, x, y);
 
     let bark_col1 = COL1;
@@ -39,7 +41,7 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
         ur,
         dl,
         dr,
-    } = Neighbors::matching(g, lvl, x, y, |tile| tile.id == def.id);
+    } = Neighbors::matching_id(g, lvl, x, y, |id| id == def.tid());
 
     // frost-dusted snow-pine art block (artgen `flora_cells`, base (13,26)) — same
     // six-cell corner-sampling as the broadleaf, so snowy woods merge into one roof
@@ -115,7 +117,7 @@ pub fn interact(
 
 pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i32) {
     if g.random.next_int_bound(100) == 0 {
-        let apple = crate::item::registry::get(g, "Apple");
+        let apple = crate::item::registry::by_name(g, iname::APPLE);
         crate::level::drop_item(g, lvl, x * 16 + 8, y * 16 + 8, apple);
     }
 
@@ -139,11 +141,11 @@ pub fn hurt_dmg(g: &mut Game, _def: &TileDef, lvl: usize, x: i32, y: i32, dmg: i
     );
     g.level_mut(lvl).add(text, lvl);
     if damage >= tree_health {
-        let wood = crate::item::registry::get(g, "Wood");
+        let wood = crate::item::registry::by_name(g, iname::WOOD);
         crate::level::drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[wood]);
-        let acorn = crate::item::registry::get(g, "Acorn");
+        let acorn = crate::item::registry::by_name(g, iname::ACORN);
         crate::level::drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[acorn]);
-        let snow = g.tiles.get("snow");
+        let snow = g.tiles.by_id(ids::SNOW);
         g.set_tile_default(lvl, x, y, &snow);
     } else {
         g.level_mut(lvl).set_data(x, y, damage);

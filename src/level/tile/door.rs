@@ -7,6 +7,7 @@ use crate::core::io::sound::Sound;
 use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::item::{Item, ToolType};
 
 /// Java `closedSprite` with the per-material color applied.
@@ -75,7 +76,12 @@ pub fn interact(
         // door ids sit exactly 3 below their matching floor tiles (26..28 -> 29..31)
         let floor = g.tiles.get_id(def.id as i32 + 3);
         g.set_tile_default(lvl, xt, yt, &floor);
-        let drop = crate::item::registry::get(g, &format!("{} Door", material.name()));
+        let drop_name = match material {
+            Material::Wood => iname::WOOD_DOOR,
+            Material::Stone => iname::STONE_DOOR,
+            Material::Obsidian => iname::OBSIDIAN_DOOR,
+        };
+        let drop = crate::item::registry::by_name(g, drop_name);
         crate::level::drop_item(g, lvl, xt * 16 + 8, yt * 16 + 8, drop);
         g.play_sound(Sound::MonsterHurt);
         return true;

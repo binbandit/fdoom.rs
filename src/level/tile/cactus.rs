@@ -8,7 +8,9 @@ use crate::entity::Entity;
 use crate::entity::behavior::mob_hurt_tile;
 use crate::entity::particle::{new_smash_particle, new_text_particle};
 use crate::gfx::{Screen, Sprite, color};
+use crate::item::ids as iname;
 use crate::level::drop_items_counted;
+use crate::level::tile::ids;
 
 /// Java `CactusTile` constructor.
 pub fn make(name: &str) -> TileDef {
@@ -36,7 +38,9 @@ pub fn fruiting_render(
     x: i32,
     y: i32,
 ) {
-    let under = g.tiles.get(super::ground_beneath(g, lvl, x, y, "sand"));
+    let under = g
+        .tiles
+        .by_id(super::ground_beneath(g, lvl, x, y, ids::SAND));
     dispatch::render(g, screen, &under, lvl, x, y);
     // dedicated fruiting-saguaro art (artgen `flora_cells` (25,26)): staggered arms
     // carrying coral-pink fruit — true color, distinct from the plain cactus
@@ -56,13 +60,13 @@ pub fn fruiting_hurt_by(
     _dmg: i32,
     _attack_dir: Direction,
 ) -> bool {
-    let fruit = crate::item::registry::get(g, "Cactus Fruit");
+    let fruit = crate::item::registry::by_name(g, iname::CACTUS_FRUIT);
     drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 1, 2, &[fruit]);
     g.play_sound(Sound::MonsterHurt);
     g.level_mut(lvl)
         .add(new_smash_particle(x * 16, y * 16), lvl);
     let damage = g.level(lvl).get_data(x, y);
-    let cactus = g.tiles.get("cactus");
+    let cactus = g.tiles.by_id(ids::CACTUS);
     g.set_tile(lvl, x, y, &cactus, damage);
     true
 }
@@ -70,7 +74,9 @@ pub fn fruiting_hurt_by(
 pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i32, y: i32) {
     // border bands can strand a cactus on grass-side ground — render what's really
     // under it, not an unconditional sand square (ODDITIES O7)
-    let under = g.tiles.get(super::ground_beneath(g, lvl, x, y, "sand"));
+    let under = g
+        .tiles
+        .by_id(super::ground_beneath(g, lvl, x, y, ids::SAND));
     dispatch::render(g, screen, &under, lvl, x, y);
     if let Some(sprite) = &def.sprite {
         sprite.render(screen, x * 16, y * 16);
@@ -112,9 +118,9 @@ pub fn hurt_by(
     g.level_mut(lvl).add(text, lvl);
 
     if damage >= c_health {
-        let cactus = crate::item::registry::get(g, "Cactus");
+        let cactus = crate::item::registry::by_name(g, iname::CACTUS);
         drop_items_counted(g, lvl, x * 16 + 8, y * 16 + 8, 2, 4, &[cactus]);
-        let sand = g.tiles.get("sand");
+        let sand = g.tiles.by_id(ids::SAND);
         g.set_tile_default(lvl, x, y, &sand);
     } else {
         g.level_mut(lvl).set_data(x, y, damage);

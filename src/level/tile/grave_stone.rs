@@ -8,6 +8,7 @@ use crate::entity::Direction;
 use crate::entity::Entity;
 use crate::gfx::{Screen, Sprite, color};
 use crate::item::Item;
+use crate::level::tile::ids;
 
 // Per-grave night state lives in the tile's per-position data byte (grave stones have
 // no other use for it), so each grave tracks its own state and it round-trips through
@@ -66,7 +67,9 @@ pub fn render(g: &mut Game, screen: &mut Screen, def: &TileDef, lvl: usize, x: i
     };
     // stand the marker on the plot's actual ground — a hardcoded grass base punched
     // bright green squares into cemetery dirt (ODDITIES O6)
-    let under = g.tiles.get(super::ground_beneath(g, lvl, x, y, "grass"));
+    let under = g
+        .tiles
+        .by_id(super::ground_beneath(g, lvl, x, y, ids::GRASS));
     dispatch::render(g, screen, &under, lvl, x, y);
 
     let (cx, cy) = shape(x, y, broken);
@@ -107,7 +110,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
                 // every random tile tick re-rolls at 1-in-3 — the whole cemetery caves
                 // in before dawn instead of decaying over weeks.
                 if g.random.next_int_bound(3) == 0 {
-                    let broken = g.tiles.get_id(44);
+                    let broken = g.tiles.by_id(ids::BROKEN_GRAVE_STONE);
                     g.set_tile_default(lvl, xt, yt, &broken);
                 }
             } else if flag == 0 && !crate::core::events::grave_decay_suppressed(g) {
@@ -116,7 +119,7 @@ pub fn tick(g: &mut Game, def: &TileDef, lvl: usize, xt: i32, yt: i32) {
                 // cemetery decays (and leaks zombies) over one or two in-game weeks
                 // instead of collapsing almost entirely on the first couple of nights.
                 if g.random.next_int_bound(6) == 0 {
-                    let broken = g.tiles.get_id(44);
+                    let broken = g.tiles.by_id(ids::BROKEN_GRAVE_STONE);
                     // set_tile_default resets the data byte, so the fresh broken grave
                     // starts with its "spawned zombie" flag clear.
                     g.set_tile_default(lvl, xt, yt, &broken);
@@ -161,7 +164,7 @@ pub fn interact(
         zombie.c.x = xt * 16 + 8;
         zombie.c.y = yt * 16 + 8;
         g.level_mut(lvl).add(zombie, lvl);
-        let broken_tile = g.tiles.get_id(44);
+        let broken_tile = g.tiles.by_id(ids::BROKEN_GRAVE_STONE);
         g.set_tile_default(lvl, xt, yt, &broken_tile);
         g.change_time_of_day(Time::Evening);
     }
@@ -188,7 +191,7 @@ pub fn hurt_by(
         zombie.c.x = x * 16 + 8;
         zombie.c.y = y * 16 + 8;
         g.level_mut(lvl).add(zombie, lvl);
-        let broken_tile = g.tiles.get_id(44);
+        let broken_tile = g.tiles.by_id(ids::BROKEN_GRAVE_STONE);
         g.set_tile_default(lvl, x, y, &broken_tile);
         g.change_time_of_day(Time::Evening);
     }
