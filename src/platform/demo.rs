@@ -4,7 +4,6 @@
 
 use crate::core::game::Game;
 use crate::core::renderer::Renderer;
-use crate::gfx::screen::{H, W};
 
 #[derive(Debug, Clone)]
 enum Step {
@@ -123,7 +122,12 @@ impl Demo {
     /// Called after a frame has been rendered; dumps the shot if one is pending.
     pub fn on_frame(&mut self, renderer: &Renderer) {
         if let Some(path) = self.pending_shot.take() {
-            if let Err(e) = dump_png(&path, &renderer.screen.pixels) {
+            if let Err(e) = dump_png(
+                &path,
+                &renderer.screen.pixels,
+                renderer.screen.w,
+                renderer.screen.h,
+            ) {
                 eprintln!("FDOOM_DEMO: could not write {path}: {e}");
             } else {
                 println!("FDOOM_DEMO: wrote {path}");
@@ -132,16 +136,18 @@ impl Demo {
     }
 }
 
-fn dump_png(path: &str, pixels: &[i32]) -> Result<(), Box<dyn std::error::Error>> {
+fn dump_png(path: &str, pixels: &[i32], w: i32, h: i32) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(parent) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(parent)?;
     }
     let file = std::fs::File::create(path)?;
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), W as u32, H as u32);
+    // the logical screen is dynamic (288x192 .. 640x400) — a fixed size here wrote
+    // "wrong data size" and lost the shot at every non-classic window size
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w as u32, h as u32);
     enc.set_color(png::ColorType::Rgb);
     enc.set_depth(png::BitDepth::Eight);
     let mut writer = enc.write_header()?;
-    let mut data = Vec::with_capacity((W * H * 3) as usize);
+    let mut data = Vec::with_capacity((w * h * 3) as usize);
     for &p in pixels {
         data.push(((p >> 16) & 0xff) as u8);
         data.push(((p >> 8) & 0xff) as u8);

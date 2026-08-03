@@ -39,11 +39,24 @@ struct App {
     last_timer1: Instant,
 }
 
+/// The pixel size the game is drawn at by default — the classic 3x of the
+/// original window (288x192 at 864x576). Growing the window spends the new space
+/// on CONTENT at this pixel size, not on magnification.
+const PREFERRED_SCALE: i32 = 3;
+
 /// Integer presentation scale and capped logical framebuffer dimensions.
+///
+/// A bigger window must show MORE of the world, not the same view blown up (the
+/// standing product rule). So the logical framebuffer is sized first, at the
+/// preferred pixel scale, and only once it hits its 640x400 cap does the scale
+/// climb to fill the remaining space — which is what keeps a 4K window from
+/// rendering a postage stamp. The default 864x576 window still resolves to
+/// exactly 288x192 at 3x, so the classic look is unchanged.
 pub fn logical_size_for_window(win_w: i32, win_h: i32) -> (i32, i32, i32) {
-    let scale = (win_w / WIDTH).min(win_h / HEIGHT).clamp(1, 6);
-    let w = (win_w / scale).clamp(WIDTH, 640);
-    let h = (win_h / scale).clamp(HEIGHT, 400);
+    let w = (win_w / PREFERRED_SCALE).clamp(WIDTH, 640);
+    let h = (win_h / PREFERRED_SCALE).clamp(HEIGHT, 400);
+    // largest integer scale that still fits the (possibly clamped) framebuffer
+    let scale = (win_w / w).min(win_h / h).clamp(1, 6);
     (scale, w, h)
 }
 

@@ -9,12 +9,29 @@ use fdoom::testutil::TestWorld;
 const DIVIDER_RGB: i32 = 0x4A4A4A;
 const SCROLLBAR_RGB: i32 = 0x9A9A9A;
 
+/// A bigger window must show MORE WORLD, not the same view magnified. The
+/// framebuffer is therefore sized at the preferred 3x pixel scale first, and the
+/// scale only climbs once the framebuffer hits its 640x400 cap.
 #[test]
-fn integer_scale_and_logical_size_follow_the_window_contract() {
-    assert_eq!(logical_size_for_window(800, 600), (2, 400, 300));
-    assert_eq!(logical_size_for_window(288, 192), (1, 288, 192));
+fn a_bigger_window_shows_more_world_not_bigger_pixels() {
+    // the classic default window is untouched: 288x192 at 3x
+    assert_eq!(logical_size_for_window(864, 576), (3, 288, 192));
+    // growing the window buys content at the SAME pixel size
+    assert_eq!(logical_size_for_window(1280, 800), (3, 426, 266));
+    assert_eq!(logical_size_for_window(1920, 1080), (3, 640, 360));
+    // ...until the framebuffer caps out; only then do pixels grow, so a 4K
+    // window is filled rather than rendering a postage stamp
+    assert_eq!(logical_size_for_window(3840, 2160), (5, 640, 400));
     assert_eq!(logical_size_for_window(4000, 3000), (6, 640, 400));
+    // windows at or below the minimum framebuffer stay 1x and get cropped
+    assert_eq!(logical_size_for_window(288, 192), (1, 288, 192));
     assert_eq!(logical_size_for_window(200, 100), (1, 288, 192));
+
+    // the content-per-window-area rule, stated as a property: a window twice as
+    // wide must never show LESS world than the smaller one
+    let (_, prev_w, _) = logical_size_for_window(864, 576);
+    let (_, wide_w, _) = logical_size_for_window(1728, 1152);
+    assert!(wide_w > prev_w, "doubling the window must widen the view");
 }
 
 #[test]
@@ -212,4 +229,50 @@ fn container_shell_widens_with_the_window() {
     );
     tw.screenshot_at("dyn_chest_384.png", 384, 240);
     tw.screenshot("dyn_chest_288.png");
+}
+
+/// The scale policy hands big windows a much larger framebuffer (640x400 is 4.6x
+/// the classic pixel count), so the per-frame render must still be cheap enough to
+/// hold 60fps there — otherwise "show more world" would buy a stutter.
+#[test]
+fn a_full_size_framebuffer_still_renders_inside_the_frame_budget() {
+    let mut tw = TestWorld::infinite().name("perf_640").build();
+    tw.tick_n(8);
+    tw.render_at(640, 400); // warm caches
+    // the FIRST render at a new size pays allocation + chunk streaming (a one-frame
+    // hitch on resize, ~10ms); steady state is what has to hold 60fps, so measure
+    // the median of a warmed run rather than a cold spike
+    for _ in 0..3 {
+        tw.render_at(640, 400);
+    }
+    let mut samples: Vec<std::time::Duration> = (0..13)
+        .map(|_| {
+            let t = std::time::Instant::now();
+            tw.render_at(640, 400);
+            t.elapsed()
+        })
+        .collect();
+    samples.sort();
+    let worst = samples[samples.len() / 2];
+    for _ in 0..3 {
+        tw.render_at(288, 192);
+    }
+    let mut cs: Vec<std::time::Duration> = (0..13)
+        .map(|_| {
+            let t = std::time::Instant::now();
+            tw.render_at(288, 192);
+            t.elapsed()
+        })
+        .collect();
+    cs.sort();
+    let classic = cs[cs.len() / 2];
+    println!(
+        "median frame — classic 288x192: {classic:?}, full 640x400: {worst:?} ({:.1}x for 4.6x the pixels)",
+        worst.as_secs_f64() / classic.as_secs_f64()
+    );
+    // 16.6ms is one frame at 60fps; the whole render must sit well inside it
+    assert!(
+        worst < std::time::Duration::from_millis(8),
+        "640x400 median frame took {worst:?}, too close to the 16.6ms frame budget"
+    );
 }
