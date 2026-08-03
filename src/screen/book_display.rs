@@ -68,14 +68,28 @@ impl BookDisplay {
                 .set_frame_colors(554, 1, 554)
         };
 
-        let page_count_menu = make_builder() // the small rect for the title
-            .set_positioning(Point::new(crate::gfx::screen::W / 2, 0), RelPos::Bottom)
-            .set_entries(StringEntry::use_lines_color(
-                color::BLACK,
-                &["Page".to_string(), if has_title { "Title".to_string() } else { format!("1/{}", lines.len()) }],
-            ))
-            .set_selection(1)
-            .create_menu(g);
+        // The page box is a fixed size (MIN/MAX_X/Y), so a taller-than-classic window
+        // gets the whole book centered in it rather than pinned to the top edge; at the
+        // classic height the offset is 0, which is where the layout was authored.
+        let (screen_w, screen_h) = g.screen_size;
+        let y_top = ((screen_h - crate::gfx::screen::H) / 2).max(0);
+
+        let page_count_menu =
+            make_builder() // the small rect for the title
+                .set_positioning(Point::new(screen_w / 2, y_top), RelPos::Bottom)
+                .set_entries(StringEntry::use_lines_color(
+                    color::BLACK,
+                    &[
+                        "Page".to_string(),
+                        if has_title {
+                            "Title".to_string()
+                        } else {
+                            format!("1/{}", lines.len())
+                        },
+                    ],
+                ))
+                .set_selection(1)
+                .create_menu(g);
         let page_count_bottom = page_count_menu.get_bounds().bottom();
 
         let mut menus: Vec<super::menu::Menu> = Vec::new();
@@ -86,7 +100,7 @@ impl BookDisplay {
             menus.push(
                 make_builder()
                     .set_positioning(
-                        Point::new(crate::gfx::screen::W / 2, page_count_bottom + SPACING),
+                        Point::new(screen_w / 2, page_count_bottom + SPACING),
                         RelPos::Bottom,
                     )
                     .set_size(

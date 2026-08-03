@@ -59,9 +59,13 @@ impl Display for SplashMenu {
         let logo_color = color::get4(-1, 0, 333, 500);
         let kicker_w = 17; // "FOSSICKERS" strip, cells (15..31,6..7)
         let doom_w = 15; // "DOOM" strip, cells (0..14,6..7)
-        let kicker_x = (crate::gfx::screen::W - kicker_w * 8) / 2;
-        let kicker_y = 48;
-        let doom_x = (crate::gfx::screen::W - doom_w * 8) / 2;
+        // the lockup hangs off the middle of the live framebuffer: 48px above the
+        // midline is where it sits at the classic 288x192
+        let mid_x = screen.w / 2;
+        let mid_y = screen.h / 2;
+        let kicker_x = mid_x - kicker_w * 8 / 2;
+        let kicker_y = mid_y - 48;
+        let doom_x = mid_x - doom_w * 8 / 2;
         let doom_y = kicker_y + 18;
         for y in 0..2 {
             for x in 0..kicker_w {
@@ -86,7 +90,7 @@ impl Display for SplashMenu {
             }
         }
         if t >= 45 {
-            font::draw_centered("A FOSSICKERS TALE", screen, 96, color::get(-1, 333));
+            font::draw_centered("A FOSSICKERS TALE", screen, mid_y, color::get(-1, 333));
         }
     }
 }

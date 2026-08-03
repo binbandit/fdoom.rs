@@ -4,14 +4,21 @@
 //! (the select behavior was unused since the action was null).
 
 use crate::core::game::Game;
-use crate::gfx::{font, screen};
+use crate::gfx::{font, sprite_sheet};
 
 use super::{EntryFlags, ListEntry};
+
+/// Usable width of one row: the live framebuffer minus the two selection-cursor
+/// gutters the menu reserves (`> ` and ` <`, one cell each side of the entry box).
+/// Claiming the *whole* screen width here is what pushed the Controls list 16px off
+/// each edge — the cursors vanished and every mapping lost its last character.
+fn row_width(g: &Game) -> i32 {
+    (g.screen_size.0 - sprite_sheet::BOX_WIDTH * 4).max(font::text_width(" "))
+}
 
 pub struct KeyInputEntry {
     action: String,
     mapping: String,
-    buffer: String,
     flags: EntryFlags,
 }
 
@@ -21,29 +28,11 @@ impl KeyInputEntry {
         let idx = key.find(';').unwrap_or(key.len());
         let action = key[..idx].to_string();
         let mapping = if idx < key.len() { &key[idx + 1..] } else { "" };
-        let mut entry = KeyInputEntry {
+        KeyInputEntry {
             action,
-            mapping: String::new(),
-            buffer: String::new(),
+            mapping: mapping.to_string(),
             flags: EntryFlags::default(),
-        };
-        entry.set_mapping(mapping);
-        entry
-    }
-
-    fn set_mapping(&mut self, mapping: &str) {
-        self.mapping = mapping.to_string();
-
-        let total = screen::W / font::text_width(" ")
-            - self.action.chars().count() as i32
-            - self.mapping.chars().count() as i32;
-        let mut buffer = String::new();
-        let mut spaces = 0;
-        while spaces < total {
-            buffer.push(' ');
-            spaces += 1;
         }
-        self.buffer = buffer;
     }
 }
 
@@ -65,16 +54,21 @@ impl ListEntry for KeyInputEntry {
         }
     }
 
-    fn get_width(&self, _g: &Game) -> i32 {
-        screen::W
+    fn get_width(&self, g: &Game) -> i32 {
+        row_width(g)
     }
 
+    /// Action flush left, mapping flush right, padded to the row width. An action with
+    /// a pile of alternate bindings can outgrow the row, so the mapping (the half the
+    /// player edits) ellipsizes instead of running off the panel.
     fn to_display_string(&self, g: &Game) -> String {
-        format!(
-            "{}{}{}",
-            g.localization.get_localized(&self.action),
-            self.buffer,
-            self.mapping
-        )
+        let action = g.localization.get_localized(&self.action);
+        let cols = (row_width(g) / font::text_width(" ")).max(1) as usize;
+        let action_len = action.chars().count();
+        let mapping = font::fit_chars(&self.mapping, cols.saturating_sub(action_len + 1).max(1));
+        let gap = cols
+            .saturating_sub(action_len + mapping.chars().count())
+            .max(1);
+        format!("{action}{}{mapping}", " ".repeat(gap))
     }
 }

@@ -38,16 +38,27 @@ pub fn text_width(text: &str) -> i32 {
     text.chars().count() as i32 * 8
 }
 
+/// `msg` shortened to at most `max_chars` characters, ending in `..` when it had to
+/// be cut. The single place text is allowed to lose characters, so panels never have
+/// to grow to fit a world/item/key name the player supplied.
+pub fn fit_chars(msg: &str, max_chars: usize) -> String {
+    let max_chars = max_chars.max(1);
+    if msg.chars().count() <= max_chars {
+        return msg.to_string();
+    }
+    let kept: String = msg.chars().take(max_chars.saturating_sub(2)).collect();
+    format!("{kept}..")
+}
+
+/// `msg` shortened to fit `max_w` pixels (the font is a fixed 8px cell).
+pub fn fit(msg: &str, max_w: i32) -> String {
+    fit_chars(msg, (max_w / 8).max(1) as usize)
+}
+
 /// Draw `msg` clipped to `max_w` pixels: text that would overrun is truncated with
 /// a `..` ellipsis so it can never paint past its panel (the font is fixed 8px).
 pub fn draw_fit(msg: &str, screen: &mut Screen, x: i32, y: i32, col: i32, max_w: i32) {
-    let max_chars = (max_w / 8).max(1) as usize;
-    if msg.chars().count() <= max_chars {
-        draw(msg, screen, x, y, col);
-        return;
-    }
-    let kept: String = msg.chars().take(max_chars.saturating_sub(2)).collect();
-    draw(&format!("{kept}.."), screen, x, y, col);
+    draw(&fit(msg, max_w), screen, x, y, col);
 }
 
 /// Java `Font.textWidth(String[])` — max width over the lines.

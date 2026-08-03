@@ -24,16 +24,17 @@ fn get_entries(g: &Game) -> Vec<EntryHandle> {
 }
 
 /// The retained `builder` static in Java — rebuilt on demand since ours is consumed.
-fn main_menu_builder(entries: Vec<EntryHandle>) -> MenuBuilder {
+///
+/// The list owns the band above the five hint rows at the bottom of the live
+/// framebuffer and centers in it: at the classic 288x192 the rows fill that band
+/// exactly (so the list still starts at y=0, as it always has), while a taller window
+/// centers the list instead of leaving it clinging to one edge.
+fn main_menu_builder(g: &Game, entries: Vec<EntryHandle>) -> MenuBuilder {
+    let (w, h) = g.screen_size;
+    let band = h - font::text_height() * 5;
     MenuBuilder::new(false, 0, RelPos::Center, entries)
         .set_title("Controls")
-        .set_positioning(
-            Point::new(
-                crate::gfx::screen::W / 2,
-                crate::gfx::screen::H - font::text_height() * 5,
-            ),
-            RelPos::Top,
-        )
+        .set_positioning(Point::new(w / 2, band / 2), RelPos::Center)
 }
 
 fn popup_builder(entries: Vec<EntryHandle>) -> MenuBuilder {
@@ -45,7 +46,7 @@ fn popup_builder(entries: Vec<EntryHandle>) -> MenuBuilder {
 impl KeyInputDisplay {
     pub fn new(g: &Game) -> KeyInputDisplay {
         let menus = vec![
-            main_menu_builder(get_entries(g)).create_menu(g),
+            main_menu_builder(g, get_entries(g)).create_menu(g),
             popup_builder(StringEntry::use_lines_color(
                 color::YELLOW,
                 &["Press the desired".to_string(), "key sequence".to_string()],
@@ -106,7 +107,7 @@ impl Display for KeyInputDisplay {
                 self.base.menus[2].should_render = false;
                 let sel = self.base.menus[0].get_selection();
                 let disp_sel = self.base.menus[0].get_disp_selection();
-                self.base.menus[0] = main_menu_builder(get_entries(g))
+                self.base.menus[0] = main_menu_builder(g, get_entries(g))
                     .set_selection_disp(sel, disp_sel)
                     .create_menu(g);
                 self.base.selection = 0;
@@ -142,11 +143,12 @@ impl Display for KeyInputDisplay {
                 "Shift-D to reset all keys to default".to_string(),
                 format!("{} to Return to menu", g.input.get_mapping("exit")),
             ];
+            let bottom = screen.h;
             for (i, line) in lines.iter().enumerate() {
                 font::draw_centered(
                     line,
                     screen,
-                    crate::gfx::screen::H - font::text_height() * (4 - i as i32),
+                    bottom - font::text_height() * (4 - i as i32),
                     color::WHITE,
                 );
             }

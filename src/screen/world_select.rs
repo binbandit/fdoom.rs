@@ -165,6 +165,13 @@ impl Action {
     }
 }
 
+/// Widest a world-name row may be: the live framebuffer less the two selection-cursor
+/// gutters the menu reserves (`> ` / ` <`). World names are player-supplied and
+/// unbounded, so the row ellipsizes rather than letting the menu grow off-screen.
+fn name_row_width(g: &Game) -> i32 {
+    (g.screen_size.0 - crate::gfx::sprite_sheet::BOX_WIDTH * 4).max(font::text_width(" "))
+}
+
 /// Java's anonymous `SelectEntry` override in `WorldSelectDisplay.init`: a world row that
 /// takes the pending action's color while selected.
 struct WorldEntry {
@@ -186,7 +193,7 @@ impl ListEntry for WorldEntry {
     }
 
     fn to_display_string(&self, g: &Game) -> String {
-        self.inner.to_display_string(g)
+        font::fit(&self.inner.to_display_string(g), name_row_width(g))
     }
 
     fn get_color(&self, is_selected: bool) -> i32 {
@@ -299,6 +306,7 @@ impl Display for WorldSelectDisplay {
     fn render(&mut self, screen: &mut Screen, g: &mut Game) {
         display_render_default(&mut self.base, screen, g);
 
+        let bottom = screen.h;
         let sel = self.base.menus[0].get_selection();
         if sel >= 0 && (sel as usize) < self.world_versions.len() {
             let version = &self.world_versions[sel as usize];
@@ -331,13 +339,13 @@ impl Display for WorldSelectDisplay {
         font::draw_centered(
             &format!("{} to confirm", g.input.get_mapping("select")),
             screen,
-            crate::gfx::screen::H - 60,
+            bottom - 60,
             color::GRAY,
         );
         font::draw_centered(
             &format!("{} to return", g.input.get_mapping("exit")),
             screen,
-            crate::gfx::screen::H - 40,
+            bottom - 40,
             color::GRAY,
         );
 
@@ -346,8 +354,7 @@ impl Display for WorldSelectDisplay {
 
         match *self.cur_action.borrow() {
             None => {
-                let mut y =
-                    crate::gfx::screen::H - font::text_height() * Action::VALUES.len() as i32;
+                let mut y = bottom - font::text_height() * Action::VALUES.len() as i32;
 
                 for action in Action::VALUES {
                     font::draw_centered(
@@ -403,8 +410,9 @@ impl WorldEditDisplay {
                 "Are you sure you want to delete",
                 action.color(),
             )));
+            // the name is player-supplied; keep the confirmation inside its panel
             entries.push(handle(StringEntry::with_color(
-                &format!("\"{world_name}\"?"),
+                &format!("\"{}\"?", font::fit(world_name, name_row_width(g) - 24)),
                 color::tint(action.color(), 1, true),
             )));
             entries.push(handle(StringEntry::with_color(
