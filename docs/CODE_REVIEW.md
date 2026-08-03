@@ -91,9 +91,33 @@ screen". One sweep, one rule: **no layout math may read the classic constants.**
 
 ---
 
-## Dispatch state
-- G10 text anchoring — lane in flight.
-- G5 (`render_gui`) — lane in flight.
-- G9 (`pixel_studio`) — lane in flight.
-- G1, G2, G3, G4, G6, G7, G8 — queued behind the crash-hunt lanes that currently
-  own those files (one agent per file, hard rule).
+## Dispatch state (updated 2026-07-15)
+- **G5 `render_gui`** — DONE (78fb5e1): 436 lines -> 40, 23 named units, proven
+  pixel-identical over 296 hashed HUD frames; carried a live fix for the dungeon
+  backdrop leaving stale pixels at large sizes.
+- **G9 `pixel_studio`** — DONE (68597ed): one 3,783-line file -> 20 documented
+  modules, zero behaviour change proven three ways, 53 new unit tests.
+- **G10 classic-constant sweep** — DONE (35cd554, 5ff258d, 91f546d, 06e30d9):
+  per-axis draw-time anchoring, seven screens, the scale policy, the unpainted
+  viewport strip, and the black-on-black book pages.
+- **G1 interning** — lane in flight.
+- **G4 logging + unwrap audit** — lane in flight.
+- **G3 param structs** — partly absorbed by G5/G9; the remaining ~95 suppressed
+  lints stay on the list.
+- **G2, G6, G7, G8** — queued; each needs files the in-flight lanes hold.
+
+### Added by QA (2026-07-15)
+- **G11. The test suite was not measuring the product.** 435 tests were green
+  while the window could not be resized without crashing, mobs panicked the game
+  every tick at distance, a corrupt prefs file made it unstartable, and book text
+  rendered black on black. Every one was found by *playing it or fuzzing it*, not
+  by unit tests. Standing rule going forward: a user-facing claim needs a
+  screenshot or a scripted play session behind it, not a green suite.
+- **G12. Wall-clock randomness** (fixed, 06e30d9): levels and the game seeded RNG
+  from the clock, so the same save rolled differently every run and the suite
+  flaked ~1 in 5. Runtime rolls now derive from the world seed.
+- **G13. Sprites sort by `y` alone**, so equal-`y` entities draw in HashMap order —
+  genuinely nondeterministic between processes. Makes PNG comparison unreliable as
+  a regression signal. Needs a stable eid tiebreak. OPEN.
+- **G14. `gfx/lighting.rs` holds a process-wide `static DISABLED_FX: AtomicU32`** —
+  shared mutable state across parallel tests. OPEN.
