@@ -15,6 +15,8 @@ enum Step {
     Down(String),
     Up(String),
     Type(char),
+    /// Resize the real window (QA for the resize/blit path).
+    Size(u32, u32),
     Quit,
 }
 
@@ -24,6 +26,8 @@ pub struct Demo {
     wait_left: i32,
     release_next: Option<String>,
     pub pending_shot: Option<String>,
+    /// A `size:WxH` step waiting for the platform loop to apply it to the window.
+    pub pending_resize: Option<(u32, u32)>,
 }
 
 impl Demo {
@@ -41,6 +45,16 @@ impl Demo {
                     "down" => Step::Down(arg.to_string()),
                     "up" => Step::Up(arg.to_string()),
                     "type" => Step::Type(arg.chars().next().unwrap_or(' ')),
+                    // `size:WxH` resizes the real window mid-run, so scripted QA can
+                    // exercise the resize/blit path (a window smaller than the
+                    // logical screen used to crash the game).
+                    "size" => {
+                        let (w, h) = arg.split_once('x').unwrap_or(("288", "192"));
+                        Step::Size(
+                            w.trim().parse().unwrap_or(288),
+                            h.trim().parse().unwrap_or(192),
+                        )
+                    }
                     "quit" => Step::Quit,
                     other => panic!("unknown FDOOM_DEMO step: {other}"),
                 }
@@ -52,6 +66,7 @@ impl Demo {
             wait_left: 0,
             release_next: None,
             pending_shot: None,
+            pending_resize: None,
         })
     }
 
@@ -93,6 +108,10 @@ impl Demo {
                 Step::Down(name) => game.input.key_toggled(&name, true),
                 Step::Up(name) => game.input.key_toggled(&name, false),
                 Step::Type(ch) => game.input.key_typed(ch),
+                Step::Size(w, h) => {
+                    self.pending_resize = Some((w, h));
+                    return;
+                }
                 Step::Quit => {
                     game.quit();
                     return;

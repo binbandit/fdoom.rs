@@ -131,6 +131,14 @@ impl App {
             if let Some(demo) = &mut self.demo {
                 demo.on_tick(&mut self.game);
             }
+            // apply a scripted `size:WxH` to the real window
+            let pending = self.demo.as_mut().and_then(|d| d.pending_resize.take());
+            if let (Some((w, h)), Some(window)) = (pending, &self.window) {
+                let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(w, h));
+                let (_, lw, lh) = logical_size_for_window(w as i32, h as i32);
+                self.renderer.resize(lw, lh);
+                self.game.screen_size = (lw, lh);
+            }
             self.game.tick();
             self.unprocessed -= 1.0;
         }
