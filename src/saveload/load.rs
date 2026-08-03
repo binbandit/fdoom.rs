@@ -137,13 +137,58 @@ fn parse_bool(s: &str) -> bool {
     s.eq_ignore_ascii_case("true")
 }
 
-/// Java `Enum.valueOf(PotionType.class, name)` — panics on an unknown name, as Java threw.
-fn potion_type_from_name(name: &str) -> crate::item::PotionType {
+/* ---------------------------- tolerant field readers -----------------------------
+ *
+ * Hard convention 10: a save that is truncated, hand-edited, written by a future
+ * build, or corrupted mid-write degrades with a warning — it never panics. Every
+ * field read below goes through these, so a short file simply runs out of fields
+ * and the rest take their defaults.
+ */
+
+/// Take the next field, or `""` once the save has run out.
+fn pop(data: &mut Vec<String>) -> String {
+    if data.is_empty() {
+        String::new()
+    } else {
+        data.remove(0)
+    }
+}
+
+/// Take the next field as an `i32`; missing or unparseable reads as `default`.
+fn pop_i32(data: &mut Vec<String>, default: i32) -> i32 {
+    parse_i32(&pop(data), default)
+}
+
+/// Field `idx`, or `""` when the save is short.
+fn at(data: &[String], idx: usize) -> &str {
+    data.get(idx).map(|s| s.as_str()).unwrap_or("")
+}
+
+/// Field `idx` as an `i32`; missing or unparseable reads as `default`.
+fn at_i32(data: &[String], idx: usize, default: i32) -> i32 {
+    parse_i32(at(data, idx), default)
+}
+
+/// `i32::from_str` that survives junk, blanks and out-of-range magnitudes (a value
+/// too big for an `i32` saturates rather than throwing the save away).
+fn parse_i32(s: &str, default: i32) -> i32 {
+    let s = s.trim();
+    match s.parse::<i32>() {
+        Ok(v) => v,
+        Err(_) => match s.parse::<i128>() {
+            Ok(v) => v.clamp(i32::MIN as i128, i32::MAX as i128) as i32,
+            Err(_) => default,
+        },
+    }
+}
+
+/// Java `Enum.valueOf(PotionType.class, name)`. Unknown names (a removed or
+/// future potion) drop the effect with a warning instead of throwing.
+fn potion_type_from_name(name: &str) -> Option<crate::item::PotionType> {
     crate::item::PotionType::VALUES
         .iter()
         .copied()
         .find(|p| p.enum_name() == name)
-        .unwrap_or_else(|| panic!("No enum constant PotionType.{name}"))
 }
 
 /// Java `Level.printLevelLoc(prefix, x, y)`.
@@ -160,16 +205,21 @@ pub struct Load {
     extradata: Vec<String>,
     world_ver: Option<Version>,
     has_global_prefs: bool,
+    /// The save could not be read at all (missing/damaged `Game` file, or a world
+    /// shape this build cannot load). The world is left untouched on disk.
+    failed: bool,
 }
 
-/// Java `new Load(worldname)` — loads the whole world.
-pub fn load_world_named(g: &mut Game, world_name: &str) {
-    new_world(g, world_name, true);
+/// Java `new Load(worldname)` — loads the whole world. Returns whether the world
+/// actually came up; `false` means the save was unreadable and the caller must not
+/// drop the player into gameplay (see `core::world::init_world`).
+pub fn load_world_named(g: &mut Game, world_name: &str) -> bool {
+    !new_world(g, world_name, true).failed
 }
 
 /// Alias of [`load_world_named`] (call-site name used by `core::world::init_world`).
-pub fn load_world(g: &mut Game, world_name: &str) {
-    load_world_named(g, world_name);
+pub fn load_world(g: &mut Game, world_name: &str) -> bool {
+    load_world_named(g, world_name)
 }
 
 /// Java `new Load(worldname, loadGame)`.
@@ -178,8 +228,12 @@ pub fn new_world(g: &mut Game, worldname: &str, load_game: bool) -> Load {
 
     let game_file = format!("{}/saves/{}/Game{}", l.location, worldname, EXTENSION);
     l.load_from_file(g, &game_file);
-    if l.data[0].contains('.') {
-        l.world_ver = Some(Version::new(&l.data[0]));
+    // A missing/empty/unreadable Game file means there is no world to read here: the
+    // save was deleted, is being written, or the disk lost it. Refuse the load rather
+    // than half-building a world on top of the player's save.
+    let game_file_readable = !l.data.is_empty();
+    if at(&l.data, 0).contains('.') {
+        l.world_ver = Some(Version::new(at(&l.data, 0)));
     }
     if l.world_ver.is_none() {
         l.world_ver = Some(Version::new("1.8"));
@@ -193,7 +247,12 @@ pub fn new_world(g: &mut Game, worldname: &str, load_game: bool) -> Load {
         return l;
     }
 
-    if *l.wv() < Version::new("3.0") {
+    if !game_file_readable {
+        eprintln!(
+            "LOAD ERROR: world \"{worldname}\" has no readable Game{EXTENSION}; refusing to load (the save is missing or damaged — nothing was overwritten)."
+        );
+        l.failed = true;
+    } else if *l.wv() < Version::new("3.0") {
         // Pre-3.0 worlds have six levels (sky included) and Score-mode state; the
         // sandbox pivot changed the world shape, so they can't be loaded.
         eprintln!(
@@ -201,6 +260,7 @@ pub fn new_world(g: &mut Game, worldname: &str, load_game: bool) -> Load {
             worldname,
             l.wv()
         );
+        l.failed = true;
     } else {
         l.location.push_str(&format!("/saves/{worldname}/"));
 
@@ -220,6 +280,37 @@ pub fn new_world(g: &mut Game, worldname: &str, load_game: bool) -> Load {
     }
 
     l
+}
+
+/// Install a layer built from scratch: a chunked layer at the infinite depths, a
+/// freshly generated map otherwise.
+///
+/// Used for the world's normal chunked layers, and — loudly — for any layer whose
+/// save file turned out to be missing or damaged. Losing one layer must not cost the
+/// player the other four.
+fn rebuild_layer(g: &mut Game, depth: i32) {
+    let idx = crate::level::lvl_idx(depth);
+    if crate::level::is_infinite_depth(depth) {
+        let mut level = Level::empty(
+            g.world_size,
+            g.world_size,
+            depth,
+            g.settings.get_idx("diff"),
+        );
+        level.chunks = Some(crate::level::chunk::ChunkMap::default());
+        g.levels[idx] = Some(level);
+        return;
+    }
+
+    g.levels[idx] = Some(crate::core::world::generate_level(g, depth));
+    if depth == crate::level::MIN_LEVEL_DEPTH {
+        // the dungeon needs its landing gate, or players arriving from the deep mines
+        // materialize inside solid obsidian (init_world stamps the same one)
+        let (cx, cy) = (g.level(idx).w / 2, g.level(idx).h / 2);
+        let stairs_up = g.tiles.get("Stairs Up");
+        g.set_tile_default(idx, cx, cy, &stairs_up);
+        crate::level::structure::draw_dungeon_gate(g, idx, cx, cy);
+    }
 }
 
 /// Java `new Load(true)` — the startup load of `Preferences` + `Unlocks`.
@@ -287,7 +378,13 @@ impl Load {
             extradata: Vec::new(),
             world_ver: None,
             has_global_prefs: Path::new(&test_file).exists(),
+            failed: false,
         }
+    }
+
+    /// Whether the world refused to load (see [`Load::failed`]).
+    pub fn has_failed(&self) -> bool {
+        self.failed
     }
 
     /// Java `new Load(worldVersion)` — a Load object for parsing data of a known version
@@ -399,29 +496,30 @@ impl Load {
         let file = format!("{}{}{}", self.location, filename, EXTENSION);
         self.load_from_file(g, &file);
 
-        self.world_ver = Some(Version::new(&self.data.remove(0))); // gets the world version
+        self.world_ver = Some(Version::new(&pop(&mut self.data))); // gets the world version
         if *self.wv() >= Version::new("2.0.4-dev8") {
-            let modedata = self.data.remove(0);
+            let modedata = pop(&mut self.data);
             self.load_mode(g, &modedata);
         }
 
-        g.set_time(self.data.remove(0).parse().unwrap());
+        g.set_time(pop_i32(&mut self.data, 0));
 
-        g.game_time = self.data.remove(0).parse().unwrap();
+        g.game_time = pop_i32(&mut self.data, 0);
         if *self.wv() >= Version::new("1.9.3-dev2") {
             g.past_day1 = g.game_time > 65000;
         } else {
             g.game_time = 65000; // prevents time cheating.
         }
 
-        let mut diff_idx: i32 = self.data.remove(0).parse().unwrap();
+        // a truncated Game file keeps the current difficulty rather than dropping to 0
+        let mut diff_idx = pop_i32(&mut self.data, g.settings.get_idx("diff"));
         if *self.wv() < Version::new("1.9.3-dev3") {
             diff_idx -= 1; // account for change in difficulty
         }
 
         g.settings.set_idx("diff", diff_idx);
 
-        g.air_wizard_beaten = parse_bool(&self.data.remove(0));
+        g.air_wizard_beaten = parse_bool(&pop(&mut self.data));
     }
 
     /// Java `loadMode(modedata)` — Score mode was removed in the sandbox pivot; a
@@ -441,47 +539,59 @@ impl Load {
         // it's not set below.
         let mut pref_ver = Version::new("2.0.2");
 
-        if !self.data[2].contains(';') {
+        // A Preferences file truncated by a crash mid-write would otherwise take the
+        // game down on every launch; every read below tolerates a short file and
+        // falls back to the built-in default.
+        if !at(&self.data, 2).contains(';') {
             // signifies that this file was last written to by a version after 2.0.2.
-            pref_ver = Version::new(&self.data.remove(0));
+            pref_ver = Version::new(&pop(&mut self.data));
         }
 
-        g.settings.set("sound", parse_bool(&self.data.remove(0)));
-        g.settings.set("autosave", parse_bool(&self.data.remove(0)));
+        g.settings.set("sound", parse_bool(&pop(&mut self.data)));
+        g.settings.set("autosave", parse_bool(&pop(&mut self.data)));
 
         if pref_ver >= Version::new("2.0.4-dev2") {
-            g.settings
-                .set("fps", self.data.remove(0).parse::<i32>().unwrap());
+            let fps = pop_i32(&mut self.data, g.settings.get("fps").as_int());
+            g.settings.set("fps", fps);
         }
 
         let subdata: Vec<String> = if pref_ver < Version::new("2.0.3-dev1") {
-            self.data.clone()
+            // pre-2.0.3 prefs are all keymap from here on (and carry no daycycle field)
+            std::mem::take(&mut self.data)
         } else {
             // discard the reserved multiplayer fields (IP/UUID/username slots)
-            let _saved_ip = self.data.remove(0);
+            let _saved_ip = pop(&mut self.data);
             if pref_ver > Version::new("2.0.3-dev3") {
-                let _saved_uuid = self.data.remove(0);
-                let _saved_username = self.data.remove(0);
+                let _saved_uuid = pop(&mut self.data);
+                let _saved_username = pop(&mut self.data);
             }
 
             if pref_ver >= Version::new("2.0.4-dev3") {
-                let lang = self.data.remove(0);
-                g.settings.set("language", lang.clone());
-                g.localization.change_language(&lang);
+                let lang = pop(&mut self.data);
+                if !lang.is_empty() {
+                    g.settings.set("language", lang.clone());
+                    g.localization.change_language(&lang);
+                }
             }
 
-            let key_data = self.data[0].clone();
+            // consume the keymap field, so the appended daycycle field below is read
+            // from its own slot (it used to re-read the keymap and silently drop the
+            // player's day-cycle setting)
+            let key_data = pop(&mut self.data);
             java_split(&key_data, ':')
         };
 
         for keymap in &subdata {
+            // a keymap entry without its ";binding" half is skipped, not fatal
             let map = java_split(keymap, ';');
-            g.input.set_key(&map[0], &map[1], g.debug);
+            if map.len() >= 2 && !map[0].is_empty() {
+                g.input.set_key(&map[0], &map[1], g.debug);
+            }
         }
 
         // day-cycle pacing (appended field; absent in older prefs files)
         if !self.data.is_empty() {
-            let dc = self.data.remove(0);
+            let dc = pop(&mut self.data);
             if !dc.is_empty() {
                 g.settings.set("daycycle", dc);
             }
@@ -492,39 +602,62 @@ impl Load {
     fn load_world(&mut self, g: &mut Game, filename: &str) {
         // infinite worlds: seed comes from WorldMeta; chunked layers rebuild lazily
         let meta_file = format!("{}WorldMeta{}", self.location, EXTENSION);
-        let infinite = match std::fs::read_to_string(&meta_file) {
-            Ok(txt) => {
-                let mut parts = txt.trim().split(',');
-                if parts.next() == Some("Infinite") {
-                    if let Some(seed) = parts.next().and_then(|s| s.parse::<i64>().ok()) {
-                        g.world_seed = seed;
-                    }
-                    true
-                } else {
-                    false
+        let mut infinite = false;
+        if let Ok(txt) = std::fs::read_to_string(&meta_file) {
+            let mut parts = txt.trim().split(',');
+            if parts.next() == Some("Infinite") {
+                infinite = true;
+                match parts.next().and_then(|s| s.parse::<i64>().ok()) {
+                    Some(seed) => g.world_seed = seed,
+                    None => eprintln!(
+                        "LOAD WARNING: WorldMeta{EXTENSION} carries no readable seed; explored chunks still load, unexplored ground will differ."
+                    ),
                 }
             }
-            Err(_) => false,
-        };
+        }
+        // A lost/damaged WorldMeta used to send an infinite world down the finite path,
+        // where the (never written) Level0..3 files took the load down. Chunk data on
+        // disk is proof the world is infinite, so trust that instead of crashing.
+        if !infinite && Path::new(&format!("{}chunks", self.location)).is_dir() {
+            eprintln!(
+                "LOAD WARNING: WorldMeta{EXTENSION} is missing or damaged, but this world has chunk data; loading it as infinite."
+            );
+            infinite = true;
+        }
 
         for l in (crate::level::MIN_LEVEL_DEPTH..=crate::level::MAX_LEVEL_DEPTH).rev() {
             g.loading_message = crate::level::get_depth_string(l); // LoadingDisplay.setMessage
             let lvlidx = crate::level::lvl_idx(l);
-            if infinite && (-3..=0).contains(&l) {
-                let mut level =
-                    Level::empty(g.world_size, g.world_size, l, g.settings.get_idx("diff"));
-                level.chunks = Some(crate::level::chunk::ChunkMap::default());
-                g.levels[lvlidx] = Some(level);
+            if infinite && crate::level::is_infinite_depth(l) {
+                rebuild_layer(g, l);
                 continue;
             }
             let file = format!("{}{}{}{}", self.location, filename, lvlidx, EXTENSION);
             self.load_from_file(g, &file);
 
-            let lvlw: i32 = self.data[0].parse().unwrap();
-            let lvlh: i32 = self.data[1].parse().unwrap();
+            let lvlw = at_i32(&self.data, 0, 0);
+            let lvlh = at_i32(&self.data, 1, 0);
+            // i64 so a bogus header ("100000,100000") can't overflow before it is
+            // rejected; the file must actually carry a tile (and data) entry per tile.
+            let area = lvlw as i64 * lvlh as i64;
+            let usable = lvlw > 0
+                && lvlh > 0
+                && area <= self.data.len() as i64 - 3
+                && area <= self.extradata.len() as i64;
+            if !usable {
+                // A missing or truncated layer file is not worth losing the whole world
+                // over: rebuild this one layer from the seed and keep going, loudly.
+                eprintln!(
+                    "LOAD ERROR: {file} is missing or damaged ({lvlw}x{lvlh}, {} tile fields, {} data fields); rebuilding this layer.",
+                    self.data.len().saturating_sub(3),
+                    self.extradata.len()
+                );
+                rebuild_layer(g, l);
+                continue;
+            }
 
-            let mut tiles = vec![0u8; (lvlw * lvlh) as usize];
-            let mut tdata = vec![0u8; (lvlw * lvlh) as usize];
+            let mut tiles = vec![0u8; area as usize];
+            let mut tdata = vec![0u8; area as usize];
 
             for x in 0..lvlw {
                 for y in 0..lvlh {
@@ -535,7 +668,7 @@ impl Load {
                     let mut tilename = self.data[tileidx + 3].clone();
                     if *self.wv() < Version::new("1.9.4-dev6") {
                         // they were id numbers, not names, at this point
-                        let tile_id: i32 = tilename.parse().unwrap();
+                        let tile_id = parse_i32(&tilename, -1);
                         match old_id(tile_id) {
                             Some(name) => tilename = name.to_string(),
                             None => {
@@ -557,7 +690,8 @@ impl Load {
                     tiles[tile_arr_idx] = g.tiles.get(&tilename).id;
                     // legacy saves store data as a signed byte; values above 127 have
                     // never been valid in this format
-                    tdata[tile_arr_idx] = self.extradata[tileidx].parse::<i8>().unwrap() as u8;
+                    tdata[tile_arr_idx] =
+                        parse_i32(&self.extradata[tileidx], 0).clamp(-128, 127) as i8 as u8;
                 }
             }
 
@@ -631,30 +765,39 @@ impl Load {
         let mut data: Vec<String> = orig_data.to_vec();
         let mut player = g.entities.take(g.player_id).expect("player entity missing");
 
-        player.c.x = data.remove(0).parse().unwrap();
-        player.c.y = data.remove(0).parse().unwrap();
+        // Defaults are the *fresh* player's own values, so a truncated Player file
+        // yields a healthy player at the spawn point rather than a 0-HP corpse at
+        // the origin.
+        player.c.x = pop_i32(&mut data, player.c.x);
+        player.c.y = pop_i32(&mut data, player.c.y);
         {
             let pd = player.player_mut();
-            pd.spawnx = data.remove(0).parse().unwrap();
-            pd.spawny = data.remove(0).parse().unwrap();
-            pd.mob.health = data.remove(0).parse().unwrap();
+            pd.spawnx = pop_i32(&mut data, pd.spawnx);
+            pd.spawny = pop_i32(&mut data, pd.spawny);
+            pd.mob.health = pop_i32(&mut data, pd.mob.health);
         }
         if *self.wv() >= Version::new("2.0.4-dev7") {
-            player.player_mut().hunger = data.remove(0).parse().unwrap();
+            let pd = player.player_mut();
+            pd.hunger = pop_i32(&mut data, pd.hunger);
         }
-        player.player_mut().armor = data.remove(0).parse().unwrap();
+        player.player_mut().armor = pop_i32(&mut data, 0);
 
-        if player.player().armor > 0 {
+        if player.player().armor > 0 && !data.is_empty() {
             if *self.wv() < Version::new("2.0.4-dev7") {
                 // reverse order b/c we are taking from the end
                 let idx = data.len() - 1;
                 let cur_armor = crate::item::registry::get(g, &data.remove(idx));
                 player.player_mut().cur_armor = Some(cur_armor);
-                let idx = data.len() - 1;
-                player.player_mut().armor_damage_buffer = data.remove(idx).parse().unwrap();
+                let buffer = if data.is_empty() {
+                    0
+                } else {
+                    let idx = data.len() - 1;
+                    parse_i32(&data.remove(idx), 0)
+                };
+                player.player_mut().armor_damage_buffer = buffer;
             } else {
-                player.player_mut().armor_damage_buffer = data.remove(0).parse().unwrap();
-                let cur_armor = crate::item::registry::get(g, &data.remove(0));
+                player.player_mut().armor_damage_buffer = pop_i32(&mut data, 0);
+                let cur_armor = crate::item::registry::get(g, &pop(&mut data));
                 player.player_mut().cur_armor = Some(cur_armor);
             }
 
@@ -673,19 +816,28 @@ impl Load {
                 pd.armor_damage_buffer = 0;
             }
         }
-        player
-            .player_mut()
-            .set_score(data.remove(0).parse().unwrap());
+        let score = pop_i32(&mut data, 0);
+        player.player_mut().set_score(score);
 
         if *self.wv() < Version::new("2.0.4-dev7") {
-            let arrow_count: i32 = data.remove(0).parse().unwrap();
-            if *self.wv() < Version::new("2.0.1-dev1") {
+            let arrow_count = pop_i32(&mut data, 0);
+            if *self.wv() < Version::new("2.0.1-dev1") && arrow_count > 0 {
                 let arrow = crate::item::registry::get(g, "arrow");
                 player.player_mut().inventory.add_num(arrow, arrow_count);
             }
         }
 
-        g.current_level = data.remove(0).parse::<i32>().unwrap() as usize;
+        // A level index outside the world's five layers (an old six-level save, a
+        // hand-edited file) would index straight off `g.levels`: clamp to the surface.
+        let saved_level = pop_i32(&mut data, g.current_level as i32);
+        g.current_level = if (0..g.levels.len() as i32).contains(&saved_level) {
+            saved_level as usize
+        } else {
+            eprintln!(
+                "LOAD WARNING: player saved on level {saved_level}, which this world does not have; placing them on the surface."
+            );
+            crate::level::lvl_idx(0)
+        };
         // removes the user player from the level, in case they would be added twice.
         if !player.c.removed {
             crate::entity::behavior::remove_entity(g, &mut player);
@@ -695,37 +847,46 @@ impl Load {
         // player in the level queue.
 
         if *self.wv() < Version::new("2.0.4-dev8") {
-            let modedata = data.remove(0);
+            let modedata = pop(&mut data);
             self.load_mode(g, &modedata);
         }
 
-        let potioneffects = data.remove(0);
-        if potioneffects != "PotionEffects[]" {
+        let potioneffects = pop(&mut data);
+        if potioneffects != "PotionEffects[]" && !potioneffects.is_empty() {
             let effects = potioneffects.replace("PotionEffects[", "").replace(']', "");
             for effect in java_split(&effects, ':') {
                 let effect = java_split(&effect, ';');
-                let p_name = potion_type_from_name(&effect[0]);
-                let time: i32 = effect[1].parse().unwrap();
+                // a removed/renamed potion, or an entry with no duration, is dropped
+                // rather than taking the whole save down
+                let Some(p_name) = potion_type_from_name(at(&effect, 0)) else {
+                    eprintln!(
+                        "LOAD WARNING: unknown potion effect {:?} skipped",
+                        at(&effect, 0)
+                    );
+                    continue;
+                };
+                let time = at_i32(&effect, 1, 0);
+                if time <= 0 {
+                    continue;
+                }
                 // Java PotionItem.applyPotion(player, pName, time).
                 crate::item::interact::apply_potion_time(g, &mut player, p_name, time);
             }
         }
 
         if *self.wv() < Version::new("1.9.4-dev4") {
-            let colors = data.remove(0).replace(['[', ']'], "");
+            let colors = pop(&mut data).replace(['[', ']'], "");
             let color = java_split(&colors, ';');
-            let cols: Vec<i32> = color
-                .iter()
-                .map(|c| c.parse::<i32>().unwrap() / 50)
-                .collect();
+            let cols: Vec<i32> = (0..3).map(|i| at_i32(&color, i, 0) / 50).collect();
             let col = format!("{}{}{}", cols[0], cols[1], cols[2]);
             println!("getting color as {col}");
-            player.player_mut().shirt_color = col.parse().unwrap();
+            player.player_mut().shirt_color = parse_i32(&col, 0);
         } else {
-            player.player_mut().shirt_color = data.remove(0).parse().unwrap();
+            let pd = player.player_mut();
+            pd.shirt_color = pop_i32(&mut data, pd.shirt_color);
         }
 
-        player.player_mut().skinon = parse_bool(&data.remove(0));
+        player.player_mut().skinon = parse_bool(&pop(&mut data));
 
         // HEAD wear slot: a tagged trailing entry (save::WORN_HEAD_MARKER). Old
         // saves have no entry. A payload that isn't head-class gear (a hand-edited
@@ -850,11 +1011,12 @@ impl Load {
 
             if *self.wv() <= Version::new("2.0.4") && item.contains(';') {
                 let cur_data = java_split(&item, ';');
-                let item_name = &cur_data[0];
+                let item_name = at(&cur_data, 0);
 
                 let mut new_item = crate::item::registry::get(g, item_name);
 
-                let count: i32 = cur_data[1].parse().unwrap();
+                // a stack whose count is missing or junk is worth one item, not a crash
+                let count = at_i32(&cur_data, 1, 1).max(0);
 
                 if new_item.is_stackable() {
                     new_item.set_count(count);
@@ -960,20 +1122,35 @@ pub fn load_entity(
         return None;
     }
 
-    let bracket_open = entity_data.find('[').expect("malformed entity data");
-    let bracket_close = entity_data.find(']').expect("malformed entity data");
+    // "Name[a:b:c]" — a record missing either bracket (or with them the wrong way
+    // round) is unreadable: skip that one entity, keep the rest of the world.
+    let (Some(bracket_open), Some(bracket_close)) = (entity_data.find('['), entity_data.rfind(']'))
+    else {
+        eprintln!("LOAD WARNING: malformed entity record skipped: {entity_data:?}");
+        return None;
+    };
+    if bracket_close < bracket_open {
+        eprintln!("LOAD WARNING: malformed entity record skipped: {entity_data:?}");
+        return None;
+    }
     // this gets everything inside the "[...]" after the entity name.
     let mut info: Vec<String> = java_split(&entity_data[bracket_open + 1..bracket_close], ':');
 
     // this gets the text before "[", which is the entity name.
     let entity_name = &entity_data[..bracket_open];
 
-    let x: i32 = info[0].parse().unwrap();
-    let y: i32 = info[1].parse().unwrap();
+    // every record carries at least "x:y:...:level" (plus an eid when not a local save)
+    if info.len() < if is_local_save { 3 } else { 4 } {
+        eprintln!("LOAD WARNING: entity record has too few fields, skipped: {entity_data:?}");
+        return None;
+    }
+
+    let x = at_i32(&info, 0, 0);
+    let y = at_i32(&info, 1, 0);
 
     let mut eid = -1;
     if !is_local_save {
-        eid = info.remove(2).parse().unwrap();
+        eid = parse_i32(&info.remove(2), -1);
     }
 
     let new_entity: Option<Entity> = if entity_name == "RemotePlayer" {
@@ -982,7 +1159,7 @@ pub fn load_entity(
         }
         return None; // a relic of old multiplayer saves; never loaded
     } else if entity_name == "Zap" && !is_local_save {
-        let wisp_id: i32 = info[2].parse().unwrap();
+        let wisp_id = at_i32(&info, 2, -1);
         let zap_owner = g
             .entities
             .get(wisp_id)
@@ -1025,8 +1202,10 @@ pub fn load_entity(
                 | "Rattler"
                 | "Ghost"
         );
-        if !is_crafter_name && is_enemy_mob_class {
-            mob_lvl = info[info.len() - 2].parse().unwrap();
+        if !is_crafter_name && is_enemy_mob_class && info.len() >= 2 {
+            // clamped: a junk level would otherwise reach the mob constructors' color
+            // and stat tables
+            mob_lvl = at_i32(&info, info.len() - 2, 1).clamp(0, 4);
         }
 
         if mob_lvl == 0 {
@@ -1044,21 +1223,27 @@ pub fn load_entity(
     let mut new_entity = new_entity?;
 
     if new_entity.is_mob() {
-        new_entity.mob_mut().unwrap().health = info[2].parse().unwrap();
+        let hp = new_entity.mob().map(|m| m.health).unwrap_or(1);
+        new_entity.mob_mut().unwrap().health = at_i32(&info, 2, hp);
     } else if new_entity.is_chest() {
         let is_death_chest = matches!(new_entity.kind, EntityKind::DeathChest(_));
         let is_dungeon_chest = matches!(new_entity.kind, EntityKind::DungeonChest(_));
         let is_scav_container = matches!(new_entity.kind, EntityKind::ScavContainer(_));
-        let chest_info: Vec<String> = info[2..info.len() - 1].to_vec();
+        // fields between "x:y" and the trailing level: the chest's contents plus the
+        // per-kind tail below (a short record simply has none)
+        let chest_info: Vec<String> = info
+            .get(2..info.len().saturating_sub(1))
+            .unwrap_or_default()
+            .to_vec();
 
-        let end_idx = chest_info.len()
-            - if is_death_chest || is_dungeon_chest {
-                1
-            } else if is_scav_container {
-                2 // trailing ScavKind ordinal + searched flag
-            } else {
-                0
-            };
+        let tail = if is_death_chest || is_dungeon_chest {
+            1
+        } else if is_scav_container {
+            2 // trailing ScavKind ordinal + searched flag
+        } else {
+            0
+        };
+        let end_idx = chest_info.len().saturating_sub(tail);
         for item_data in &chest_info[..end_idx] {
             let mut item_data = item_data.clone();
             if *world_ver < Version::new("1.9.4-dev4") {
@@ -1071,14 +1256,14 @@ pub fn load_entity(
 
             if item_data.contains(';') {
                 let aitem_data = java_split(&item_data, ';');
-                let mut stack = crate::item::registry::get(g, &aitem_data[0]);
+                let mut stack = crate::item::registry::get(g, at(&aitem_data, 0));
                 if !matches!(stack.kind, crate::item::ItemKind::Unknown { .. }) {
-                    stack.set_count(aitem_data[1].parse().unwrap());
+                    stack.set_count(at_i32(&aitem_data, 1, 1).max(0));
                     new_entity.chest_mut().unwrap().inventory.add(stack);
                 } else {
                     eprintln!(
-                        "LOAD ERROR: encountered invalid item name, expected to be stackable: {}; stack trace:",
-                        aitem_data[0]
+                        "LOAD ERROR: encountered invalid item name, expected to be stackable: {}",
+                        at(&aitem_data, 0)
                     );
                 }
             } else {
@@ -1087,23 +1272,28 @@ pub fn load_entity(
             }
         }
 
+        // the per-kind tail fields; `end_idx` already excluded them from the item loop,
+        // and a record too short to carry them falls back to the constructor defaults
+        let tail_fields = &chest_info[end_idx..];
         if is_death_chest {
             if let EntityKind::DeathChest(dc) = &mut new_entity.kind {
-                dc.time = chest_info[chest_info.len() - 1].parse().unwrap();
+                dc.time = at_i32(tail_fields, 0, dc.time);
             }
         } else if is_dungeon_chest {
-            let is_locked = parse_bool(&chest_info[chest_info.len() - 1]);
+            let is_locked = parse_bool(at(tail_fields, 0));
             if let EntityKind::DungeonChest(dc) = &mut new_entity.kind {
                 dc.is_locked = is_locked;
             }
             if is_locked {
-                let lvl: usize = info[info.len() - 1].parse().unwrap();
-                g.level_mut(lvl).chest_count += 1;
+                let lvl = at_i32(&info, info.len() - 1, -1);
+                if (0..g.levels.len() as i32).contains(&lvl) && g.levels[lvl as usize].is_some() {
+                    g.level_mut(lvl as usize).chest_count += 1;
+                }
             }
         } else if is_scav_container {
             use crate::entity::furniture::scav_container::ScavKind;
-            let ordinal: usize = chest_info[chest_info.len() - 2].parse().unwrap_or(0);
-            let searched = parse_bool(&chest_info[chest_info.len() - 1]);
+            let ordinal = at_i32(tail_fields, 0, 0).max(0) as usize;
+            let searched = parse_bool(at(tail_fields, 1));
             let kind = ScavKind::VALUES
                 .get(ordinal)
                 .copied()
@@ -1117,8 +1307,9 @@ pub fn load_entity(
             new_entity.c.col = kind.col(searched);
         }
     } else if matches!(new_entity.kind, EntityKind::Spawner(_)) {
-        let mob_name = info[2].rsplit('.').next().unwrap_or(&info[2]).to_string();
-        let mob = get_entity(g, &mob_name, info[3].parse().unwrap());
+        let raw = at(&info, 2).to_string();
+        let mob_name = raw.rsplit('.').next().unwrap_or(&raw).to_string();
+        let mob = get_entity(g, &mob_name, at_i32(&info, 3, 1).clamp(1, 4));
         if let Some(mob) = mob {
             let mut rnd = g.random.clone();
             new_entity = crate::entity::furniture::spawner::new(mob, &mut rnd);
@@ -1128,13 +1319,18 @@ pub fn load_entity(
         && *world_ver >= Version::new("1.9.4")
         && info.len() > 3
     {
-        let t: usize = info[2].parse().unwrap();
-        new_entity = crate::entity::furniture::lantern::new(
-            crate::entity::furniture::lantern::LanternType::VALUES[t],
-        );
+        // an out-of-range ordinal (a lantern type this build no longer has) falls back
+        // to the plain lantern rather than indexing off the table
+        use crate::entity::furniture::lantern::LanternType;
+        let t = at_i32(&info, 2, 0).max(0) as usize;
+        let lantern_type = LanternType::VALUES.get(t).copied().unwrap_or_else(|| {
+            eprintln!("LOAD WARNING: unknown lantern type {t}, loading a plain lantern");
+            LanternType::Norm
+        });
+        new_entity = crate::entity::furniture::lantern::new(lantern_type);
     } else if matches!(new_entity.kind, EntityKind::Campfire(_)) && info.len() > 3 {
         // fire wave: restore the remaining fuel (and the matching lit/ember sprite)
-        let fuel: i32 = info[2].parse().unwrap_or(0);
+        let fuel = at_i32(&info, 2, 0);
         if let EntityKind::Campfire(cf) = &mut new_entity.kind {
             cf.fuel = fuel.max(0);
             cf.furniture.sprite = if cf.fuel > 0 {
@@ -1148,7 +1344,7 @@ pub fn load_entity(
         // the same old-save tolerance rule as everywhere else)
         use crate::entity::furniture::crafter::Module;
         if let EntityKind::Crafter(c) = &mut new_entity.kind {
-            for ord in info[2].split(';').filter(|s| !s.is_empty()) {
+            for ord in at(&info, 2).split(';').filter(|s| !s.is_empty()) {
                 if let Some(m) = ord
                     .parse::<usize>()
                     .ok()
@@ -1164,37 +1360,43 @@ pub fn load_entity(
     if !is_local_save {
         // transient-entity payloads (see write_entity): only present in non-local data
         if matches!(new_entity.kind, EntityKind::Arrow(_)) {
-            let owner_id: i32 = info[2].parse().unwrap();
+            let owner_id = at_i32(&info, 2, -1);
             let owner_is_mob = g
                 .entities
                 .get(owner_id)
                 .map(|e| e.is_mob())
                 .unwrap_or(false);
             if owner_is_mob {
-                let dir = crate::entity::Direction::VALUES[info[3].parse::<usize>().unwrap()];
-                let dmg: i32 = info[5].parse().unwrap();
+                use crate::entity::Direction;
+                let d = at_i32(&info, 3, 0).max(0) as usize;
+                let dir = Direction::VALUES.get(d).copied().unwrap_or(Direction::None);
+                let dmg = at_i32(&info, 5, 0);
                 new_entity = crate::entity::projectile::new_arrow(owner_id, x, y, dir, dmg);
             }
         }
         if matches!(new_entity.kind, EntityKind::ItemEntity(_)) {
-            let item = crate::item::registry::get(g, &info[2]);
-            let zz: f64 = info[3].parse().unwrap();
-            let lifetime: i32 = info[4].parse().unwrap();
-            let timeleft: i32 = info[5].parse().unwrap();
-            let xa: f64 = info[6].parse().unwrap();
-            let ya: f64 = info[7].parse().unwrap();
-            let za: f64 = info[8].parse().unwrap();
+            let item = crate::item::registry::get(g, at(&info, 2));
+            let f = |i: usize| at(&info, i).trim().parse::<f64>().unwrap_or(0.0);
             let mut rnd = g.random.clone();
             new_entity = crate::entity::item_entity::with_motion(
-                item, x, y, zz, lifetime, timeleft, xa, ya, za, &mut rnd,
+                item,
+                x,
+                y,
+                f(3),
+                at_i32(&info, 4, 0),
+                at_i32(&info, 5, 0),
+                f(6),
+                f(7),
+                f(8),
+                &mut rnd,
             );
             g.random = rnd;
         }
         if matches!(new_entity.kind, EntityKind::TextParticle(_)) {
-            let textcol: i32 = info[3].parse().unwrap();
+            let textcol = at_i32(&info, 3, 0);
+            let msg = at(&info, 2).to_string();
             let mut rnd = g.random.clone();
-            new_entity =
-                crate::entity::particle::new_text_particle(&info[2], x, y, textcol, &mut rnd);
+            new_entity = crate::entity::particle::new_text_particle(&msg, x, y, textcol, &mut rnd);
             g.random = rnd;
         }
     }
@@ -1206,7 +1408,16 @@ pub fn load_entity(
         println!("Warning: item entity was loaded with no eid");
     }
 
-    let cur_level: usize = info[info.len() - 1].parse().unwrap();
+    // The trailing field is the level slot. An index outside the world's layers (an
+    // old six-level save, a hand-edited record) used to index straight off `g.levels`.
+    let cur_level = at_i32(&info, info.len() - 1, -1);
+    if !(0..g.levels.len() as i32).contains(&cur_level) {
+        eprintln!(
+            "LOAD WARNING: {entity_name} saved on level {cur_level}, which this world does not have; skipped."
+        );
+        return None;
+    }
+    let cur_level = cur_level as usize;
     if g.levels[cur_level].is_some() {
         g.level_mut(cur_level)
             .add_at(new_entity, x, y, false, cur_level);

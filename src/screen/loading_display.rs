@@ -82,6 +82,16 @@ impl Display for LoadingDisplay {
         if self.ticks == 2 {
             // one frame of "Loading..." has been drawn; now do the real work
             crate::core::world::init_world(g);
+            if g.world_load_failed {
+                // The save could not be read (missing/damaged Game file, or a world
+                // shape this build can't load). Back to the title with the news —
+                // entering gameplay would crash, and autosave would then overwrite
+                // the save the player might still recover by hand.
+                g.ready_to_render_gameplay = false;
+                g.set_menu(super::title_display::TitleDisplay::new(g));
+                g.push_toast("Could not load that world");
+                return;
+            }
             g.clear_menu();
             return;
         }

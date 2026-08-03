@@ -50,6 +50,20 @@ pub const IDX_TO_DEPTH: [i32; 5] = [-3, -2, -1, 0, -4];
 pub const MIN_LEVEL_DEPTH: i32 = -4;
 pub const MAX_LEVEL_DEPTH: i32 = 0;
 
+/// Tile coordinate to the pixel centre of that tile, clamped to the part of the
+/// plane the game can actually address (see [`chunk::MAX_TILE`]): the bare
+/// `tile * 16 + 8` overflows an i32 once a coordinate runs far enough out.
+#[inline]
+pub fn tile_to_pixel(tile: i32) -> i32 {
+    tile.clamp(chunk::MIN_TILE, chunk::MAX_TILE) * 16 + 8
+}
+
+/// Whether a depth is one of the chunked, infinite layers (surface + the three
+/// mines). The dungeon is a finite set piece.
+pub fn is_infinite_depth(depth: i32) -> bool {
+    (-3..=0).contains(&depth)
+}
+
 /// Java `World.lvlIdx(depth)`.
 pub fn lvl_idx(depth: i32) -> usize {
     if depth > MAX_LEVEL_DEPTH {
@@ -198,7 +212,7 @@ impl Level {
         lvl_idx: usize,
     ) {
         let (x, y) = if tile_coords {
-            (x * 16 + 8, y * 16 + 8)
+            (tile_to_pixel(x), tile_to_pixel(y))
         } else {
             (x, y)
         };
@@ -320,10 +334,12 @@ pub fn get_players(g: &Game, lvl: usize) -> Vec<i32> {
 
 /// Java `level.getClosestPlayer(x, y)`.
 pub fn get_closest_player(g: &Game, lvl: usize, x: i32, y: i32) -> Option<i32> {
-    let mut best: Option<(i32, i64)> = None;
+    let mut best: Option<(i32, i128)> = None;
     for e in g.entities.entities_on_level(lvl).filter(|e| e.is_player()) {
-        let xd = (e.c.x - x) as i64;
-        let yd = (e.c.y - y) as i64;
+        // The squared distance between two far-apart coordinates fits in neither an
+        // i32 (the subtraction) nor an i64 (the square); only the ordering matters.
+        let xd = e.c.x as i128 - x as i128;
+        let yd = e.c.y as i128 - y as i128;
         let d = xd * xd + yd * yd;
         if best.is_none() || d < best.unwrap().1 {
             best = Some((e.c.eid, d));
@@ -781,13 +797,13 @@ fn try_spawn_pass(g: &mut Game, lvl: usize) {
             let span = chunk::CHUNK_SIZE * chunk::LOAD_RADIUS * 2;
             let (nx, ny) = if infinite {
                 (
-                    (px - span / 2 + level.random.next_int_bound(span)) * 16 + 8,
-                    (py - span / 2 + level.random.next_int_bound(span)) * 16 + 8,
+                    tile_to_pixel(px.saturating_sub(span / 2) + level.random.next_int_bound(span)),
+                    tile_to_pixel(py.saturating_sub(span / 2) + level.random.next_int_bound(span)),
                 )
             } else {
                 (
-                    level.random.next_int_bound(w) * 16 + 8,
-                    level.random.next_int_bound(h) * 16 + 8,
+                    tile_to_pixel(level.random.next_int_bound(w)),
+                    tile_to_pixel(level.random.next_int_bound(h)),
                 )
             };
             (mlvl, rnd, nx, ny)
@@ -1110,8 +1126,11 @@ pub fn ensure_chunks_at(
     {
         return;
     }
-    let pcx = chunk::chunk_coord(tile_x);
-    let pcy = chunk::chunk_coord(tile_y);
+    // Clamped into the addressable range: a position out past `chunk::MAX_TILE` (a
+    // hand-edited save, an entity that walked off the numeric end of the world) would
+    // otherwise ask the generator for a chunk whose tile origin overflows an i32.
+    let pcx = chunk::chunk_coord(tile_x).clamp(chunk::MIN_CHUNK, chunk::MAX_CHUNK);
+    let pcy = chunk::chunk_coord(tile_y).clamp(chunk::MIN_CHUNK, chunk::MAX_CHUNK);
     let seed = g.world_seed;
     let depth = g.level(lvl).depth;
 

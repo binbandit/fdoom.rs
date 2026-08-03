@@ -96,6 +96,10 @@ pub struct Game {
     pub world_size: i32,
     pub current_level: usize,
 
+    /// The last world load refused (missing/damaged save). The loading display bounces
+    /// back to the title instead of dropping the player into a world that isn't there.
+    pub world_load_failed: bool,
+
     // Java `Renderer`/`Initializer` statics
     pub ready_to_render_gameplay: bool,
     pub show_info: bool,
@@ -193,6 +197,7 @@ impl Game {
             pending_level_change: 0,
             world_size: 128,
             current_level: 3,
+            world_load_failed: false,
             ready_to_render_gameplay: false,
             show_info: false,
             dev_overlay: false,

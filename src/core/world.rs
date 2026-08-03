@@ -46,8 +46,41 @@ pub fn schedule_level_change(g: &mut Game, dir: i32) {
     g.pending_level_change = dir;
 }
 
+/// Take the player entity from wherever it currently lives — the arena, or a level's
+/// add-queue when a transition earlier in this tick already moved it.
+///
+/// `Level::remove` *drops* queued entities outright, so reaching for the player with
+/// `remove` + `entities.take` destroyed a queued player and left the next
+/// `Game::player()` with nothing to find.
+fn take_player_anywhere(g: &mut Game) -> Option<crate::entity::Entity> {
+    if let Some(p) = g.entities.take(g.player_id) {
+        return Some(p);
+    }
+    let pid = g.player_id;
+    for level in g.levels.iter_mut().flatten() {
+        if let Some(i) = level.entities_to_add.iter().position(|e| e.c.eid == pid) {
+            return Some(level.entities_to_add.remove(i));
+        }
+    }
+    None
+}
+
+/// Snap a pixel coordinate to the centre of its tile without running off the end of
+/// the coordinate space (`(x >> 4) * 16 + 8` overflows near `i32::MAX`).
+fn tile_center(px: i32) -> i32 {
+    let tile = (px >> 4).clamp(crate::level::chunk::MIN_TILE, crate::level::chunk::MAX_TILE);
+    tile * 16 + 8
+}
+
 /// Java `World.changeLevel(dir)` — moves the player up/down a level.
 pub fn change_level(g: &mut Game, dir: i32) {
+    // Take the player out first: `Level::remove` would discard a queued player, and
+    // the `remove` below then only has the arena copy left to mark.
+    let Some(mut p) = take_player_anywhere(g) else {
+        eprintln!("WORLD WARNING: level change requested with no player; ignoring.");
+        return;
+    };
+
     // removes the player from the current level
     let cur = g.current_level;
     let pid = g.player_id;
@@ -62,15 +95,11 @@ pub fn change_level(g: &mut Game, dir: i32) {
     }
     g.current_level = next_level as usize;
 
-    let (px, py) = {
-        let p = g.player_mut();
-        // center the player on the stairs
-        p.c.x = (p.c.x >> 4) * 16 + 8;
-        p.c.y = (p.c.y >> 4) * 16 + 8;
-        (p.c.x, p.c.y)
-    };
+    // center the player on the stairs
+    p.c.x = tile_center(p.c.x);
+    p.c.y = tile_center(p.c.y);
+    let (px, py) = (p.c.x, p.c.y);
 
-    let mut p = g.entities.take(g.player_id).expect("player must exist");
     let lvl = g.current_level;
 
     // Landing on a finite set-piece level (sky/dungeon) from an infinite layer: the
@@ -439,6 +468,44 @@ pub fn new_world_spawn_time(world_seed: i64) -> i32 {
     }
 }
 
+/// Generate one finite layer (the classic dungeon set piece) from the world seed and
+/// the current world settings. Shared by world creation and by the loader, which
+/// rebuilds a layer whose save file turned out to be missing or damaged.
+pub fn generate_level(g: &mut Game, depth: i32) -> crate::level::Level {
+    // a loaded world never restores world_size, so fall back to the size setting
+    let world_size = if g.world_size > 0 {
+        g.world_size
+    } else {
+        g.settings.get("size").as_int().max(64)
+    };
+    let diff_idx = g.settings.get_idx("diff");
+    let gen_type = g.settings.get("type").as_str().to_string();
+    let theme = g.settings.get("theme").as_str().to_string();
+    let world_seed = g.world_seed;
+
+    let mut level = crate::level::Level::empty(world_size, world_size, depth, diff_idx);
+    let mut history_random = g.random.clone();
+    let maps = crate::level::level_gen::create_and_validate_map(
+        world_size,
+        world_size,
+        depth,
+        &g.tiles,
+        world_seed,
+        &gen_type,
+        &theme,
+        &mut history_random,
+    );
+    g.random = history_random;
+    match maps {
+        Some((tiles, data)) => {
+            level.tiles = tiles;
+            level.data = data;
+        }
+        None => eprintln!("Level Gen ERROR: returned maps array is null"),
+    }
+    level
+}
+
 pub fn init_world(g: &mut Game) {
     if g.debug {
         println!("resetting world...");
@@ -475,8 +542,17 @@ pub fn init_world(g: &mut Game) {
 
     g.loading_percentage = 0.0;
 
+    g.world_load_failed = false;
+
     if crate::screen::world_select::loaded_world(g) {
-        crate::saveload::load::load_world(g, &crate::screen::world_select::get_world_name(g));
+        let name = crate::screen::world_select::get_world_name(g);
+        if !crate::saveload::load::load_world(g, &name) {
+            // The save could not be read at all. Leave it untouched on disk and tell
+            // the caller to bounce back to the title screen: entering gameplay on a
+            // world that never loaded took the game down on the very next tick, and
+            // an autosave would then have overwritten the recoverable save.
+            g.world_load_failed = true;
+        }
     } else {
         g.world_size = g.settings.get("size").as_int();
         let world_size = g.world_size;
@@ -484,8 +560,6 @@ pub fn init_world(g: &mut Game) {
 
         let loading_inc =
             100.0 / (crate::level::MAX_LEVEL_DEPTH - crate::level::MIN_LEVEL_DEPTH + 1) as f32;
-        let gen_type = g.settings.get("type").as_str().to_string();
-        let theme = g.settings.get("theme").as_str().to_string();
         let diff_idx = g.settings.get_idx("diff");
         let world_seed = g.world_seed;
 
@@ -515,29 +589,7 @@ pub fn init_world(g: &mut Game) {
                 continue;
             }
 
-            let mut level = crate::level::Level::empty(world_size, world_size, i, diff_idx);
-            let mut history_random = g.random.clone();
-            let maps = crate::level::level_gen::create_and_validate_map(
-                world_size,
-                world_size,
-                i,
-                &g.tiles,
-                world_seed,
-                &gen_type,
-                &theme,
-                &mut history_random,
-            );
-            g.random = history_random;
-            match maps {
-                Some((tiles, data)) => {
-                    level.tiles = tiles;
-                    level.data = data;
-                }
-                None => {
-                    eprintln!("Level Gen ERROR: returned maps array is null");
-                }
-            }
-            g.levels[idx] = Some(level);
+            g.levels[idx] = Some(generate_level(g, i));
             // parent-stairs linkage only applies between finite neighbors
             let parent_is_finite = parent
                 .map(|pidx| g.levels[pidx].as_ref().is_some_and(|l| !l.is_infinite()))
@@ -578,6 +630,30 @@ pub fn init_world(g: &mut Game) {
         }
         g.level_mut(lvl).add(p, lvl);
         crate::level::ensure_chunks(g, lvl);
+    }
+
+    // Last line of defence: `Game::level()` is a panicking accessor, so an empty layer
+    // slot is a crash waiting for the first tick that touches it. Anything still empty
+    // here (a refused load, a level file we could not make sense of) gets a real layer.
+    for depth in crate::level::IDX_TO_DEPTH {
+        let idx = crate::level::lvl_idx(depth);
+        if g.levels[idx].is_none() {
+            eprintln!("WORLD WARNING: layer {depth} never came up; filling it in.");
+            let mut level = crate::level::Level::empty(
+                g.world_size.max(64),
+                g.world_size.max(64),
+                depth,
+                g.settings.get_idx("diff"),
+            );
+            if crate::level::is_infinite_depth(depth) {
+                level.chunks = Some(crate::level::chunk::ChunkMap::default());
+            }
+            g.levels[idx] = Some(level);
+        }
+    }
+    // ...and the player has to be *somewhere* valid
+    if g.current_level >= g.levels.len() {
+        g.current_level = crate::level::lvl_idx(0);
     }
 
     g.ready_to_render_gameplay = true;

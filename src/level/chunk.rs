@@ -16,6 +16,19 @@ pub const LOAD_RADIUS: i32 = 2;
 /// Chunks farther than this get saved + unloaded.
 pub const UNLOAD_RADIUS: i32 = 4;
 
+/// The last tile coordinate the game can actually address. Entities live in pixel
+/// coordinates (`tile * 16 + 8`), and chunk generation walks `cx * CHUNK_SIZE + lx`,
+/// so tiles past this cannot be expressed in an `i32` — asking for them overflowed
+/// the generator instead of simply being out of the world.
+pub const MAX_TILE: i32 = (i32::MAX - 8) / 16;
+/// Mirror of [`MAX_TILE`] at the negative end.
+pub const MIN_TILE: i32 = (i32::MIN + 8) / 16;
+/// Chunk coordinates whose whole `CHUNK_SIZE`² span stays inside the addressable
+/// tile range, with room for the load ring around it.
+pub const MAX_CHUNK: i32 = (MAX_TILE >> CHUNK_SHIFT) - UNLOAD_RADIUS;
+/// Mirror of [`MAX_CHUNK`] at the negative end.
+pub const MIN_CHUNK: i32 = (MIN_TILE >> CHUNK_SHIFT) + UNLOAD_RADIUS;
+
 #[derive(Clone)]
 pub struct Chunk {
     pub tiles: Vec<u8>,
