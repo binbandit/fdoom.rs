@@ -421,3 +421,39 @@ fn book_pages_wrap_inside_the_page_panel() {
         }
     }
 }
+
+/// Book pages are light paper with dark text. A builder that picks frame colours
+/// must therefore render an OPAQUE panel — it used to fall through to the
+/// smoked-glass darkening, leaving near-black glyphs on a near-black page, so the
+/// four field-notes journals shipped unreadable.
+#[test]
+fn book_pages_are_readable_paper_not_smoked_glass() {
+    let mut g = game("book_fill");
+    let (screen, _d) = render_at(&mut g, 288, 192, |g| {
+        Box::new(fdoom::screen::book_display::BookDisplay::with_title(
+            g,
+            Some(fdoom::assets::PROSPECTORS_NOTE_TXT),
+            false,
+        ))
+    });
+
+    // sample the page interior, well inside the frame
+    let (w, h) = (288i32, 192i32);
+    let (mut bright, mut total) = (0, 0);
+    for y in (h / 3)..(h * 2 / 3) {
+        for x in (w / 3)..(w * 2 / 3) {
+            let p = screen.pixels[(y * w + x) as usize];
+            let lum = ((p >> 16) & 0xff) + ((p >> 8) & 0xff) + (p & 0xff);
+            if lum > 300 {
+                bright += 1;
+            }
+            total += 1;
+        }
+    }
+    let frac = bright as f32 / total as f32;
+    assert!(
+        frac > 0.5,
+        "book page interior should be light paper; only {:.0}% of sampled pixels are bright",
+        frac * 100.0
+    );
+}

@@ -454,6 +454,9 @@ pub struct MenuBuilder {
     full_title_color: bool,
     set_title_color: bool,
     title_col: i32,
+    /// Set by `set_frame_colors`: this menu wants an OPAQUE fill (book pages are
+    /// light paper), not the default smoked-glass darkening.
+    custom_frame_fill: bool,
     frame_fill_col: i32,
     frame_edge_stroke: i32,
     frame_edge_fill: i32,
@@ -484,6 +487,7 @@ impl MenuBuilder {
             set_title_color: false,
             title_col: 550,
             // dark slate edges over the smoked-glass fill (was the classic blue 5/1/445)
+            custom_frame_fill: false,
             frame_fill_col: 111,
             frame_edge_stroke: 0,
             frame_edge_fill: 333,
@@ -555,6 +559,9 @@ impl MenuBuilder {
 
     pub fn set_frame_colors(mut self, fill_col: i32, edge_stroke: i32, edge_fill: i32) -> Self {
         self.menu.has_frame = true;
+        // picking a fill means picking an opaque panel — without this the frame fell
+        // through to smoked glass and book pages rendered near-black on black
+        self.custom_frame_fill = true;
         self.frame_fill_col = fill_col;
         self.frame_edge_stroke = edge_stroke;
         self.frame_edge_fill = edge_fill;
@@ -738,6 +745,7 @@ impl MenuBuilder {
 
         // set the menu frame colors
         if menu.has_frame {
+            menu.custom_frame_fill = self.custom_frame_fill;
             menu.frame_fill_color = color::get(self.frame_fill_col, self.frame_fill_col);
             menu.frame_edge_color = color::get4(
                 -1,
