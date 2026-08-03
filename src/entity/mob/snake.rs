@@ -203,11 +203,11 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         let Some((px, py)) = g.entities.get(pid).map(|p| (p.c.x, p.c.y)) else {
             return;
         };
-        let (xd, yd) = (px - e.c.x, py - e.c.y);
+        let (xd, yd) = (px as i64 - e.c.x as i64, py as i64 - e.c.y as i64);
         let d2 = xd * xd + yd * yd;
 
         // the dry-rattle warning, once, when the player wanders within 4 tiles
-        let needs_rattle = d2 < RATTLE_RANGE * RATTLE_RANGE
+        let needs_rattle = d2 < (RATTLE_RANGE as i64).pow(2)
             && matches!(&e.kind, EntityKind::Snake(d) if !d.rattled);
         if needs_rattle {
             g.push_warning("A dry rattle rises from the sand...");
@@ -218,14 +218,14 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
         }
 
         // adjacent: uncoil and strike (the primed touch hits for 2x), then slither
-        if d2 < STRIKE_RANGE * STRIKE_RANGE {
+        if d2 < (STRIKE_RANGE as i64).pow(2) {
             if let EntityKind::Snake(d) = &mut e.kind {
                 d.coiled = false;
                 d.strike_primed = true;
             }
             if let Some(ai) = e.mob_ai_mut() {
-                ai.xa = xd.signum();
-                ai.ya = yd.signum();
+                ai.xa = xd.signum() as i32;
+                ai.ya = yd.signum() as i32;
             }
         }
         return;
@@ -240,12 +240,12 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
     if variant == SnakeVariant::Grass {
         if let Some(pid) = crate::entity::behavior::get_closest_player(g, e) {
             if let Some((px, py)) = g.entities.get(pid).map(|p| (p.c.x, p.c.y)) {
-                let (xd, yd) = (px - e.c.x, py - e.c.y);
+                let (xd, yd) = (px as i64 - e.c.x as i64, py as i64 - e.c.y as i64);
                 let detect = e.enemy_mob().map(|em| em.detect_dist).unwrap_or(80);
-                if xd * xd + yd * yd < detect * detect {
+                if xd * xd + yd * yd < (detect as i64).pow(2) {
                     if let Some(ai) = e.mob_ai_mut() {
-                        ai.xa = -xd.signum();
-                        ai.ya = -yd.signum();
+                        ai.xa = -xd.signum() as i32;
+                        ai.ya = -yd.signum() as i32;
                     }
                 }
             }

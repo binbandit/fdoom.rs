@@ -101,10 +101,7 @@ fn try_spawn(g: &mut Game, e: &mut Entity) {
         Some(p) => (p.c.x, p.c.y),
         None => return,
     };
-    let xd = px - e.c.x;
-    let yd = py - e.c.y;
-
-    if xd * xd + yd * yd > ACTIVE_RADIUS * ACTIVE_RADIUS {
+    if behavior::dist_sq(px, py, e.c.x, e.c.y) > (ACTIVE_RADIUS as i64).pow(2) {
         return;
     }
 

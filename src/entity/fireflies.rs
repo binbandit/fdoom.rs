@@ -111,10 +111,7 @@ pub fn tick(g: &mut Game, e: &mut Entity) {
     let player_at = crate::entity::behavior::get_closest_player(g, e)
         .and_then(|pid| g.entities.get(pid).map(|p| (p.c.x, p.c.y)));
     let spooked = player_at
-        .map(|(px, py)| {
-            let (xd, yd) = (px - e.c.x, py - e.c.y);
-            xd * xd + yd * yd < SPOOK_DIST * SPOOK_DIST
-        })
+        .map(|(px, py)| crate::entity::behavior::within_radius(px, py, e.c.x, e.c.y, SPOOK_DIST))
         .unwrap_or(false);
 
     let (x, y) = (e.c.x, e.c.y);

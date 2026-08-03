@@ -1646,8 +1646,10 @@ pub fn pickup_item(g: &mut Game, player: &mut Entity, item_entity: &mut Entity) 
     if stacks_with_held {
         // picked up item equals the one in your hand
         if let Some(active) = pd.active_item.as_mut() {
+            // saturating for the same reason as `Inventory::add_base`: stack counts
+            // are unbounded (save data, console gifts), so the merge must pin, not wrap
             let count = active.count();
-            active.set_count(count + item.count());
+            active.set_count(count.saturating_add(item.count()));
         }
     } else {
         pd.inventory.add(item); // add item to inventory

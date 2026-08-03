@@ -186,6 +186,24 @@ pub fn get_light_radius(e: &Entity) -> i32 {
     }
 }
 
+/// Squared pixel distance between two points, widened to `i64`.
+///
+/// Entity coordinates span the whole `i32` range in an infinite world (and nothing
+/// despawns a mob the player simply walked away from), so `dx * dx` in `i32` overflows
+/// once two entities are ~2900 tiles apart — a panic on every tick of the abandoned
+/// mob. Every proximity test goes through here.
+pub fn dist_sq(ax: i32, ay: i32, bx: i32, by: i32) -> i64 {
+    let dx = ax as i64 - bx as i64;
+    let dy = ay as i64 - by as i64;
+    dx * dx + dy * dy
+}
+
+/// `dist_sq(..) < radius^2`, with the radius widened the same way.
+pub fn within_radius(ax: i32, ay: i32, bx: i32, by: i32, radius: i32) -> bool {
+    let r = radius as i64;
+    dist_sq(ax, ay, bx, by) < r * r
+}
+
 /// Java `Entity.isWithin(tileRadius, other)`.
 pub fn is_within(e: &Entity, tile_radius: i32, other: &Entity) -> bool {
     if e.c.level.is_none() || other.c.level.is_none() || e.c.level != other.c.level {
@@ -744,7 +762,10 @@ pub fn mob_do_hurt_base(g: &mut Game, e: &mut Entity, damage: i32, attack_dir: D
     if mob.hurt_time > 0 {
         return;
     }
-    mob.health -= damage;
+    // saturating: damage arrives from blast falloff, creative one-shots and save data,
+    // none of which the health field bounds — a wrapped subtraction would panic in debug
+    // and flip a killing blow into a heal in release
+    mob.health = mob.health.saturating_sub(damage);
     mob.x_knockback = attack_dir.x() * 6;
     mob.y_knockback = attack_dir.y() * 6;
     mob.hurt_time = 10;
@@ -759,9 +780,7 @@ pub fn mobai_do_hurt(g: &mut Game, e: &mut Entity, damage: i32, attack_dir: Dire
 
     if let Some(player_id) = get_closest_player(g, e) {
         if let Some(player) = g.entities.get(player_id) {
-            let xd = player.c.x - e.c.x;
-            let yd = player.c.y - e.c.y;
-            if xd * xd + yd * yd < 80 * 80 {
+            if within_radius(player.c.x, player.c.y, e.c.x, e.c.y, 80) {
                 g.play_sound(Sound::MonsterHurt);
             }
         }
@@ -797,7 +816,7 @@ pub fn heal(g: &mut Game, e: &mut Entity, heal: i32) {
         g.level_mut(lvl).add(p, lvl);
     }
     if let Some(mob) = e.mob_mut() {
-        mob.health += heal;
+        mob.health = mob.health.saturating_add(heal);
         if mob.health > mob.max_health {
             mob.health = mob.max_health;
         }
@@ -1089,9 +1108,7 @@ fn check_start_pos_clearance(
 ) -> bool {
     if let Some(pid) = level::get_closest_player(g, lvl, x, y) {
         if let Some(player) = g.entities.get(pid) {
-            let xd = player.c.x - x;
-            let yd = player.c.y - y;
-            if xd * xd + yd * yd < player_dist * player_dist {
+            if within_radius(player.c.x, player.c.y, x, y, player_dist) {
                 return false;
             }
         }
@@ -1197,10 +1214,11 @@ pub fn enemy_mob_tick_base(g: &mut Game, e: &mut Entity) -> bool {
         let random_walk_time = e.mob_ai().map(|ai| ai.random_walk_time).unwrap_or(0);
         if !sleeping && random_walk_time <= 0 {
             if let Some(player) = g.entities.get(pid) {
-                let xd = player.c.x - e.c.x;
-                let yd = player.c.y - e.c.y;
+                // i64 deltas: the pair can be the whole width of an infinite world apart
+                let xd = player.c.x as i64 - e.c.x as i64;
+                let yd = player.c.y as i64 - e.c.y as i64;
                 let detect_dist = e.enemy_mob().map(|em| em.detect_dist).unwrap_or(0);
-                if xd * xd + yd * yd < detect_dist * detect_dist {
+                if xd * xd + yd * yd < (detect_dist as i64).pow(2) {
                     let circles = e
                         .mob_ai()
                         .map(|ai| ai.movement_style == crate::entity::mob::MovementStyle::Circle)
@@ -1208,7 +1226,7 @@ pub fn enemy_mob_tick_base(g: &mut Game, e: &mut Entity) -> bool {
                     if circles {
                         circle_chase(e, xd, yd);
                     } else {
-                        let sig0 = 1; // prevents mobs from bobbing up and down
+                        let sig0 = 1i64; // prevents mobs from bobbing up and down
                         if let Some(ai) = e.mob_ai_mut() {
                             ai.xa = 0;
                             ai.ya = 0;
@@ -1238,13 +1256,13 @@ pub fn enemy_mob_tick_base(g: &mut Game, e: &mut Entity) -> bool {
 /// `MovementStyle::Circle` chase targeting: orbit the target at ~4 tiles, moving
 /// tangentially (orbit direction fixed per individual by eid parity), and drop into a
 /// straight lunge for one beat out of every three.
-fn circle_chase(e: &mut Entity, xd: i32, yd: i32) {
-    const ORBIT: i32 = 4 * 16;
-    const BAND: i32 = 20;
+fn circle_chase(e: &mut Entity, xd: i64, yd: i64) {
+    const ORBIT: i64 = 4 * 16;
+    const BAND: i64 = 20;
     let tick = e.mob().map(|m| m.tick_time).unwrap_or(0);
     let clockwise = e.c.eid & 1 == 0;
     let lunging = (tick / 60) % 3 == 2; // ~2 s circling, ~1 s lunge
-    let (sx, sy) = (xd.signum(), yd.signum());
+    let (sx, sy) = (xd.signum() as i32, yd.signum() as i32);
     let d2 = xd * xd + yd * yd;
     let (xa, ya) = if lunging || d2 > (ORBIT + BAND) * (ORBIT + BAND) {
         (sx, sy) // close in / the lunge itself

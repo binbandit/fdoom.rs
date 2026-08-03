@@ -108,18 +108,26 @@ impl Inventory {
             return; // do NOT add to inventory
         }
 
+        // Slots come from menu rows, and a row list can outlive the pack it indexed
+        // (drop/craft/transfer all shrink it mid-frame). A stale slot appends instead
+        // of panicking in `Vec::insert`.
+        let slot = slot.clamp(0, self.items.len() as i32) as usize;
+
         if item.is_stackable() {
             let to_take = item;
             for existing in self.items.iter_mut() {
                 if to_take.stacks_with(existing) {
-                    let add = to_take.count();
-                    existing.set_count(existing.count() + add);
+                    // saturating: counts come from save data and console gifts, which
+                    // are unbounded — wrapping here panics in debug and turns a full
+                    // stack into a depleted (negative) one in release
+                    let merged = existing.count().saturating_add(to_take.count());
+                    existing.set_count(merged);
                     return;
                 }
             }
-            self.items.insert(slot as usize, to_take);
+            self.items.insert(slot, to_take);
         } else {
-            self.items.insert(slot as usize, item);
+            self.items.insert(slot, item);
         }
     }
 
@@ -198,12 +206,12 @@ impl Inventory {
 
     /// Java `count(given)`.
     pub fn count(&self, given: &Item) -> i32 {
-        let mut found = 0;
+        let mut found: i32 = 0;
         for cur_item in self.items.iter() {
             if cur_item.is_stackable() && cur_item.stacks_with(given) {
-                found += cur_item.count();
+                found = found.saturating_add(cur_item.count());
             } else if cur_item.item_equals(given) {
-                found += 1;
+                found = found.saturating_add(1);
             }
         }
         found
@@ -219,6 +227,11 @@ impl Inventory {
     }
 
     /// Java `tryAdd(chance, item, num, allOrNothing)`.
+    ///
+    /// `chance` is 1-in-N odds. Callers derive it by dividing (`9 / depth`), so integer
+    /// division hands this a 0 — and `next_int_bound` asserts a positive bound. A
+    /// chance of 0 or less reads as a certainty (what 1-in-1 already means), never a
+    /// panic in the middle of filling a loot chest.
     pub fn try_add_all_or_nothing(
         &mut self,
         random: &mut Rng,
@@ -227,6 +240,7 @@ impl Inventory {
         num: i32,
         all_or_nothing: bool,
     ) {
+        let chance = chance.max(1);
         if !all_or_nothing || random.next_int_bound(chance) == 0 {
             for _ in 0..num {
                 if all_or_nothing || random.next_int_bound(chance) == 0 {
@@ -240,7 +254,7 @@ impl Inventory {
     pub fn try_add_num(&mut self, random: &mut Rng, chance: i32, item: Option<Item>, num: i32) {
         let Some(mut item) = item else { return };
         if item.is_stackable() {
-            item.set_count(item.count() * num);
+            item.set_count(item.count().saturating_mul(num));
             self.try_add_all_or_nothing(random, chance, &item, 1, true);
         } else {
             self.try_add_all_or_nothing(random, chance, &item, num, false);
